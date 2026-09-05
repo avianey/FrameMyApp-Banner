@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Production build artifacts
+dist/
+dist-ssr/
+build/
+
+# Package manager lockfiles & caches
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+.npm/
+
+# Logs & debugging
+*.log
+npm-debug.log*
+
+# IDE & Editor files
+.idea/
+.vscode/
+
+# Environment and sensitive files
+.env
+.env.*
+*.pem
+*.key

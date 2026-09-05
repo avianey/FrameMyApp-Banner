@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.material-symbols-rounded {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  user-select: none;
+}
+
+.material-symbols-rounded.filled {
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.canvas-grid {
+  background-size: 24px 24px;
+  background-image: radial-gradient(circle, #cac4d0 1.2px, transparent 1.2px);
+}
+
+/* Motif en damier pour visualiser la composante Alpha (transparence) */
+.checkerboard-pattern {
+  background-image: linear-gradient(45deg, #d1d5db 25%, transparent 25%),
+                    linear-gradient(-45deg, #d1d5db 25%, transparent 25%),
+                    linear-gradient(45deg, transparent 75%, #d1d5db 75%),
+                    linear-gradient(-45deg, transparent 75%, #d1d5db 75%);
+  background-size: 10px 10px;
+  background-position: 0 0, 0 5px, 5px -5px, -5px 0px;
+  background-color: #ffffff;
+}
+
+.handle-resize {
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  background: #6750A4;
+  border: 2px solid #FFFFFF;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  z-index: 40;
+}
+
+/* Poignée de rotation */
+.handle-rotate-anchor {
+  position: absolute;
+  top: -26px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 22px;
+  height: 22px;
+  background: #6750A4;
+  color: #FFFFFF;
+  border-radius: 50%;
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.25);
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 45;
+}
+
+.handle-rotate-anchor:active {
+  cursor: grabbing;
+  background: #4F378B;
+}
+
+.handle-rotate-line {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  width: 1.5px;
+  height: 14px;
+  background: #6750A4;
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 44;
+}
+
+/* Poignée de déplacement pour les textes */
+.drag-pill-handle {
+  position: absolute;
+  top: -26px;
+  left: 0px;
+  background: #6750A4;
+  color: #FFFFFF;
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 10px;
+  cursor: move;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  z-index: 45;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  user-select: none;
+}
+
+/* Texte éditable avec sélection permise */
+.editable-text-content {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+input[type=range] {
+  touch-action: pan-y;
+}
