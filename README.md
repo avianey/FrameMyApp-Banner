@@ -92,3 +92,7 @@ npm run preview
 - **Drag & Drop d'images** : Glissez-déposez des images directement sur le canvas pour changer le fond ou la texture d'une forme.
 - **Cadre d'export intelligent** : Tracé libre à la volée avec verrouillage du ratio, préréglages sociaux (Instagram, Story, YouTube, Bannière) et synchronisation automatique de la résolution finale.
 - **Export haute fidélité** : Capture au format PNG avec mise à l'échelle via `html2canvas`.
+- **Système de Templates & Bundles (Master, Overrides, Variants)** : Volet dédié à gauche de l'écran pour importer/exporter des presets maîtres, des surcharges partagées et des déclinaisons multilingues (inspiré du blueprint FrameYourApp).
+- **Identifiants personnalisés (`customId`)** : Permet d'identifier chaque champ texte et forme pour les cibler avec précision dans les templates YAML (`content.<id>` ou `elements.<id>`).
+- **Batch Export (Export par lot)** : Génération automatisée de l'ensemble des déclinaisons du bundle vers un répertoire disque local (File System Access API) ou en archive `.ZIP`.
+- **Documentation & Skill de Maintenance** : Guide complet dans [docs/TEMPLATE_SYSTEM.md](docs/TEMPLATE_SYSTEM.md) et skill agent dans `~/.agents/skills/banner-template-architecture/SKILL.md`.

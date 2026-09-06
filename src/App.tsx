@@ -3,9 +3,11 @@ import { EditorProvider, useEditor } from './context/EditorContext';
 import { Header } from './components/Header';
 import { CanvasViewport } from './components/canvas/CanvasViewport';
 import { SideDrawer } from './components/drawer/SideDrawer';
+import { LeftSidebar } from './components/leftDrawer/LeftSidebar';
 import { BottomBar } from './components/BottomBar';
 import { Snackbar } from './components/Snackbar';
 import { ConfirmModal } from './components/ConfirmModal';
+import { BatchExportModal } from './components/modal/BatchExportModal';
 
 export const AppContent: React.FC = () => {
   const { isConfirmModalOpen, setIsConfirmModalOpen, clearAll } = useEditor();
@@ -14,6 +16,7 @@ export const AppContent: React.FC = () => {
     <div className="h-full w-full bg-m3-sys-surface text-m3-sys-onSurface flex flex-col overflow-hidden font-sans">
       <Header />
       <div className="flex-1 relative flex overflow-hidden">
+        <LeftSidebar />
         <CanvasViewport />
         <SideDrawer />
       </div>
@@ -24,6 +27,7 @@ export const AppContent: React.FC = () => {
         onClose={() => setIsConfirmModalOpen(false)}
         onConfirm={clearAll}
       />
+      <BatchExportModal />
     </div>
   );
 };

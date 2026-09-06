@@ -48,6 +48,7 @@ export interface StrokeConfig {
 
 export interface BaseElement {
   id: string;
+  customId?: string;
   x: number;
   y: number;
   width: number;
@@ -112,3 +113,6 @@ export interface EditorState {
   canUndo: boolean;
   canRedo: boolean;
 }
+
+export * from './template';
+

@@ -31,6 +31,43 @@ export const TextControls: React.FC<TextControlsProps> = ({ element }) => {
 
   return (
     <div className="space-y-6">
+      {/* Identifiant personnalisé (customId) */}
+      <div className="space-y-1.5 bg-m3-sys-surfaceContainer rounded-2xl p-3.5 border border-m3-sys-outlineVariant/30">
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-semibold text-m3-sys-onSurfaceVariant uppercase flex items-center space-x-1.5">
+            <span className="material-symbols-rounded text-sm text-m3-sys-primary">badge</span>
+            <span>ID Personnalisé (customId)</span>
+          </label>
+          <span className="text-[10px] text-m3-sys-primary font-mono bg-m3-sys-primaryContainer/30 px-1.5 py-0.5 rounded">
+            Template ID
+          </span>
+        </div>
+        <input
+          type="text"
+          value={element.customId || ''}
+          onChange={e => handleUpdate({ customId: e.target.value.trim() })}
+          placeholder="ex: main_title, subtitle, cta_text..."
+          className="w-full px-3 py-2 bg-m3-sys-surfaceContainerHighest rounded-xl border border-m3-sys-outlineVariant/50 text-sm font-mono font-medium focus:ring-2 focus:ring-m3-sys-primary focus:outline-none"
+        />
+        <p className="text-[11px] text-m3-sys-onSurfaceVariant/80 leading-tight">
+          Surchargeable dans les templates YAML : <code className="text-m3-sys-primary font-mono text-[10px]">content.{element.customId || 'id'}</code>
+        </p>
+      </div>
+
+      {/* Contenu du texte */}
+      <div className="space-y-1.5">
+        <label className="text-xs font-semibold text-m3-sys-onSurfaceVariant uppercase">
+          Contenu du texte
+        </label>
+        <textarea
+          value={element.text}
+          onChange={e => handleUpdate({ text: e.target.value })}
+          rows={3}
+          className="w-full p-2.5 bg-m3-sys-surfaceContainerHighest rounded-xl border border-m3-sys-outlineVariant/50 text-sm font-medium focus:ring-2 focus:ring-m3-sys-primary focus:outline-none resize-none"
+          placeholder="Entrez votre texte ici..."
+        />
+      </div>
+
       {/* Choix Police Google Fonts */}
       <div className="space-y-1.5">
         <label className="text-xs font-semibold text-m3-sys-onSurfaceVariant uppercase">

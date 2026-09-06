@@ -7,8 +7,16 @@ import {
   ShapeElementModel,
   ShapeType,
   ExportZone,
-  ActivePanel
+  ActivePanel,
+  LoadedBundle,
+  BundleItem,
+  BannerMasterConfig,
+  BannerOverrideConfig,
+  BannerVariantConfig
 } from '../types';
+import { resolveComposition, serializeCanvasToMaster } from '../utils/templateEngine';
+import { stringifyYaml } from '../utils/yamlHelper';
+import { createBundleZip, downloadBlob, downloadFile } from '../utils/bundleIo';
 
 interface SnackbarState {
   message: string;
@@ -19,6 +27,7 @@ interface SnackbarState {
 interface HistorySnapshot {
   background: BackgroundConfig;
   elements: CanvasElement[];
+  exportZone: ExportZone;
 }
 
 interface EditorContextType {
@@ -26,9 +35,17 @@ interface EditorContextType {
   snackbar: SnackbarState;
   isConfirmModalOpen: boolean;
   setIsConfirmModalOpen: (open: boolean) => void;
+  isBatchExportModalOpen: boolean;
+  setIsBatchExportModalOpen: (open: boolean) => void;
+  isLeftSidebarOpen: boolean;
+  setIsLeftSidebarOpen: (open: boolean) => void;
+  activeLeftTab: 'templates' | 'customIds';
+  setActiveLeftTab: (tab: 'templates' | 'customIds') => void;
   artboardRef: React.RefObject<HTMLDivElement>;
   artboardContainerRef: React.RefObject<HTMLDivElement>;
   viewportRef: React.RefObject<HTMLDivElement>;
+
+  // Background & Elements actions
   setBackground: (updates: Partial<BackgroundConfig>) => void;
   addText: () => void;
   addShape: (shapeType?: ShapeType) => void;
@@ -48,6 +65,20 @@ interface EditorContextType {
   undo: () => void;
   redo: () => void;
   clearAll: () => void;
+
+  // Bundle & Templates actions
+  loadedBundle: LoadedBundle | null;
+  setLoadedBundle: (bundle: LoadedBundle | null) => void;
+  activeBundleItemId: string | null;
+  applyBundleItem: (item: BundleItem) => void;
+  applyCompositionDirectly: (
+    comp: { background: BackgroundConfig; elements: CanvasElement[]; exportZone: ExportZone },
+    recordHist?: boolean
+  ) => void;
+  exportCanvasAsTemplateYaml: (filename?: string) => void;
+  exportCanvasAsBundleZip: () => Promise<void>;
+  updateElementCustomId: (id: string, customId: string) => void;
+  autoGenerateCustomIds: () => void;
 }
 
 const initialBackground: BackgroundConfig = {
@@ -66,6 +97,7 @@ const initialBackground: BackgroundConfig = {
 const initialElements: CanvasElement[] = [
   {
     id: 'txt-1',
+    customId: 'main_title',
     type: 'text',
     text: 'Titre Material 3',
     x: 70,
@@ -84,6 +116,7 @@ const initialElements: CanvasElement[] = [
   },
   {
     id: 'shape-1',
+    customId: 'hero_card',
     type: 'shape',
     shapeType: 'rounded-rect',
     x: 480,
@@ -139,6 +172,13 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [zoom, setZoomState] = useState<number>(1.0);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
 
+  // Bundle & Templates state
+  const [loadedBundle, setLoadedBundle] = useState<LoadedBundle | null>(null);
+  const [activeBundleItemId, setActiveBundleItemId] = useState<string | null>(null);
+  const [isBatchExportModalOpen, setIsBatchExportModalOpen] = useState<boolean>(false);
+  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState<boolean>(false);
+  const [activeLeftTab, setActiveLeftTab] = useState<'templates' | 'customIds'>('templates');
+
   // Undo / Redo history stacks
   const pastRef = useRef<HistorySnapshot[]>([]);
   const futureRef = useRef<HistorySnapshot[]>([]);
@@ -153,14 +193,15 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const recordHistory = useCallback(() => {
     pastRef.current.push({
       background: JSON.parse(JSON.stringify(background)),
-      elements: JSON.parse(JSON.stringify(elements))
+      elements: JSON.parse(JSON.stringify(elements)),
+      exportZone: JSON.parse(JSON.stringify(exportZone))
     });
     if (pastRef.current.length > 50) {
       pastRef.current.shift();
     }
     futureRef.current = [];
     updateHistoryFlags();
-  }, [background, elements, updateHistoryFlags]);
+  }, [background, elements, exportZone, updateHistoryFlags]);
 
   // Theme support
   const [theme, setThemeState] = useState<'light' | 'dark'>(() => {
@@ -208,7 +249,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const currentSnapshot: HistorySnapshot = {
       background: JSON.parse(JSON.stringify(background)),
-      elements: JSON.parse(JSON.stringify(elements))
+      elements: JSON.parse(JSON.stringify(elements)),
+      exportZone: JSON.parse(JSON.stringify(exportZone))
     };
     futureRef.current.push(currentSnapshot);
 
@@ -216,8 +258,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (previousSnapshot) {
       setBackgroundState(previousSnapshot.background);
       setElements(previousSnapshot.elements);
+      setExportZoneState(previousSnapshot.exportZone);
 
-      // Check if current selected element still exists
       setSelectedElementId(prevId => {
         if (!prevId) return null;
         const exists = previousSnapshot.elements.some(e => e.id === prevId);
@@ -227,14 +269,15 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     updateHistoryFlags();
     showSnackbar('Action annulée (Undo)', 'undo');
-  }, [background, elements, updateHistoryFlags, showSnackbar]);
+  }, [background, elements, exportZone, updateHistoryFlags, showSnackbar]);
 
   const redo = useCallback(() => {
     if (futureRef.current.length === 0) return;
 
     const currentSnapshot: HistorySnapshot = {
       background: JSON.parse(JSON.stringify(background)),
-      elements: JSON.parse(JSON.stringify(elements))
+      elements: JSON.parse(JSON.stringify(elements)),
+      exportZone: JSON.parse(JSON.stringify(exportZone))
     };
     pastRef.current.push(currentSnapshot);
 
@@ -242,6 +285,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (nextSnapshot) {
       setBackgroundState(nextSnapshot.background);
       setElements(nextSnapshot.elements);
+      setExportZoneState(nextSnapshot.exportZone);
 
       setSelectedElementId(prevId => {
         if (!prevId) return null;
@@ -252,7 +296,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     updateHistoryFlags();
     showSnackbar('Action rétablie (Redo)', 'redo');
-  }, [background, elements, updateHistoryFlags, showSnackbar]);
+  }, [background, elements, exportZone, updateHistoryFlags, showSnackbar]);
 
   const clearAll = useCallback(() => {
     recordHistory();
@@ -271,21 +315,28 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
     setSelectedElementId(null);
     setActivePanelState(null);
+    setActiveBundleItemId(null);
     showSnackbar('Projet réinitialisé', 'delete_sweep');
   }, [recordHistory, showSnackbar]);
 
-  const setBackground = useCallback((updates: Partial<BackgroundConfig>) => {
-    recordHistory();
-    setBackgroundState(prev => ({ ...prev, ...updates }));
-  }, [recordHistory]);
+  const setBackground = useCallback(
+    (updates: Partial<BackgroundConfig>) => {
+      recordHistory();
+      setBackgroundState(prev => ({ ...prev, ...updates }));
+    },
+    [recordHistory]
+  );
 
   const addText = useCallback(() => {
     recordHistory();
     const id = 'txt-' + Date.now();
     setElements(prev => {
+      const textCount = prev.filter(e => e.type === 'text').length + 1;
+      const customId = textCount === 1 ? 'title' : textCount === 2 ? 'subtitle' : `text_${textCount}`;
       const offset = (prev.length * 15) % 200;
       const newText: TextElementModel = {
         id,
+        customId,
         type: 'text',
         text: 'Nouveau Texte',
         x: 120 + offset,
@@ -308,64 +359,100 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setActivePanelState('text');
   }, [recordHistory]);
 
-  const addShape = useCallback((shapeType: ShapeType = 'rounded-rect') => {
-    recordHistory();
-    const id = 'shape-' + Date.now();
-    setElements(prev => {
-      const offset = (prev.length * 15) % 200;
-      const newShape: ShapeElementModel = {
-        id,
-        type: 'shape',
-        shapeType,
-        x: 140 + offset,
-        y: 140 + offset,
-        width: 190,
-        height: 190,
-        rotation: 0,
-        fillType: 'solid',
-        solidColor: 'rgba(103, 80, 164, 0.9)',
-        color1: 'rgba(139, 92, 246, 0.9)',
-        color2: 'rgba(236, 72, 153, 0.9)',
-        angle: 90,
-        radialColor1: 'rgba(251, 191, 36, 1)',
-        radialColor2: 'rgba(185, 28, 28, 0.9)',
-        imageUrl: '',
-        opacity: 1,
-        borderRadius: 16,
-        stroke: {
-          enable: false,
-          width: 2,
-          color: 'rgba(255, 255, 255, 1)'
-        },
-        shadow: {
-          enable: true,
-          color: 'rgba(0, 0, 0, 0.25)',
-          blur: 14,
-          x: 0,
-          y: 6
-        }
-      };
-      return [...prev, newShape];
-    });
-    setSelectedElementId(id);
-    setActivePanelState('shape');
-  }, [recordHistory]);
+  const addShape = useCallback(
+    (shapeType: ShapeType = 'rounded-rect') => {
+      recordHistory();
+      const id = 'shape-' + Date.now();
+      setElements(prev => {
+        const shapeCount = prev.filter(e => e.type === 'shape').length + 1;
+        const customId = shapeCount === 1 ? 'hero_badge' : `shape_${shapeCount}`;
+        const offset = (prev.length * 15) % 200;
+        const newShape: ShapeElementModel = {
+          id,
+          customId,
+          type: 'shape',
+          shapeType,
+          x: 140 + offset,
+          y: 140 + offset,
+          width: 190,
+          height: 190,
+          rotation: 0,
+          fillType: 'solid',
+          solidColor: 'rgba(103, 80, 164, 0.9)',
+          color1: 'rgba(139, 92, 246, 0.9)',
+          color2: 'rgba(236, 72, 153, 0.9)',
+          angle: 90,
+          radialColor1: 'rgba(251, 191, 36, 1)',
+          radialColor2: 'rgba(185, 28, 28, 0.9)',
+          imageUrl: '',
+          opacity: 1,
+          borderRadius: 16,
+          stroke: {
+            enable: false,
+            width: 2,
+            color: 'rgba(255, 255, 255, 1)'
+          },
+          shadow: {
+            enable: true,
+            color: 'rgba(0, 0, 0, 0.25)',
+            blur: 14,
+            x: 0,
+            y: 6
+          }
+        };
+        return [...prev, newShape];
+      });
+      setSelectedElementId(id);
+      setActivePanelState('shape');
+    },
+    [recordHistory]
+  );
 
   const updateElement = useCallback((id: string, updates: Partial<CanvasElement>) => {
     setElements(prev => prev.map(el => (el.id === id ? ({ ...el, ...updates } as CanvasElement) : el)));
   }, []);
 
-  const deleteElement = useCallback((id: string) => {
+  const updateElementCustomId = useCallback((id: string, customId: string) => {
+    setElements(prev =>
+      prev.map(el => (el.id === id ? ({ ...el, customId: customId.trim() } as CanvasElement) : el))
+    );
+  }, []);
+
+  const autoGenerateCustomIds = useCallback(() => {
     recordHistory();
-    setElements(prev => prev.filter(el => el.id !== id));
-    setSelectedElementId(prev => {
-      if (prev === id) {
-        setActivePanelState(null);
-        return null;
-      }
-      return prev;
-    });
-  }, [recordHistory]);
+    let textIdx = 1;
+    let shapeIdx = 1;
+    setElements(prev =>
+      prev.map(el => {
+        if (el.customId && el.customId.trim()) return el;
+        let newCustomId = '';
+        if (el.type === 'text') {
+          newCustomId = textIdx === 1 ? 'title' : textIdx === 2 ? 'subtitle' : `text_${textIdx}`;
+          textIdx++;
+        } else {
+          newCustomId = shapeIdx === 1 ? 'badge_card' : `shape_${shapeIdx}`;
+          shapeIdx++;
+        }
+        return { ...el, customId: newCustomId } as CanvasElement;
+      })
+    );
+    showSnackbar('IDs personnalisés générés avec succès', 'badge');
+  }, [recordHistory, showSnackbar]);
+
+  const deleteElement = useCallback(
+    (id: string) => {
+      recordHistory();
+      setElements(prev => prev.filter(el => el.id !== id));
+      setSelectedElementId(prev => {
+        if (prev === id) {
+          setActivePanelState(null);
+          return null;
+        }
+        return prev;
+      });
+    },
+    [recordHistory]
+  );
 
   const selectElement = useCallback((id: string | null) => {
     setSelectedElementId(id);
@@ -424,6 +511,116 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [showSnackbar]);
 
+  // Apply composition directly (e.g. from resolved template or undo)
+  const applyCompositionDirectly = useCallback(
+    (
+      comp: { background: BackgroundConfig; elements: CanvasElement[]; exportZone: ExportZone },
+      recordHist = true
+    ) => {
+      if (recordHist) {
+        recordHistory();
+      }
+      setBackgroundState(comp.background);
+      setElements(comp.elements);
+      setExportZoneState(comp.exportZone);
+      setSelectedElementId(null);
+    },
+    [recordHistory]
+  );
+
+  // Apply a BundleItem with cascade resolution
+  const applyBundleItem = useCallback(
+    (item: BundleItem) => {
+      if (!loadedBundle) return;
+      recordHistory();
+
+      const masterConfig = (loadedBundle.master?.config as BannerMasterConfig) || {};
+      let resolved: { background: BackgroundConfig; elements: CanvasElement[]; exportZone: ExportZone };
+
+      if (item.type === 'master') {
+        resolved = resolveComposition(
+          item.config as BannerMasterConfig,
+          undefined,
+          undefined,
+          loadedBundle.assets,
+          item.path
+        );
+      } else if (item.type === 'override') {
+        resolved = resolveComposition(
+          masterConfig,
+          item.config as BannerOverrideConfig,
+          undefined,
+          loadedBundle.assets,
+          item.path
+        );
+      } else {
+        // Variant: check if there's a matching override for this slug
+        const matchingOverride = loadedBundle.overrides[item.slug];
+        resolved = resolveComposition(
+          masterConfig,
+          matchingOverride?.config as BannerOverrideConfig | undefined,
+          item.config as BannerVariantConfig,
+          loadedBundle.assets,
+          item.path
+        );
+      }
+
+      applyCompositionDirectly(resolved, false);
+      setActiveBundleItemId(item.id);
+      showSnackbar(`Appliqué : ${item.name}`, 'auto_stories');
+    },
+    [loadedBundle, recordHistory, applyCompositionDirectly, showSnackbar]
+  );
+
+  // Export current canvas state as a standalone YAML file
+  const exportCanvasAsTemplateYaml = useCallback(
+    (customName?: string) => {
+      const templateName = customName || loadedBundle?.master?.name || 'banner_template';
+      const masterConfig = serializeCanvasToMaster(templateName, background, elements, exportZone);
+      const yamlStr = stringifyYaml(masterConfig);
+      const filename = `${templateName.toLowerCase().replace(/[^a-z0-9]/gi, '_')}.yml`;
+      downloadFile(filename, yamlStr, 'text/yaml');
+      showSnackbar(`Template exporté : ${filename}`, 'download');
+    },
+    [background, elements, exportZone, loadedBundle, showSnackbar]
+  );
+
+  // Export current canvas state into a complete Bundle ZIP
+  const exportCanvasAsBundleZip = useCallback(async () => {
+    try {
+      const currentMaster = serializeCanvasToMaster(
+        loadedBundle?.name || 'marketing_bundle',
+        background,
+        elements,
+        exportZone
+      );
+
+      const bundleToExport: LoadedBundle = loadedBundle || {
+        name: 'marketing_bundle',
+        master: {
+          id: 'master',
+          type: 'master',
+          path: 'master.yml',
+          slug: 'master',
+          name: currentMaster.name || 'Master',
+          rawContent: stringifyYaml(currentMaster),
+          config: currentMaster
+        },
+        overrides: {},
+        variants: [],
+        assets: {}
+      };
+
+      const zipBlob = await createBundleZip(bundleToExport, currentMaster);
+      const zipName = `${(bundleToExport.name || 'bundle').toLowerCase().replace(/[^a-z0-9]/gi, '_')}.zip`;
+      downloadBlob(zipName, zipBlob);
+      showSnackbar(`Bundle ZIP téléchargé : ${zipName}`, 'folder_zip');
+    } catch (err) {
+      console.error(err);
+      showSnackbar('Erreur lors de la création du bundle ZIP', 'error');
+    }
+  }, [loadedBundle, background, elements, exportZone, showSnackbar]);
+
   // Global keyboard shortcuts for Undo / Redo
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -433,7 +630,10 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (!cmdOrCtrl) return;
 
       const activeEl = document.activeElement;
-      const isInput = activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA' || activeEl?.getAttribute('contenteditable') === 'true';
+      const isInput =
+        activeEl?.tagName === 'INPUT' ||
+        activeEl?.tagName === 'TEXTAREA' ||
+        activeEl?.getAttribute('contenteditable') === 'true';
 
       if (isInput) return;
 
@@ -450,26 +650,30 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [undo, redo]);
 
-  const state: EditorState = {
-    background,
-    elements,
-    selectedElementId,
-    activePanel,
-    exportZone,
-    isDrawingExportMode,
-    theme,
-    zoom,
-    canUndo,
-    canRedo
-  };
-
   return (
     <EditorContext.Provider
       value={{
-        state,
+        state: {
+          background,
+          elements,
+          selectedElementId,
+          activePanel,
+          exportZone,
+          isDrawingExportMode,
+          theme,
+          zoom,
+          canUndo,
+          canRedo
+        },
         snackbar,
         isConfirmModalOpen,
         setIsConfirmModalOpen,
+        isBatchExportModalOpen,
+        setIsBatchExportModalOpen,
+        isLeftSidebarOpen,
+        setIsLeftSidebarOpen,
+        activeLeftTab,
+        setActiveLeftTab,
         artboardRef,
         artboardContainerRef,
         viewportRef,
@@ -491,7 +695,16 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         recordHistory,
         undo,
         redo,
-        clearAll
+        clearAll,
+        loadedBundle,
+        setLoadedBundle,
+        activeBundleItemId,
+        applyBundleItem,
+        applyCompositionDirectly,
+        exportCanvasAsTemplateYaml,
+        exportCanvasAsBundleZip,
+        updateElementCustomId,
+        autoGenerateCustomIds
       }}
     >
       {children}
@@ -499,7 +712,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 };
 
-export const useEditor = (): EditorContextType => {
+export const useEditor = () => {
   const context = useContext(EditorContext);
   if (!context) {
     throw new Error('useEditor must be used within an EditorProvider');

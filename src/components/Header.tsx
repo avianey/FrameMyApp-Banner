@@ -11,7 +11,11 @@ export const Header: React.FC = () => {
     toggleTheme,
     undo,
     redo,
-    setIsConfirmModalOpen
+    setIsConfirmModalOpen,
+    isLeftSidebarOpen,
+    setIsLeftSidebarOpen,
+    loadedBundle,
+    setIsBatchExportModalOpen
   } = useEditor();
   const { theme, zoom, canUndo, canRedo } = state;
 
@@ -23,17 +27,36 @@ export const Header: React.FC = () => {
           <span className="material-symbols-rounded text-xl leading-none">palette</span>
         </div>
         <div>
-          <h1 className="text-lg font-bold leading-none tracking-tight text-m3-sys-onSurface">
-            Banner Studio
-          </h1>
-          <p className="text-xs text-m3-sys-onSurfaceVariant mt-1">
-            Conception vectorielle, alpha complet & export précis
+          <div className="flex items-center space-x-2">
+            <h1 className="text-lg font-bold leading-none tracking-tight text-m3-sys-onSurface">
+              Banner Studio
+            </h1>
+            {loadedBundle && (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-m3-sys-primaryContainer text-m3-sys-onPrimaryContainer font-bold hidden sm:inline-block">
+                {loadedBundle.name}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-m3-sys-onSurfaceVariant mt-1 hidden sm:block">
+            Presets maîtres, déclinaisons & batch export
           </p>
         </div>
       </div>
 
       {/* Toolbar actions rapides */}
       <div className="flex items-center space-x-2">
+        {/* Bouton Batch Export direct si bundle actif */}
+        {loadedBundle && (
+          <button
+            onClick={() => setIsBatchExportModalOpen(true)}
+            title="Lancer l'export par lot de toutes les déclinaisons"
+            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-m3-sys-primary to-indigo-600 text-white text-xs font-bold shadow-sm hover:brightness-110 active:scale-95 transition-all cursor-pointer mr-1"
+          >
+            <span className="material-symbols-rounded text-base leading-none">bolt</span>
+            <span className="hidden md:inline">Batch Export</span>
+          </button>
+        )}
+
         {/* Undo / Redo */}
         <div className="flex items-center space-x-1 bg-m3-sys-surfaceContainerLow border border-m3-sys-outlineVariant/40 rounded-full p-0.5 shadow-sm">
           <button
@@ -100,12 +123,23 @@ export const Header: React.FC = () => {
           <span className="material-symbols-rounded text-xl leading-none">filter_center_focus</span>
         </button>
 
+        {/* Volet Templates & Bundles */}
+        <button
+          onClick={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
+          title={isLeftSidebarOpen ? 'Fermer le volet Templates & Bundles' : 'Ouvrir les Templates & Bundles'}
+          className={`w-10 h-10 rounded-full flex items-center justify-center border border-m3-sys-outlineVariant/40 bg-m3-sys-surfaceContainerLow hover:bg-m3-sys-surfaceContainerHighest hover:border-m3-sys-primary text-m3-sys-onSurface active:scale-95 shadow-sm transition-all cursor-pointer ${
+            isLeftSidebarOpen ? 'ring-2 ring-m3-sys-primary bg-m3-sys-primaryContainer/20 text-m3-sys-primary' : ''
+          }`}
+        >
+          <span className="material-symbols-rounded text-xl leading-none">auto_stories</span>
+        </button>
+
         {/* Modifier le fond */}
         <button
           onClick={() => setActivePanel('bg')}
           title="Modifier le fond"
           className={`w-10 h-10 rounded-full flex items-center justify-center border border-m3-sys-outlineVariant/40 bg-m3-sys-surfaceContainerLow hover:bg-m3-sys-surfaceContainerHighest hover:border-m3-sys-primary text-m3-sys-onSurface active:scale-95 shadow-sm transition-all cursor-pointer ${
-            state.activePanel === 'bg' ? 'ring-2 ring-m3-sys-primary bg-m3-sys-primaryContainer/20' : ''
+            state.activePanel === 'bg' ? 'ring-2 ring-m3-sys-primary bg-m3-sys-primaryContainer/20 text-m3-sys-primary' : ''
           }`}
         >
           <span className="material-symbols-rounded text-xl leading-none">wallpaper</span>
