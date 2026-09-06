@@ -49,13 +49,15 @@ export const ShapeControls: React.FC<ShapeControlsProps> = ({ element }) => {
             <button
               key={s.id}
               onClick={() => handleUpdate({ shapeType: s.id })}
-              className={`p-2 rounded-xl flex flex-col items-center justify-center border transition-all ${
+              className={`p-2 rounded-xl flex flex-col items-center justify-center border cursor-pointer active:scale-95 transition-all ${
                 element.shapeType === s.id
                   ? 'border-m3-sys-primary bg-m3-sys-primaryContainer/30 text-m3-sys-primary'
                   : 'border-m3-sys-outlineVariant/40 bg-m3-sys-surfaceContainer hover:bg-m3-sys-surfaceContainerHighest text-m3-sys-onSurface'
               }`}
             >
-              <span className="material-symbols-rounded text-lg mb-1">{s.icon}</span>
+              <span className="material-symbols-rounded text-lg mb-1 leading-none flex items-center justify-center">
+                {s.icon}
+              </span>
               <span className="text-[11px] font-medium">{s.label}</span>
             </button>
           ))}
@@ -72,7 +74,7 @@ export const ShapeControls: React.FC<ShapeControlsProps> = ({ element }) => {
             <button
               key={f}
               onClick={() => handleUpdate({ fillType: f })}
-              className={`py-1 text-[11px] font-medium rounded-full transition-all ${
+              className={`py-1 text-[11px] font-medium rounded-full cursor-pointer transition-all ${
                 element.fillType === f
                   ? 'bg-m3-sys-primary text-white shadow-sm'
                   : 'text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainer'
@@ -372,9 +374,9 @@ export const ShapeControls: React.FC<ShapeControlsProps> = ({ element }) => {
       {/* Bouton Supprimer */}
       <button
         onClick={() => deleteElement(element.id)}
-        className="w-full py-3 rounded-full bg-m3-sys-error/10 text-m3-sys-error font-medium hover:bg-m3-sys-error/20 transition-colors flex items-center justify-center space-x-2"
+        className="w-full py-3 rounded-full bg-m3-sys-error/10 text-m3-sys-error font-medium hover:bg-m3-sys-error/20 active:scale-98 transition-all flex items-center justify-center space-x-2 cursor-pointer"
       >
-        <span className="material-symbols-rounded text-sm">delete</span>
+        <span className="material-symbols-rounded text-sm leading-none">delete</span>
         <span>Supprimer la forme</span>
       </button>
     </div>

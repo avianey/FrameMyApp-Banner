@@ -107,4 +107,8 @@ export interface EditorState {
   activePanel: ActivePanel;
   exportZone: ExportZone;
   isDrawingExportMode: boolean;
+  theme: 'light' | 'dark';
+  zoom: number;
+  canUndo: boolean;
+  canRedo: boolean;
 }

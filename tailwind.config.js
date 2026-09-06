@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: 'class',
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
@@ -9,27 +10,27 @@ export default {
       colors: {
         m3: {
           sys: {
-            primary: '#6750A4',
-            onPrimary: '#FFFFFF',
-            primaryContainer: '#EADDFF',
-            onPrimaryContainer: '#21005D',
-            secondary: '#625B71',
-            onSecondary: '#FFFFFF',
-            secondaryContainer: '#E8DEF8',
-            surface: '#FEF7FF',
-            surfaceDim: '#DED8E1',
-            surfaceBright: '#FEF7FF',
-            surfaceContainerLowest: '#FFFFFF',
-            surfaceContainerLow: '#F7F2FA',
-            surfaceContainer: '#F3EDF7',
-            surfaceContainerHigh: '#ECE6F0',
-            surfaceContainerHighest: '#E6E0E9',
-            onSurface: '#1D1B20',
-            onSurfaceVariant: '#49454F',
-            outline: '#79747E',
-            outlineVariant: '#CAC4D0',
-            error: '#B3261E',
-            onError: '#FFFFFF'
+            primary: 'rgb(var(--m3-sys-primary) / <alpha-value>)',
+            onPrimary: 'rgb(var(--m3-sys-on-primary) / <alpha-value>)',
+            primaryContainer: 'rgb(var(--m3-sys-primary-container) / <alpha-value>)',
+            onPrimaryContainer: 'rgb(var(--m3-sys-on-primary-container) / <alpha-value>)',
+            secondary: 'rgb(var(--m3-sys-secondary) / <alpha-value>)',
+            onSecondary: 'rgb(var(--m3-sys-on-secondary) / <alpha-value>)',
+            secondaryContainer: 'rgb(var(--m3-sys-secondary-container) / <alpha-value>)',
+            surface: 'rgb(var(--m3-sys-surface) / <alpha-value>)',
+            surfaceDim: 'rgb(var(--m3-sys-surface-dim) / <alpha-value>)',
+            surfaceBright: 'rgb(var(--m3-sys-surface-bright) / <alpha-value>)',
+            surfaceContainerLowest: 'rgb(var(--m3-sys-surface-container-lowest) / <alpha-value>)',
+            surfaceContainerLow: 'rgb(var(--m3-sys-surface-container-low) / <alpha-value>)',
+            surfaceContainer: 'rgb(var(--m3-sys-surface-container) / <alpha-value>)',
+            surfaceContainerHigh: 'rgb(var(--m3-sys-surface-container-high) / <alpha-value>)',
+            surfaceContainerHighest: 'rgb(var(--m3-sys-surface-container-highest) / <alpha-value>)',
+            onSurface: 'rgb(var(--m3-sys-on-surface) / <alpha-value>)',
+            onSurfaceVariant: 'rgb(var(--m3-sys-on-surface-variant) / <alpha-value>)',
+            outline: 'rgb(var(--m3-sys-outline) / <alpha-value>)',
+            outlineVariant: 'rgb(var(--m3-sys-outline-variant) / <alpha-value>)',
+            error: 'rgb(var(--m3-sys-error) / <alpha-value>)',
+            onError: 'rgb(var(--m3-sys-on-error) / <alpha-value>)'
           }
         }
       },

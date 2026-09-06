@@ -9,7 +9,7 @@ interface TextElementProps {
 }
 
 export const TextElement: React.FC<TextElementProps> = ({ element, isSelected }) => {
-  const { selectElement, updateElement } = useEditor();
+  const { selectElement, updateElement, recordHistory } = useEditor();
   const nodeRef = useRef<HTMLDivElement>(null);
   const textInnerRef = useRef<HTMLDivElement>(null);
 
@@ -31,6 +31,11 @@ export const TextElement: React.FC<TextElementProps> = ({ element, isSelected })
   const combinedShadow = [glowCss, shadowCss].filter(Boolean).join(', ');
 
   const minHeightPx = (element.minLines || 1) * element.fontSize * (element.lineHeight || 1.2);
+
+  const handleFocus = () => {
+    recordHistory();
+    selectElement(element.id);
+  };
 
   const handleInput = () => {
     if (textInnerRef.current) {
@@ -73,7 +78,7 @@ export const TextElement: React.FC<TextElementProps> = ({ element, isSelected })
           minHeight: `${minHeightPx}px`
         }}
         onInput={handleInput}
-        onFocus={() => selectElement(element.id)}
+        onFocus={handleFocus}
       >
         {element.text}
       </div>

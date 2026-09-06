@@ -16,10 +16,11 @@ export const ExportControls: React.FC = () => {
     updateExportZone,
     setIsDrawingExportMode,
     selectElement,
-    showSnackbar
+    showSnackbar,
+    setZoom
   } = useEditor();
 
-  const { exportZone, isDrawingExportMode, selectedElementId } = state;
+  const { exportZone, isDrawingExportMode, selectedElementId, zoom } = state;
   const [isExporting, setIsExporting] = useState(false);
 
   const handleToggleDrawMode = () => {
@@ -72,10 +73,12 @@ export const ExportControls: React.FC = () => {
 
     setIsExporting(true);
     const currentSelection = selectedElementId;
+    const currentZoom = zoom;
     selectElement(null);
+    setZoom(1.0);
 
-    // Short timeout to allow selection UI to unmount cleanly before screenshot
-    await new Promise(res => setTimeout(res, 100));
+    // Short timeout to allow selection UI to unmount cleanly and zoom reset before screenshot
+    await new Promise(res => setTimeout(res, 120));
 
     try {
       await exportComposition(artboardRef.current, exportZone);
@@ -84,6 +87,7 @@ export const ExportControls: React.FC = () => {
       console.error('Erreur export :', error);
       showSnackbar('Échec de l’exportation', 'error');
     } finally {
+      setZoom(currentZoom);
       if (currentSelection) {
         selectElement(currentSelection);
       }

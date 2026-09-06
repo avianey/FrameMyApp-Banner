@@ -281,9 +281,9 @@ export const TextControls: React.FC<TextControlsProps> = ({ element }) => {
       {/* Bouton Supprimer */}
       <button
         onClick={() => deleteElement(element.id)}
-        className="w-full py-3 rounded-full bg-m3-sys-error/10 text-m3-sys-error font-medium hover:bg-m3-sys-error/20 transition-colors flex items-center justify-center space-x-2"
+        className="w-full py-3 rounded-full bg-m3-sys-error/10 text-m3-sys-error font-medium hover:bg-m3-sys-error/20 active:scale-98 transition-all flex items-center justify-center space-x-2 cursor-pointer"
       >
-        <span className="material-symbols-rounded text-sm">delete</span>
+        <span className="material-symbols-rounded text-sm leading-none">delete</span>
         <span>Supprimer le texte</span>
       </button>
     </div>

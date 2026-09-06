@@ -8,18 +8,20 @@ interface SelectionHandlesProps {
 }
 
 export const SelectionHandles: React.FC<SelectionHandlesProps> = ({ element, elementRef }) => {
-  const { updateElement } = useEditor();
+  const { updateElement, state, recordHistory } = useEditor();
+  const currentZoom = state.zoom || 1;
 
   const handleStartDrag = (e: React.PointerEvent) => {
     e.stopPropagation();
+    recordHistory();
     const startX = e.clientX;
     const startY = e.clientY;
     const initX = element.x;
     const initY = element.y;
 
     const onMove = (moveEvent: PointerEvent) => {
-      const dx = moveEvent.clientX - startX;
-      const dy = moveEvent.clientY - startY;
+      const dx = (moveEvent.clientX - startX) / currentZoom;
+      const dy = (moveEvent.clientY - startY) / currentZoom;
       updateElement(element.id, {
         x: Math.round(initX + dx),
         y: Math.round(initY + dy)
@@ -38,14 +40,15 @@ export const SelectionHandles: React.FC<SelectionHandlesProps> = ({ element, ele
   const handleStartResize = (e: React.PointerEvent) => {
     e.stopPropagation();
     e.preventDefault();
+    recordHistory();
     const startX = e.clientX;
     const startY = e.clientY;
     const initW = element.width;
     const initH = element.height;
 
     const onMove = (moveEvent: PointerEvent) => {
-      const dw = moveEvent.clientX - startX;
-      const dh = moveEvent.clientY - startY;
+      const dw = (moveEvent.clientX - startX) / currentZoom;
+      const dh = (moveEvent.clientY - startY) / currentZoom;
       updateElement(element.id, {
         width: Math.max(40, Math.round(initW + dw)),
         height: Math.max(30, Math.round(initH + dh))
@@ -64,6 +67,7 @@ export const SelectionHandles: React.FC<SelectionHandlesProps> = ({ element, ele
   const handleStartRotate = (e: React.PointerEvent) => {
     e.stopPropagation();
     e.preventDefault();
+    recordHistory();
 
     if (!elementRef.current) return;
     const rect = elementRef.current.getBoundingClientRect();
@@ -98,7 +102,7 @@ export const SelectionHandles: React.FC<SelectionHandlesProps> = ({ element, ele
       {element.type === 'text' && (
         <div
           onPointerDown={handleStartDrag}
-          className="selection-ui-handle drag-pill-handle"
+          className="selection-ui-handle drag-pill-handle cursor-move"
         >
           <span className="material-symbols-rounded text-[14px]">drag_indicator</span>
           <span>Déplacer</span>

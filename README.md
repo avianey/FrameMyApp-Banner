@@ -1,6 +1,6 @@
-# Studio Flux M3 - FrameMyApp Banner
+# Banner Studio - FrameMyApp
 
-Application de conception visuelle Material 3, gestion de transparence Alpha complète (RGBA) et export haute fidélité.
+Application de conception visuelle Material 3, gestion de transparence Alpha complète (RGBA / HEX8 `#FFFFFFFF`), mode sombre dynamique, zoom interactif et export haute fidélité.
 Projet Node.js / React moderne développé avec Vite, TypeScript et Tailwind CSS.
 
 ## 🚀 Démarrage rapide
@@ -82,8 +82,11 @@ npm run preview
 
 ## ✨ Fonctionnalités
 
-- **Thème Material 3 complet** : Palettes `m3-sys-*` et élévations d'ombre dynamiques.
-- **Moteur Alpha intégral** : Couleurs de fond, de textes, de formes, de contours et d'ombres gérées avec opacité RGBA précise.
+- **Thème Material 3 complet & Dark Mode** : Palettes `m3-sys-*` adaptatives (Light & Dark), persistance du thème (localStorage), bascule rapide depuis l'en-tête et contrôles de formulaire assombris (`color-scheme: dark`).
+- **Historique Retour avant / arrière (Undo / Redo)** : Boutons dédiés dans la toolbar et raccourcis clavier globaux (`Ctrl+Z` / `Ctrl+Y` ou `Cmd+Shift+Z`).
+- **Réinitialisation complète avec modale de confirmation** : Bouton de nettoyage rapide ouvrant un dialogue de confirmation M3 sécurisé avec possibilité d'annuler.
+- **Moteur Alpha intégral & format HEX8 (#FFFFFFFF)** : Couleurs de fond, de textes, de formes, de contours et d'ombres gérées avec opacité RGBA et champ de saisie direct au format hexadécimal à 8 caractères `#RRGGBBAA`.
+- **Zoom & Dézoom à la roulette** : Navigation fluide avec la molette de la souris (20% à 350%), widget de zoom flottant et recentrage rapide (100%).
 - **Typographies Google Fonts** : Nombreuses polices embarquées (Roboto, Space Grotesk, Inter, Montserrat, Pacifico, etc.).
 - **Manipulation interactive** : Déplacement, rotation à la souris/au toucher, redimensionnement et édition directe du texte.
 - **Drag & Drop d'images** : Glissez-déposez des images directement sur le canvas pour changer le fond ou la texture d'une forme.

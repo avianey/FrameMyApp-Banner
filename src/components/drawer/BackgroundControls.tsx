@@ -37,7 +37,7 @@ export const BackgroundControls: React.FC = () => {
             <button
               key={t}
               onClick={() => handleTypeChange(t)}
-              className={`py-1.5 text-xs font-medium rounded-full transition-all ${
+              className={`py-1.5 text-xs font-medium rounded-full cursor-pointer transition-all ${
                 background.type === t
                   ? 'bg-m3-sys-primary text-white shadow-sm'
                   : 'text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainer'
@@ -137,9 +137,10 @@ export const BackgroundControls: React.FC = () => {
               <img src={background.imageUrl} alt="Background" className="w-full h-full object-cover" />
               <button
                 onClick={() => setBackground({ imageUrl: '' })}
-                className="absolute top-2 right-2 p-1.5 bg-red-600 text-white rounded-full shadow hover:bg-red-700 transition-colors"
+                title="Supprimer l'image"
+                className="absolute top-2 right-2 w-8 h-8 bg-red-600 text-white rounded-full shadow hover:bg-red-700 active:scale-95 transition-all flex items-center justify-center cursor-pointer"
               >
-                <span className="material-symbols-rounded text-sm">delete</span>
+                <span className="material-symbols-rounded text-sm leading-none">delete</span>
               </button>
             </div>
           )}

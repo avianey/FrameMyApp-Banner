@@ -3,7 +3,8 @@ import { useEditor } from '../../context/EditorContext';
 
 export const ExportOverlay: React.FC = () => {
   const { state, updateExportZone } = useEditor();
-  const { exportZone, activePanel, isDrawingExportMode } = state;
+  const { exportZone, activePanel, isDrawingExportMode, zoom } = state;
+  const currentZoom = zoom || 1;
 
   if (activePanel !== 'export') {
     return null;
@@ -18,8 +19,8 @@ export const ExportOverlay: React.FC = () => {
     const initialZone = { ...exportZone };
 
     const onMove = (me: PointerEvent) => {
-      const dx = me.clientX - startX;
-      const dy = me.clientY - startY;
+      const dx = (me.clientX - startX) / currentZoom;
+      const dy = (me.clientY - startY) / currentZoom;
       updateExportZone({
         x: Math.max(0, Math.min(800 - initialZone.width, initialZone.x + dx)),
         y: Math.max(0, Math.min(600 - initialZone.height, initialZone.y + dy))

@@ -15,7 +15,7 @@ export const Artboard: React.FC = () => {
     showSnackbar
   } = useEditor();
 
-  const { background, elements, selectedElementId, activePanel, isDrawingExportMode } = state;
+  const { background, elements, selectedElementId, activePanel, isDrawingExportMode, zoom } = state;
 
   // Background style computation
   const getBackgroundStyle = (): React.CSSProperties => {
@@ -50,12 +50,13 @@ export const Artboard: React.FC = () => {
       const rect = artboardRef.current?.getBoundingClientRect();
       if (!rect) return;
 
-      const startX = Math.max(0, Math.min(800, e.clientX - rect.left));
-      const startY = Math.max(0, Math.min(600, e.clientY - rect.top));
+      const currentZoom = zoom || 1;
+      const startX = Math.max(0, Math.min(800, (e.clientX - rect.left) / currentZoom));
+      const startY = Math.max(0, Math.min(600, (e.clientY - rect.top) / currentZoom));
 
       const onMove = (me: PointerEvent) => {
-        const curX = Math.max(0, Math.min(800, me.clientX - rect.left));
-        const curY = Math.max(0, Math.min(600, me.clientY - rect.top));
+        const curX = Math.max(0, Math.min(800, (me.clientX - rect.left) / currentZoom));
+        const curY = Math.max(0, Math.min(600, (me.clientY - rect.top) / currentZoom));
 
         const x = Math.min(startX, curX);
         const y = Math.min(startY, curY);
@@ -111,8 +112,13 @@ export const Artboard: React.FC = () => {
     <div
       ref={artboardContainerRef}
       id="artboard-container"
-      className="relative transition-shadow duration-300 shadow-m3-3 rounded-2xl overflow-visible touch-none"
-      style={{ width: '800px', height: '600px' }}
+      className="relative transition-transform duration-150 shadow-m3-3 rounded-2xl overflow-visible touch-none"
+      style={{
+        width: '800px',
+        height: '600px',
+        transform: `scale(${zoom})`,
+        transformOrigin: 'center center'
+      }}
     >
       <div
         ref={artboardRef}

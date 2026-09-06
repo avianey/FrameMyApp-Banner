@@ -9,8 +9,9 @@ interface ShapeElementProps {
 }
 
 export const ShapeElement: React.FC<ShapeElementProps> = ({ element, isSelected }) => {
-  const { selectElement, updateElement } = useEditor();
+  const { selectElement, updateElement, state, recordHistory } = useEditor();
   const nodeRef = useRef<HTMLDivElement>(null);
+  const currentZoom = state.zoom || 1;
 
   const handlePointerDown = (e: React.PointerEvent) => {
     // If click on resize or rotate handle, let those handle it
@@ -21,6 +22,7 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({ element, isSelected 
 
     e.stopPropagation();
     selectElement(element.id);
+    recordHistory();
 
     const startX = e.clientX;
     const startY = e.clientY;
@@ -28,8 +30,8 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({ element, isSelected 
     const initY = element.y;
 
     const onMove = (moveEvent: PointerEvent) => {
-      const dx = moveEvent.clientX - startX;
-      const dy = moveEvent.clientY - startY;
+      const dx = (moveEvent.clientX - startX) / currentZoom;
+      const dy = (moveEvent.clientY - startY) / currentZoom;
       updateElement(element.id, {
         x: Math.round(initX + dx),
         y: Math.round(initY + dy)

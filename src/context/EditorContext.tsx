@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import {
   EditorState,
   BackgroundConfig,
@@ -16,9 +16,16 @@ interface SnackbarState {
   visible: boolean;
 }
 
+interface HistorySnapshot {
+  background: BackgroundConfig;
+  elements: CanvasElement[];
+}
+
 interface EditorContextType {
   state: EditorState;
   snackbar: SnackbarState;
+  isConfirmModalOpen: boolean;
+  setIsConfirmModalOpen: (open: boolean) => void;
   artboardRef: React.RefObject<HTMLDivElement>;
   artboardContainerRef: React.RefObject<HTMLDivElement>;
   viewportRef: React.RefObject<HTMLDivElement>;
@@ -33,6 +40,14 @@ interface EditorContextType {
   setIsDrawingExportMode: (mode: boolean) => void;
   showSnackbar: (message: string, icon?: string) => void;
   resetZoom: () => void;
+  setZoom: (zoomOrUpdater: number | ((prev: number) => number)) => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  toggleTheme: () => void;
+  recordHistory: () => void;
+  undo: () => void;
+  redo: () => void;
+  clearAll: () => void;
 }
 
 const initialBackground: BackgroundConfig = {
@@ -121,6 +136,51 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [activePanel, setActivePanelState] = useState<ActivePanel>(null);
   const [exportZone, setExportZoneState] = useState<ExportZone>(initialExportZone);
   const [isDrawingExportMode, setIsDrawingExportModeState] = useState<boolean>(false);
+  const [zoom, setZoomState] = useState<number>(1.0);
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
+
+  // Undo / Redo history stacks
+  const pastRef = useRef<HistorySnapshot[]>([]);
+  const futureRef = useRef<HistorySnapshot[]>([]);
+  const [canUndo, setCanUndo] = useState<boolean>(false);
+  const [canRedo, setCanRedo] = useState<boolean>(false);
+
+  const updateHistoryFlags = useCallback(() => {
+    setCanUndo(pastRef.current.length > 0);
+    setCanRedo(futureRef.current.length > 0);
+  }, []);
+
+  const recordHistory = useCallback(() => {
+    pastRef.current.push({
+      background: JSON.parse(JSON.stringify(background)),
+      elements: JSON.parse(JSON.stringify(elements))
+    });
+    if (pastRef.current.length > 50) {
+      pastRef.current.shift();
+    }
+    futureRef.current = [];
+    updateHistoryFlags();
+  }, [background, elements, updateHistoryFlags]);
+
+  // Theme support
+  const [theme, setThemeState] = useState<'light' | 'dark'>(() => {
+    const saved = localStorage.getItem('theme');
+    if (saved === 'dark' || saved === 'light') return saved;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
+
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setThemeState(prev => (prev === 'light' ? 'dark' : 'light'));
+  }, []);
 
   const [snackbar, setSnackbar] = useState<SnackbarState>({
     message: 'Notification',
@@ -143,11 +203,84 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }, 2800);
   }, []);
 
+  const undo = useCallback(() => {
+    if (pastRef.current.length === 0) return;
+
+    const currentSnapshot: HistorySnapshot = {
+      background: JSON.parse(JSON.stringify(background)),
+      elements: JSON.parse(JSON.stringify(elements))
+    };
+    futureRef.current.push(currentSnapshot);
+
+    const previousSnapshot = pastRef.current.pop();
+    if (previousSnapshot) {
+      setBackgroundState(previousSnapshot.background);
+      setElements(previousSnapshot.elements);
+
+      // Check if current selected element still exists
+      setSelectedElementId(prevId => {
+        if (!prevId) return null;
+        const exists = previousSnapshot.elements.some(e => e.id === prevId);
+        return exists ? prevId : null;
+      });
+    }
+
+    updateHistoryFlags();
+    showSnackbar('Action annulée (Undo)', 'undo');
+  }, [background, elements, updateHistoryFlags, showSnackbar]);
+
+  const redo = useCallback(() => {
+    if (futureRef.current.length === 0) return;
+
+    const currentSnapshot: HistorySnapshot = {
+      background: JSON.parse(JSON.stringify(background)),
+      elements: JSON.parse(JSON.stringify(elements))
+    };
+    pastRef.current.push(currentSnapshot);
+
+    const nextSnapshot = futureRef.current.pop();
+    if (nextSnapshot) {
+      setBackgroundState(nextSnapshot.background);
+      setElements(nextSnapshot.elements);
+
+      setSelectedElementId(prevId => {
+        if (!prevId) return null;
+        const exists = nextSnapshot.elements.some(e => e.id === prevId);
+        return exists ? prevId : null;
+      });
+    }
+
+    updateHistoryFlags();
+    showSnackbar('Action rétablie (Redo)', 'redo');
+  }, [background, elements, updateHistoryFlags, showSnackbar]);
+
+  const clearAll = useCallback(() => {
+    recordHistory();
+    setElements([]);
+    setBackgroundState({
+      type: 'solid',
+      solidColor: 'rgba(255, 255, 255, 1)',
+      color1: 'rgba(99, 102, 241, 1)',
+      color2: 'rgba(236, 72, 153, 0.95)',
+      angle: 135,
+      radialShape: 'circle',
+      radialColor1: 'rgba(244, 63, 94, 1)',
+      radialColor2: 'rgba(30, 27, 75, 1)',
+      imageUrl: '',
+      imageFit: 'cover'
+    });
+    setSelectedElementId(null);
+    setActivePanelState(null);
+    showSnackbar('Projet réinitialisé', 'delete_sweep');
+  }, [recordHistory, showSnackbar]);
+
   const setBackground = useCallback((updates: Partial<BackgroundConfig>) => {
+    recordHistory();
     setBackgroundState(prev => ({ ...prev, ...updates }));
-  }, []);
+  }, [recordHistory]);
 
   const addText = useCallback(() => {
+    recordHistory();
     const id = 'txt-' + Date.now();
     setElements(prev => {
       const offset = (prev.length * 15) % 200;
@@ -173,9 +306,10 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
     setSelectedElementId(id);
     setActivePanelState('text');
-  }, []);
+  }, [recordHistory]);
 
   const addShape = useCallback((shapeType: ShapeType = 'rounded-rect') => {
+    recordHistory();
     const id = 'shape-' + Date.now();
     setElements(prev => {
       const offset = (prev.length * 15) % 200;
@@ -215,13 +349,14 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
     setSelectedElementId(id);
     setActivePanelState('shape');
-  }, []);
+  }, [recordHistory]);
 
   const updateElement = useCallback((id: string, updates: Partial<CanvasElement>) => {
     setElements(prev => prev.map(el => (el.id === id ? ({ ...el, ...updates } as CanvasElement) : el)));
   }, []);
 
   const deleteElement = useCallback((id: string) => {
+    recordHistory();
     setElements(prev => prev.filter(el => el.id !== id));
     setSelectedElementId(prev => {
       if (prev === id) {
@@ -230,7 +365,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
       return prev;
     });
-  }, []);
+  }, [recordHistory]);
 
   const selectElement = useCallback((id: string | null) => {
     setSelectedElementId(id);
@@ -262,16 +397,58 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIsDrawingExportModeState(mode);
   }, []);
 
+  const setZoom = useCallback((zoomOrUpdater: number | ((prev: number) => number)) => {
+    setZoomState(prev => {
+      const next = typeof zoomOrUpdater === 'function' ? zoomOrUpdater(prev) : zoomOrUpdater;
+      return Math.min(3.5, Math.max(0.2, Math.round(next * 100) / 100));
+    });
+  }, []);
+
+  const zoomIn = useCallback(() => {
+    setZoom(prev => Math.min(3.5, prev + 0.15));
+  }, [setZoom]);
+
+  const zoomOut = useCallback(() => {
+    setZoom(prev => Math.max(0.2, prev - 0.15));
+  }, [setZoom]);
+
   const resetZoom = useCallback(() => {
+    setZoomState(1.0);
     if (viewportRef.current && artboardContainerRef.current) {
       viewportRef.current.scrollTo({
         left: artboardContainerRef.current.offsetLeft - 40,
         top: artboardContainerRef.current.offsetTop - 40,
         behavior: 'smooth'
       });
-      showSnackbar('Vue recentrée', 'center_focus_strong');
+      showSnackbar('Vue recentrée (100%)', 'center_focus_strong');
     }
   }, [showSnackbar]);
+
+  // Global keyboard shortcuts for Undo / Redo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      if (!cmdOrCtrl) return;
+
+      const activeEl = document.activeElement;
+      const isInput = activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA' || activeEl?.getAttribute('contenteditable') === 'true';
+
+      if (isInput) return;
+
+      if (e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
+        e.preventDefault();
+        redo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undo, redo]);
 
   const state: EditorState = {
     background,
@@ -279,7 +456,11 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     selectedElementId,
     activePanel,
     exportZone,
-    isDrawingExportMode
+    isDrawingExportMode,
+    theme,
+    zoom,
+    canUndo,
+    canRedo
   };
 
   return (
@@ -287,6 +468,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       value={{
         state,
         snackbar,
+        isConfirmModalOpen,
+        setIsConfirmModalOpen,
         artboardRef,
         artboardContainerRef,
         viewportRef,
@@ -300,7 +483,15 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         updateExportZone,
         setIsDrawingExportMode,
         showSnackbar,
-        resetZoom
+        resetZoom,
+        setZoom,
+        zoomIn,
+        zoomOut,
+        toggleTheme,
+        recordHistory,
+        undo,
+        redo,
+        clearAll
       }}
     >
       {children}

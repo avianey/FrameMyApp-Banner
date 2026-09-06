@@ -50,9 +50,10 @@ export const SideDrawer: React.FC = () => {
         </div>
         <button
           onClick={() => setActivePanel(null)}
-          className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-m3-sys-surfaceContainerHighest text-m3-sys-onSurfaceVariant transition-colors"
+          title="Fermer le panneau"
+          className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-m3-sys-surfaceContainerHighest text-m3-sys-onSurfaceVariant hover:text-m3-sys-onSurface active:scale-95 transition-all cursor-pointer shadow-none"
         >
-          <span className="material-symbols-rounded">close</span>
+          <span className="material-symbols-rounded text-xl leading-none">close</span>
         </button>
       </div>
 

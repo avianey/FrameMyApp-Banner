@@ -2,6 +2,56 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: light;
+  --m3-sys-primary: 103 80 164;               /* #6750A4 */
+  --m3-sys-on-primary: 255 255 255;           /* #FFFFFF */
+  --m3-sys-primary-container: 234 221 255;     /* #EADDFF */
+  --m3-sys-on-primary-container: 33 0 93;      /* #21005D */
+  --m3-sys-secondary: 98 91 113;              /* #625B71 */
+  --m3-sys-on-secondary: 255 255 255;         /* #FFFFFF */
+  --m3-sys-secondary-container: 232 222 248;   /* #E8DEF8 */
+  --m3-sys-surface: 254 247 255;              /* #FEF7FF */
+  --m3-sys-surface-dim: 222 216 225;          /* #DED8E1 */
+  --m3-sys-surface-bright: 254 247 255;       /* #FEF7FF */
+  --m3-sys-surface-container-lowest: 255 255 255; /* #FFFFFF */
+  --m3-sys-surface-container-low: 247 242 250;    /* #F7F2FA */
+  --m3-sys-surface-container: 243 237 247;        /* #F3EDF7 */
+  --m3-sys-surface-container-high: 236 230 240;   /* #ECE6F0 */
+  --m3-sys-surface-container-highest: 230 224 233; /* #E6E0E9 */
+  --m3-sys-on-surface: 29 27 32;              /* #1D1B20 */
+  --m3-sys-on-surface-variant: 73 69 79;      /* #49454F */
+  --m3-sys-outline: 121 116 126;              /* #79747E */
+  --m3-sys-outline-variant: 202 196 208;      /* #CAC4D0 */
+  --m3-sys-error: 179 38 30;                  /* #B3261E */
+  --m3-sys-on-error: 255 255 255;             /* #FFFFFF */
+}
+
+.dark {
+  color-scheme: dark;
+  --m3-sys-primary: 208 188 255;              /* #D0BCFF */
+  --m3-sys-on-primary: 56 30 114;             /* #381E72 */
+  --m3-sys-primary-container: 79 55 139;      /* #4F378B */
+  --m3-sys-on-primary-container: 234 221 255; /* #EADDFF */
+  --m3-sys-secondary: 204 194 220;            /* #CCC2DC */
+  --m3-sys-on-secondary: 51 45 65;            /* #332D41 */
+  --m3-sys-secondary-container: 74 68 88;     /* #4A4458 */
+  --m3-sys-surface: 20 18 24;                 /* #141218 */
+  --m3-sys-surface-dim: 20 18 24;             /* #141218 */
+  --m3-sys-surface-bright: 59 56 62;          /* #3B383E */
+  --m3-sys-surface-container-lowest: 15 13 19;/* #0F0D13 */
+  --m3-sys-surface-container-low: 29 27 32;   /* #1D1B20 */
+  --m3-sys-surface-container: 33 31 38;       /* #211F26 */
+  --m3-sys-surface-container-high: 43 41 48;  /* #2B2930 */
+  --m3-sys-surface-container-highest: 54 52 59; /* #36343B */
+  --m3-sys-on-surface: 230 224 233;           /* #E6E0E9 */
+  --m3-sys-on-surface-variant: 202 196 208;   /* #CAC4D0 */
+  --m3-sys-outline: 147 143 153;             /* #938F99 */
+  --m3-sys-outline-variant: 73 69 79;         /* #49454F */
+  --m3-sys-error: 242 184 181;                /* #F2B8B5 */
+  --m3-sys-on-error: 96 20 16;                /* #601410 */
+}
+
 html, body, #root {
   height: 100%;
   width: 100%;
@@ -12,6 +62,11 @@ html, body, #root {
 .material-symbols-rounded {
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   user-select: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  line-height: 1;
 }
 
 .material-symbols-rounded.filled {
@@ -30,6 +85,12 @@ html, body, #root {
 .canvas-grid {
   background-size: 24px 24px;
   background-image: radial-gradient(circle, #cac4d0 1.2px, transparent 1.2px);
+  background-color: #f8fafc;
+}
+
+.dark .canvas-grid {
+  background-color: #0f0d13;
+  background-image: radial-gradient(circle, #49454f 1.2px, transparent 1.2px);
 }
 
 /* Motif en damier pour visualiser la composante Alpha (transparence) */
@@ -43,11 +104,19 @@ html, body, #root {
   background-color: #ffffff;
 }
 
+.dark .checkerboard-pattern {
+  background-image: linear-gradient(45deg, #2b2930 25%, transparent 25%),
+                    linear-gradient(-45deg, #2b2930 25%, transparent 25%),
+                    linear-gradient(45deg, transparent 75%, #2b2930 75%),
+                    linear-gradient(-45deg, transparent 75%, #2b2930 75%);
+  background-color: #1d1b20;
+}
+
 .handle-resize {
   position: absolute;
   width: 13px;
   height: 13px;
-  background: #6750A4;
+  background: rgb(var(--m3-sys-primary));
   border: 2px solid #FFFFFF;
   border-radius: 50%;
   box-shadow: 0 1px 4px rgba(0,0,0,0.3);
@@ -62,7 +131,7 @@ html, body, #root {
   transform: translateX(-50%);
   width: 22px;
   height: 22px;
-  background: #6750A4;
+  background: rgb(var(--m3-sys-primary));
   color: #FFFFFF;
   border-radius: 50%;
   border: 2px solid #FFFFFF;
@@ -76,7 +145,7 @@ html, body, #root {
 
 .handle-rotate-anchor:active {
   cursor: grabbing;
-  background: #4F378B;
+  background: rgb(var(--m3-sys-primary-container));
 }
 
 .handle-rotate-line {
@@ -85,7 +154,7 @@ html, body, #root {
   left: 50%;
   width: 1.5px;
   height: 14px;
-  background: #6750A4;
+  background: rgb(var(--m3-sys-primary));
   transform: translateX(-50%);
   pointer-events: none;
   z-index: 44;
@@ -96,7 +165,7 @@ html, body, #root {
   position: absolute;
   top: -26px;
   left: 0px;
-  background: #6750A4;
+  background: rgb(var(--m3-sys-primary));
   color: #FFFFFF;
   border-radius: 6px;
   padding: 2px 7px;
@@ -118,4 +187,35 @@ html, body, #root {
 
 input[type=range] {
   touch-action: pan-y;
+  accent-color: rgb(var(--m3-sys-primary));
+  height: 6px;
+  border-radius: 9999px;
+  background-color: rgb(var(--m3-sys-surface-container-highest));
+}
+
+.dark input[type="text"],
+.dark input[type="number"],
+.dark select {
+  color-scheme: dark;
+}
+
+.dark select option {
+  background-color: rgb(var(--m3-sys-surface-container-high));
+  color: rgb(var(--m3-sys-on-surface));
+}
+
+/* Animation douce pour la modale */
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-modal {
+  animation: modalIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
