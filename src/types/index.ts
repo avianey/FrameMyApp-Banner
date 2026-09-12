@@ -65,6 +65,7 @@ export interface TextElementModel extends BaseElement {
   type: 'text';
   text: string;
   fontFamily: string;
+  fontWeight?: number | string;
   fontSize: number;
   color: string;
   letterSpacing: number;
@@ -107,7 +108,7 @@ export interface ExportZone {
   lockRatio?: boolean;
 }
 
-export type ActivePanel = 'bg' | 'text' | 'shape' | 'export' | null;
+export type ActivePanel = 'bg' | 'text' | 'shape' | 'export' | 'align' | null;
 
 export interface EditorState {
   canvasWidth: number;
@@ -115,11 +116,13 @@ export interface EditorState {
   background: BackgroundConfig;
   elements: CanvasElement[];
   selectedElementId: string | null;
+  selectedElementIds: string[];
   activePanel: ActivePanel;
   exportZone: ExportZone;
   isDrawingExportMode: boolean;
   theme: 'light' | 'dark';
   zoom: number;
+  pan: { x: number; y: number };
   canUndo: boolean;
   canRedo: boolean;
 }

@@ -18,10 +18,11 @@ export const Artboard: React.FC = () => {
   const {
     background,
     elements,
-    selectedElementId,
+    selectedElementIds = [],
     activePanel,
     isDrawingExportMode,
     zoom,
+    pan,
     canvasWidth = 800,
     canvasHeight = 600
   } = state;
@@ -42,9 +43,20 @@ export const Artboard: React.FC = () => {
       };
     }
     if (background.type === 'image' && background.imageUrl) {
+      let bgSize = 'cover';
+      if (background.imageFit === 'contain') {
+        bgSize = 'contain';
+      } else if (background.imageFit === 'auto') {
+        bgSize = 'auto';
+      } else if (background.imageFit === 'cover') {
+        bgSize = 'cover';
+      } else if ((background.imageFit as any) === 'stretch' || (background.imageFit as any) === 'fill') {
+        bgSize = '100% 100%';
+      }
+
       return {
         backgroundImage: `url('${background.imageUrl}')`,
-        backgroundSize: background.imageFit === 'contain' ? 'contain' : (background.imageFit === 'auto' ? 'auto' : '100% 100%'),
+        backgroundSize: bgSize,
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat'
       };
@@ -119,55 +131,68 @@ export const Artboard: React.FC = () => {
 
   return (
     <div
-      className="flex items-center justify-center flex-shrink-0 transition-all duration-150"
+      ref={artboardContainerRef}
+      id="artboard-container"
+      className="absolute shadow-m3-3 rounded-2xl overflow-visible touch-none flex-shrink-0"
       style={{
-        width: `${Math.round(canvasWidth * zoom)}px`,
-        height: `${Math.round(canvasHeight * zoom)}px`
+        left: `${pan.x}px`,
+        top: `${pan.y}px`,
+        width: `${canvasWidth}px`,
+        height: `${canvasHeight}px`,
+        minWidth: `${canvasWidth}px`,
+        minHeight: `${canvasHeight}px`,
+        maxWidth: `${canvasWidth}px`,
+        maxHeight: `${canvasHeight}px`,
+        transform: `scale(${zoom})`,
+        transformOrigin: '0 0'
       }}
     >
       <div
-        ref={artboardContainerRef}
-        id="artboard-container"
-        className="relative transition-transform duration-150 shadow-m3-3 rounded-2xl overflow-visible touch-none flex-shrink-0"
-        style={{
-          width: `${canvasWidth}px`,
-          height: `${canvasHeight}px`,
-          minWidth: `${canvasWidth}px`,
-          minHeight: `${canvasHeight}px`,
-          maxWidth: `${canvasWidth}px`,
-          maxHeight: `${canvasHeight}px`,
-          transform: `scale(${zoom})`,
-          transformOrigin: 'center center'
-        }}
+        ref={artboardRef}
+        id="artboard"
+        onPointerDown={handlePointerDown}
+        className="w-full h-full rounded-2xl relative overflow-hidden bg-white"
       >
+        {/* Fond dynamique */}
         <div
-          ref={artboardRef}
-          id="artboard"
-          onPointerDown={handlePointerDown}
-          className="w-full h-full rounded-2xl relative overflow-hidden bg-white"
-        >
-          {/* Fond dynamique */}
-          <div
-            id="artboard-bg"
-            className="absolute inset-0 w-full h-full pointer-events-none transition-all duration-200"
-            style={getBackgroundStyle()}
-          />
+          id="artboard-bg"
+          className="absolute inset-0 w-full h-full pointer-events-none"
+          style={getBackgroundStyle()}
+        />
 
-          {/* Objets (Textes & Formes) */}
-          <div id="artboard-elements" className="absolute inset-0 w-full h-full">
-            {elements.map(el => {
-              const isSelected = selectedElementId === el.id;
-              if (el.type === 'text') {
-                return <TextElement key={el.id} element={el} isSelected={isSelected} />;
-              }
-              return <ShapeElement key={el.id} element={el} isSelected={isSelected} />;
-            })}
-          </div>
+        {/* Objets (Textes & Formes) */}
+        <div id="artboard-elements" className="absolute inset-0 w-full h-full">
+          {elements.map(el => {
+            const isSelected = selectedElementIds.includes(el.id);
+            const selectionIndex = isSelected ? selectedElementIds.indexOf(el.id) + 1 : undefined;
+            const isMultiSelected = selectedElementIds.length > 1;
+
+            if (el.type === 'text') {
+              return (
+                <TextElement
+                  key={el.id}
+                  element={el}
+                  isSelected={isSelected}
+                  selectionIndex={selectionIndex}
+                  isMultiSelected={isMultiSelected}
+                />
+              );
+            }
+            return (
+              <ShapeElement
+                key={el.id}
+                element={el}
+                isSelected={isSelected}
+                selectionIndex={selectionIndex}
+                isMultiSelected={isMultiSelected}
+              />
+            );
+          })}
         </div>
-
-        {/* Masque et boîte de sélection pour l'exportation */}
-        <ExportOverlay />
       </div>
+
+      {/* Masque et boîte de sélection pour l'exportation */}
+      <ExportOverlay />
     </div>
   );
 };

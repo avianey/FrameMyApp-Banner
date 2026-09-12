@@ -2,6 +2,7 @@ import React from 'react';
 import { useEditor } from '../../context/EditorContext';
 import { TextElementModel } from '../../types';
 import { ColorAlphaPicker } from '../common/ColorAlphaPicker';
+import { LayerOrderControls } from './LayerOrderControls';
 
 const fonts = [
   'Roboto',
@@ -9,6 +10,7 @@ const fonts = [
   'Poppins',
   'Montserrat',
   'Playfair Display',
+  'DM Serif Display',
   'Space Grotesk',
   'Oswald',
   'Pacifico',
@@ -16,6 +18,18 @@ const fonts = [
   'Dancing Script',
   'Caveat',
   'Cinzel'
+];
+
+const fontWeights = [
+  { value: 100, label: '100 — Ultra Fin (Thin)' },
+  { value: 200, label: '200 — Très Léger (Extra Light)' },
+  { value: 300, label: '300 — Léger (Light)' },
+  { value: 400, label: '400 — Normal (Regular)' },
+  { value: 500, label: '500 — Médium (Medium)' },
+  { value: 600, label: '600 — Semi-Gras (Semi Bold)' },
+  { value: 700, label: '700 — Gras (Bold)' },
+  { value: 800, label: '800 — Extra Gras (Extra Bold)' },
+  { value: 900, label: '900 — Noir (Black)' }
 ];
 
 interface TextControlsProps {
@@ -54,6 +68,9 @@ export const TextControls: React.FC<TextControlsProps> = ({ element }) => {
         </p>
       </div>
 
+      {/* Hiérarchie et ordre des calques */}
+      <LayerOrderControls elementId={element.id} />
+
       {/* Contenu du texte */}
       <div className="space-y-1.5">
         <label className="text-xs font-semibold text-m3-sys-onSurfaceVariant uppercase">
@@ -81,6 +98,35 @@ export const TextControls: React.FC<TextControlsProps> = ({ element }) => {
           {fonts.map(f => (
             <option key={f} value={f} style={{ fontFamily: `'${f}'` }}>
               {f}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Épaisseur de police (Font Weight) */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-semibold text-m3-sys-onSurfaceVariant uppercase">
+            Épaisseur (Font Weight)
+          </label>
+          <span className="text-xs font-mono font-medium text-m3-sys-primary">
+            {typeof element.fontWeight === 'string'
+              ? (element.fontWeight === 'bold' ? 700 : parseInt(element.fontWeight, 10) || 400)
+              : (element.fontWeight || 400)}
+          </span>
+        </div>
+        <select
+          value={
+            typeof element.fontWeight === 'string'
+              ? (element.fontWeight === 'bold' ? 700 : parseInt(element.fontWeight, 10) || 400)
+              : (element.fontWeight || 400)
+          }
+          onChange={e => handleUpdate({ fontWeight: parseInt(e.target.value, 10) })}
+          className="w-full p-2.5 bg-m3-sys-surfaceContainerHighest rounded-xl border border-m3-sys-outlineVariant/50 text-sm font-medium"
+        >
+          {fontWeights.map(w => (
+            <option key={w.value} value={w.value} style={{ fontWeight: w.value }}>
+              {w.label}
             </option>
           ))}
         </select>

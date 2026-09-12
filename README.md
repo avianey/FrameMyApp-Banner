@@ -70,6 +70,13 @@ npm run preview
         │   ├── ShapeElement.tsx     # Formes géométriques (rectangle, arrondi, cercle, étoile, hexagone, etc.)
         │   ├── SelectionHandles.tsx # Poignées de redimensionnement, rotation et déplacement
         │   └── ExportOverlay.tsx    # Masque SVG et cadre de sélection d'export
+        ├── leftDrawer/
+        │   └── LeftSidebar.tsx      # Volet gauche (Templates & Bundles, Identifiants Custom IDs)
+        ├── modal/
+        │   ├── ConfirmModal.tsx     # Dialogue de confirmation M3 sécurisé
+        │   ├── BatchExportModal.tsx # Export par lot (File System Access API & ZIP)
+        │   ├── DocumentationModal.tsx # Page de documentation Markdown interactive
+        │   └── NewVariantModal.tsx  # Création d'une nouvelle déclinaison
         └── drawer/
             ├── SideDrawer.tsx       # Volet latéral interactif M3
             ├── BackgroundControls.tsx # Contrôles du fond (Uni, Linéaire, Radial, Image)
@@ -95,4 +102,5 @@ npm run preview
 - **Système de Templates & Bundles (Master, Overrides, Variants)** : Volet dédié à gauche de l'écran pour importer/exporter des presets maîtres, des surcharges partagées et des déclinaisons multilingues (inspiré du blueprint FrameYourApp).
 - **Identifiants personnalisés (`customId`)** : Permet d'identifier chaque champ texte et forme pour les cibler avec précision dans les templates YAML (`content.<id>` ou `elements.<id>`).
 - **Batch Export (Export par lot)** : Génération automatisée de l'ensemble des déclinaisons du bundle vers un répertoire disque local (File System Access API) ou en archive `.ZIP`.
-- **Documentation & Skill de Maintenance** : Guide complet dans [docs/TEMPLATE_SYSTEM.md](docs/TEMPLATE_SYSTEM.md) et skill agent dans `~/.agents/skills/banner-template-architecture/SKILL.md`.
+- **Documentation & Guide Intégré** : Page interactive embarquée chargeant [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md) avec sommaire automatique, recherche instantanée, ancres de défilement et styles Material 3.
+- **Skills IA de Maintenance Impérative** : Protocoles d'extension et de synchronisation documentaire sous [.skills/](.skills/) (`documentation-maintenance`, `banner-template-architecture` et `frugal-workflow`).

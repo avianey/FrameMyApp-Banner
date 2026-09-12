@@ -6,9 +6,16 @@ import { SelectionHandles } from './SelectionHandles';
 interface ShapeElementProps {
   element: ShapeElementModel;
   isSelected: boolean;
+  selectionIndex?: number;
+  isMultiSelected?: boolean;
 }
 
-export const ShapeElement: React.FC<ShapeElementProps> = ({ element, isSelected }) => {
+export const ShapeElement: React.FC<ShapeElementProps> = ({
+  element,
+  isSelected,
+  selectionIndex,
+  isMultiSelected
+}) => {
   const { selectElement, updateElement, state, recordHistory } = useEditor();
   const nodeRef = useRef<HTMLDivElement>(null);
   const currentZoom = state.zoom || 1;
@@ -21,20 +28,41 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({ element, isSelected 
     }
 
     e.stopPropagation();
-    selectElement(element.id);
+
+    const isCtrl = e.ctrlKey || e.metaKey;
+    if (isCtrl) {
+      selectElement(element.id, true);
+      return;
+    }
+
+    if (!isSelected) {
+      selectElement(element.id, false);
+    }
+
     recordHistory();
 
     const startX = e.clientX;
     const startY = e.clientY;
-    const initX = element.x;
-    const initY = element.y;
+
+    // Déterminer les éléments à déplacer ensemble
+    const idsToMove = isSelected && isMultiSelected
+      ? state.selectedElementIds
+      : [element.id];
+
+    const initPositions = idsToMove.map(id => {
+      const el = state.elements.find(item => item.id === id);
+      return { id, x: el?.x || 0, y: el?.y || 0 };
+    });
 
     const onMove = (moveEvent: PointerEvent) => {
       const dx = (moveEvent.clientX - startX) / currentZoom;
       const dy = (moveEvent.clientY - startY) / currentZoom;
-      updateElement(element.id, {
-        x: Math.round(initX + dx),
-        y: Math.round(initY + dy)
+
+      initPositions.forEach(pos => {
+        updateElement(pos.id, {
+          x: Math.round(pos.x + dx),
+          y: Math.round(pos.y + dy)
+        });
       });
     };
 
@@ -132,7 +160,19 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({ element, isSelected 
       onPointerDown={handlePointerDown}
     >
       <div className="shape-render-content w-full h-full cursor-move" style={shapeStyle} />
-      {isSelected && <SelectionHandles element={element} elementRef={nodeRef} />}
+      {isSelected && !isMultiSelected && (
+        <SelectionHandles element={element} elementRef={nodeRef} />
+      )}
+      {isSelected && isMultiSelected && (
+        <>
+          <div className="selection-ui-handle absolute -inset-1 border-2 border-dashed border-m3-sys-primary rounded-lg pointer-events-none z-30" />
+          {selectionIndex !== undefined && (
+            <div className="absolute -top-3 -left-3 z-40 bg-m3-sys-primary text-m3-sys-onPrimary text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow-sm pointer-events-none">
+              {selectionIndex}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 };

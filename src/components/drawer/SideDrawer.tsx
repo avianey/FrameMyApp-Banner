@@ -5,6 +5,7 @@ import { BackgroundControls } from './BackgroundControls';
 import { TextControls } from './TextControls';
 import { ShapeControls } from './ShapeControls';
 import { ExportControls } from './ExportControls';
+import { AlignmentControls } from './AlignmentControls';
 
 export const SideDrawer: React.FC = () => {
   const { state, setActivePanel } = useEditor();
@@ -27,6 +28,9 @@ export const SideDrawer: React.FC = () => {
   } else if (activePanel === 'export') {
     drawerTitle = 'Zone d’Exportation';
     drawerIcon = 'crop';
+  } else if (activePanel === 'align') {
+    drawerTitle = 'Alignement & Distribution';
+    drawerIcon = 'format_align_center';
   }
 
   const isOpen = activePanel !== null;
@@ -67,6 +71,7 @@ export const SideDrawer: React.FC = () => {
           <ShapeControls element={selectedElement as ShapeElementModel} />
         )}
         {activePanel === 'export' && <ExportControls />}
+        {activePanel === 'align' && <AlignmentControls />}
       </div>
     </aside>
   );

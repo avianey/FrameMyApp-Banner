@@ -6,12 +6,20 @@ import { SelectionHandles } from './SelectionHandles';
 interface TextElementProps {
   element: TextElementModel;
   isSelected: boolean;
+  selectionIndex?: number;
+  isMultiSelected?: boolean;
 }
 
-export const TextElement: React.FC<TextElementProps> = ({ element, isSelected }) => {
-  const { selectElement, updateElement, recordHistory } = useEditor();
+export const TextElement: React.FC<TextElementProps> = ({
+  element,
+  isSelected,
+  selectionIndex,
+  isMultiSelected
+}) => {
+  const { selectElement, updateElement, state, recordHistory } = useEditor();
   const nodeRef = useRef<HTMLDivElement>(null);
   const textInnerRef = useRef<HTMLDivElement>(null);
+  const currentZoom = state.zoom || 1;
 
   // Synchronize innerText when element.text updates externally (e.g. from drawer)
   useEffect(() => {
@@ -33,6 +41,7 @@ export const TextElement: React.FC<TextElementProps> = ({ element, isSelected })
   const minHeightPx = (element.minLines || 1) * element.fontSize * (element.lineHeight || 1.2);
 
   const handleFocus = () => {
+    if (isMultiSelected) return;
     recordHistory();
     selectElement(element.id);
   };
@@ -45,7 +54,52 @@ export const TextElement: React.FC<TextElementProps> = ({ element, isSelected })
 
   const handlePointerDown = (e: React.PointerEvent) => {
     e.stopPropagation();
-    selectElement(element.id);
+    const isCtrl = e.ctrlKey || e.metaKey;
+
+    if (isCtrl) {
+      e.preventDefault();
+      selectElement(element.id, true);
+      return;
+    }
+
+    if (!isSelected) {
+      selectElement(element.id, false);
+      return;
+    }
+
+    // Si sélection multiple, permettre de glisser-déplacer toute la sélection
+    if (isMultiSelected) {
+      e.preventDefault();
+      recordHistory();
+      const startX = e.clientX;
+      const startY = e.clientY;
+
+      const idsToMove = state.selectedElementIds;
+      const initPositions = idsToMove.map(id => {
+        const el = state.elements.find(item => item.id === id);
+        return { id, x: el?.x || 0, y: el?.y || 0 };
+      });
+
+      const onMove = (moveEvent: PointerEvent) => {
+        const dx = (moveEvent.clientX - startX) / currentZoom;
+        const dy = (moveEvent.clientY - startY) / currentZoom;
+
+        initPositions.forEach(pos => {
+          updateElement(pos.id, {
+            x: Math.round(pos.x + dx),
+            y: Math.round(pos.y + dy)
+          });
+        });
+      };
+
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    }
   };
 
   return (
@@ -70,6 +124,7 @@ export const TextElement: React.FC<TextElementProps> = ({ element, isSelected })
         className="editable-text-content w-full h-full p-2 outline-none break-words cursor-text rounded focus:ring-2 focus:ring-m3-sys-primary"
         style={{
           fontFamily: `'${element.fontFamily}', sans-serif`,
+          fontWeight: element.fontWeight || 400,
           fontSize: `${element.fontSize}px`,
           color: element.color,
           letterSpacing: `${element.letterSpacing}px`,
@@ -83,7 +138,19 @@ export const TextElement: React.FC<TextElementProps> = ({ element, isSelected })
         {element.text}
       </div>
 
-      {isSelected && <SelectionHandles element={element} elementRef={nodeRef} />}
+      {isSelected && !isMultiSelected && (
+        <SelectionHandles element={element} elementRef={nodeRef} />
+      )}
+      {isSelected && isMultiSelected && (
+        <>
+          <div className="selection-ui-handle absolute -inset-1 border-2 border-dashed border-m3-sys-primary rounded-lg pointer-events-none z-30" />
+          {selectionIndex !== undefined && (
+            <div className="absolute -top-3 -left-3 z-40 bg-m3-sys-primary text-m3-sys-onPrimary text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow-sm pointer-events-none">
+              {selectionIndex}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 };

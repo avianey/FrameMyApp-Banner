@@ -17,6 +17,13 @@ import {
 import { resolveComposition, serializeCanvasToMaster } from '../utils/templateEngine';
 import { stringifyYaml } from '../utils/yamlHelper';
 import { createBundleZip, downloadBlob, downloadFile } from '../utils/bundleIo';
+import {
+  alignElements,
+  distributeElements,
+  AlignReference,
+  AlignType,
+  DistributeType
+} from '../utils/alignment';
 
 interface SnackbarState {
   message: string;
@@ -57,20 +64,32 @@ interface EditorContextType {
   addShape: (shapeType?: ShapeType) => void;
   updateElement: (id: string, updates: Partial<CanvasElement>) => void;
   deleteElement: (id: string) => void;
-  selectElement: (id: string | null) => void;
+  deleteSelectedElements: () => void;
+  selectElement: (id: string | null, multi?: boolean) => void;
   setActivePanel: (panel: ActivePanel) => void;
   updateExportZone: (updates: Partial<ExportZone>) => void;
   setIsDrawingExportMode: (mode: boolean) => void;
   showSnackbar: (message: string, icon?: string) => void;
   resetZoom: () => void;
-  setZoom: (zoomOrUpdater: number | ((prev: number) => number)) => void;
+  setZoom: (zoomOrUpdater: number | ((prev: number) => number), focalPoint?: { clientX: number; clientY: number }) => void;
   zoomIn: () => void;
   zoomOut: () => void;
+  setPan: (panOrUpdater: { x: number; y: number } | ((prev: { x: number; y: number }) => { x: number; y: number })) => void;
   toggleTheme: () => void;
   recordHistory: () => void;
   undo: () => void;
   redo: () => void;
   clearAll: () => void;
+
+  // Layer hierarchy actions
+  bringForward: (id: string) => void;
+  sendBackward: (id: string) => void;
+  bringToFront: (id: string) => void;
+  sendToBack: (id: string) => void;
+
+  // Alignment & Distribution actions
+  alignSelected: (type: AlignType, reference: AlignReference) => void;
+  distributeSelected: (type: DistributeType, reference: AlignReference, customGap?: number) => void;
 
   // Bundle & Templates actions
   loadedBundle: LoadedBundle | null;
@@ -78,7 +97,13 @@ interface EditorContextType {
   activeBundleItemId: string | null;
   applyBundleItem: (item: BundleItem) => void;
   applyCompositionDirectly: (
-    comp: { background: BackgroundConfig; elements: CanvasElement[]; exportZone: ExportZone },
+    comp: {
+      background: BackgroundConfig;
+      elements: CanvasElement[];
+      exportZone: ExportZone;
+      canvasWidth?: number;
+      canvasHeight?: number;
+    },
     recordHist?: boolean
   ) => void;
   exportCanvasAsTemplateYaml: (filename?: string) => void;
@@ -112,6 +137,7 @@ const initialElements: CanvasElement[] = [
     height: 90,
     rotation: 0,
     fontFamily: 'Space Grotesk',
+    fontWeight: 700,
     fontSize: 44,
     color: 'rgba(255, 255, 255, 1)',
     letterSpacing: 1,
@@ -174,11 +200,17 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [canvasHeight, setCanvasHeight] = useState<number>(600);
   const [background, setBackgroundState] = useState<BackgroundConfig>(initialBackground);
   const [elements, setElements] = useState<CanvasElement[]>(initialElements);
-  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
+  const selectedElementId = selectedElementIds.length > 0 ? selectedElementIds[selectedElementIds.length - 1] : null;
   const [activePanel, setActivePanelState] = useState<ActivePanel>(null);
   const [exportZone, setExportZoneState] = useState<ExportZone>(initialExportZone);
   const [isDrawingExportMode, setIsDrawingExportModeState] = useState<boolean>(false);
   const [zoom, setZoomState] = useState<number>(1.0);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const [pan, setPanState] = useState<{ x: number; y: number }>({ x: 60, y: 40 });
+  const panRef = useRef(pan);
+  panRef.current = pan;
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
 
   // Bundle & Templates state
@@ -246,6 +278,28 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const artboardContainerRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
 
+  // Centrage initial de la composition dans le viewport
+  useEffect(() => {
+    const centerIfReady = () => {
+      if (viewportRef.current) {
+        const vp = viewportRef.current;
+        if (vp.clientWidth > 0 && vp.clientHeight > 0) {
+          const initX = Math.round((vp.clientWidth - canvasWidth * zoomRef.current) / 2);
+          const initY = Math.round((vp.clientHeight - canvasHeight * zoomRef.current) / 2);
+          setPanState({ x: initX, y: initY });
+          panRef.current = { x: initX, y: initY };
+          return true;
+        }
+      }
+      return false;
+    };
+
+    if (!centerIfReady()) {
+      const timer = setTimeout(centerIfReady, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [canvasWidth, canvasHeight]);
+
   const showSnackbar = useCallback((message: string, icon = 'check_circle') => {
     if (snackbarTimerRef.current) {
       window.clearTimeout(snackbarTimerRef.current);
@@ -276,11 +330,9 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setElements(previousSnapshot.elements);
       setExportZoneState(previousSnapshot.exportZone);
 
-      setSelectedElementId(prevId => {
-        if (!prevId) return null;
-        const exists = previousSnapshot.elements.some(e => e.id === prevId);
-        return exists ? prevId : null;
-      });
+      setSelectedElementIds(prevIds =>
+        prevIds.filter(id => previousSnapshot.elements.some(e => e.id === id))
+      );
     }
 
     updateHistoryFlags();
@@ -307,11 +359,9 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setElements(nextSnapshot.elements);
       setExportZoneState(nextSnapshot.exportZone);
 
-      setSelectedElementId(prevId => {
-        if (!prevId) return null;
-        const exists = nextSnapshot.elements.some(e => e.id === prevId);
-        return exists ? prevId : null;
-      });
+      setSelectedElementIds(prevIds =>
+        prevIds.filter(id => nextSnapshot.elements.some(e => e.id === id))
+      );
     }
 
     updateHistoryFlags();
@@ -324,7 +374,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCanvasHeight(600);
     setElements([]);
     setBackgroundState(initialBackground);
-    setSelectedElementId(null);
+    setSelectedElementIds([]);
     setActivePanelState(null);
     setActiveBundleItemId(null);
     setExportZoneState(initialExportZone);
@@ -358,6 +408,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         height: 60,
         rotation: 0,
         fontFamily: 'Roboto',
+        fontWeight: 400,
         fontSize: 32,
         color: 'rgba(30, 27, 75, 1)',
         letterSpacing: 0,
@@ -368,7 +419,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       };
       return [...prev, newText];
     });
-    setSelectedElementId(id);
+    setSelectedElementIds([id]);
     setActivePanelState('text');
   }, [recordHistory]);
 
@@ -415,7 +466,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         };
         return [...prev, newShape];
       });
-      setSelectedElementId(id);
+      setSelectedElementIds([id]);
       setActivePanelState('shape');
     },
     [recordHistory]
@@ -456,36 +507,181 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     (id: string) => {
       recordHistory();
       setElements(prev => prev.filter(el => el.id !== id));
-      setSelectedElementId(prev => {
-        if (prev === id) {
+      setSelectedElementIds(prev => {
+        const next = prev.filter(x => x !== id);
+        if (next.length === 0) {
           setActivePanelState(null);
-          return null;
+        } else if (next.length === 1) {
+          setElements(currentEls => {
+            const remaining = currentEls.find(e => e.id === next[0]);
+            if (remaining) {
+              setActivePanelState(remaining.type === 'text' ? 'text' : 'shape');
+            }
+            return currentEls;
+          });
         }
-        return prev;
+        return next;
       });
     },
     [recordHistory]
   );
 
-  const selectElement = useCallback((id: string | null) => {
-    setSelectedElementId(id);
-    if (id) {
-      setElements(prev => {
-        const found = prev.find(e => e.id === id);
+  const deleteSelectedElements = useCallback(() => {
+    if (selectedElementIds.length === 0) return;
+    recordHistory();
+    const count = selectedElementIds.length;
+    const idsToDelete = new Set(selectedElementIds);
+    setElements(prev => prev.filter(el => !idsToDelete.has(el.id)));
+    setSelectedElementIds([]);
+    setActivePanelState(null);
+    showSnackbar(`${count} élément${count > 1 ? 's supprimés' : ' supprimé'}`, 'delete_sweep');
+  }, [selectedElementIds, recordHistory, showSnackbar]);
+
+  const selectElement = useCallback((id: string | null, multi = false) => {
+    if (!id) {
+      setSelectedElementIds([]);
+      setActivePanelState(prev => (prev === 'text' || prev === 'shape' || prev === 'align' ? null : prev));
+      return;
+    }
+
+    if (multi) {
+      setSelectedElementIds(prev => {
+        let next: string[];
+        if (prev.includes(id)) {
+          next = prev.filter(x => x !== id);
+        } else {
+          next = [...prev, id];
+        }
+
+        if (next.length === 0) {
+          setActivePanelState(null);
+        } else if (next.length === 1) {
+          const singleId = next[0];
+          setElements(currentEls => {
+            const found = currentEls.find(e => e.id === singleId);
+            if (found) {
+              setActivePanelState(found.type === 'text' ? 'text' : 'shape');
+            }
+            return currentEls;
+          });
+        } else {
+          setActivePanelState('align');
+        }
+
+        return next;
+      });
+    } else {
+      setSelectedElementIds([id]);
+      setElements(currentEls => {
+        const found = currentEls.find(e => e.id === id);
         if (found) {
           setActivePanelState(found.type === 'text' ? 'text' : 'shape');
         }
-        return prev;
+        return currentEls;
       });
-    } else {
-      setActivePanelState(prev => (prev === 'text' || prev === 'shape' ? null : prev));
     }
   }, []);
+
+  // Layer hierarchy actions
+  const bringForward = useCallback(
+    (id: string) => {
+      recordHistory();
+      setElements(prev => {
+        const idx = prev.findIndex(e => e.id === id);
+        if (idx === -1 || idx >= prev.length - 1) return prev;
+        const next = [...prev];
+        const temp = next[idx];
+        next[idx] = next[idx + 1];
+        next[idx + 1] = temp;
+        return next;
+      });
+      showSnackbar('Calque monté d’un niveau', 'keyboard_arrow_up');
+    },
+    [recordHistory, showSnackbar]
+  );
+
+  const sendBackward = useCallback(
+    (id: string) => {
+      recordHistory();
+      setElements(prev => {
+        const idx = prev.findIndex(e => e.id === id);
+        if (idx <= 0) return prev;
+        const next = [...prev];
+        const temp = next[idx];
+        next[idx] = next[idx - 1];
+        next[idx - 1] = temp;
+        return next;
+      });
+      showSnackbar('Calque descendu d’un niveau', 'keyboard_arrow_down');
+    },
+    [recordHistory, showSnackbar]
+  );
+
+  const bringToFront = useCallback(
+    (id: string) => {
+      recordHistory();
+      setElements(prev => {
+        const target = prev.find(e => e.id === id);
+        if (!target) return prev;
+        return [...prev.filter(e => e.id !== id), target];
+      });
+      showSnackbar('Placé au premier plan', 'vertical_align_top');
+    },
+    [recordHistory, showSnackbar]
+  );
+
+  const sendToBack = useCallback(
+    (id: string) => {
+      recordHistory();
+      setElements(prev => {
+        const target = prev.find(e => e.id === id);
+        if (!target) return prev;
+        return [target, ...prev.filter(e => e.id !== id)];
+      });
+      showSnackbar('Placé à l’arrière-plan', 'vertical_align_bottom');
+    },
+    [recordHistory, showSnackbar]
+  );
+
+  // Alignment & Distribution actions
+  const alignSelected = useCallback(
+    (type: AlignType, reference: AlignReference) => {
+      if (selectedElementIds.length === 0) return;
+      recordHistory();
+      setElements(prev =>
+        alignElements(prev, selectedElementIds, type, reference, {
+          width: canvasWidth,
+          height: canvasHeight
+        })
+      );
+      showSnackbar('Alignement appliqué', 'format_align_center');
+    },
+    [selectedElementIds, canvasWidth, canvasHeight, recordHistory, showSnackbar]
+  );
+
+  const distributeSelected = useCallback(
+    (type: DistributeType, reference: AlignReference, customGap?: number) => {
+      if (selectedElementIds.length < 2) return;
+      recordHistory();
+      setElements(prev =>
+        distributeElements(
+          prev,
+          selectedElementIds,
+          type,
+          reference,
+          { width: canvasWidth, height: canvasHeight },
+          customGap
+        )
+      );
+      showSnackbar('Espacement uniforme appliqué', 'distribute_horizontal');
+    },
+    [selectedElementIds, canvasWidth, canvasHeight, recordHistory, showSnackbar]
+  );
 
   const setActivePanel = useCallback((panel: ActivePanel) => {
     setActivePanelState(panel);
     if (panel === 'bg' || panel === 'export') {
-      setSelectedElementId(null);
+      setSelectedElementIds([]);
     }
   }, []);
 
@@ -497,12 +693,64 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIsDrawingExportModeState(mode);
   }, []);
 
-  const setZoom = useCallback((zoomOrUpdater: number | ((prev: number) => number)) => {
-    setZoomState(prev => {
-      const next = typeof zoomOrUpdater === 'function' ? zoomOrUpdater(prev) : zoomOrUpdater;
-      return Math.min(3.5, Math.max(0.2, Math.round(next * 100) / 100));
+  const setPan = useCallback((panOrUpdater: { x: number; y: number } | ((prev: { x: number; y: number }) => { x: number; y: number })) => {
+    setPanState(prev => {
+      const next = typeof panOrUpdater === 'function' ? panOrUpdater(prev) : panOrUpdater;
+      panRef.current = next;
+      return next;
     });
   }, []);
+
+  const setZoom = useCallback(
+    (
+      zoomOrUpdater: number | ((prev: number) => number),
+      focalPoint?: { clientX: number; clientY: number }
+    ) => {
+      const prevZoom = zoomRef.current;
+      const targetRaw = typeof zoomOrUpdater === 'function' ? zoomOrUpdater(prevZoom) : zoomOrUpdater;
+      const nextZoom = Math.min(3.5, Math.max(0.2, Math.round(targetRaw * 100) / 100));
+
+      if (nextZoom === prevZoom) return;
+
+      const vp = viewportRef.current;
+      const currentPan = panRef.current;
+
+      if (!vp) {
+        setZoomState(nextZoom);
+        zoomRef.current = nextZoom;
+        return;
+      }
+
+      const vpRect = vp.getBoundingClientRect();
+      let focalVpX: number;
+      let focalVpY: number;
+
+      if (focalPoint) {
+        // Zoom via roulette : le point pointé par la souris (dans le repère du viewport)
+        focalVpX = focalPoint.clientX - vpRect.left;
+        focalVpY = focalPoint.clientY - vpRect.top;
+      } else {
+        // Zoom via loupes de la toolbar / boutons +/- : le CENTRE DE LA COMPOSITION
+        focalVpX = currentPan.x + (canvasWidth / 2) * prevZoom;
+        focalVpY = currentPan.y + (canvasHeight / 2) * prevZoom;
+      }
+
+      // Coordonnées du point focal dans le document de composition
+      const canvasX = (focalVpX - currentPan.x) / prevZoom;
+      const canvasY = (focalVpY - currentPan.y) / prevZoom;
+
+      // Nouvelle position pan pour que le point (canvasX, canvasY) reste immobile à (focalVpX, focalVpY)
+      const newPanX = Math.round(focalVpX - canvasX * nextZoom);
+      const newPanY = Math.round(focalVpY - canvasY * nextZoom);
+
+      setZoomState(nextZoom);
+      zoomRef.current = nextZoom;
+
+      setPanState({ x: newPanX, y: newPanY });
+      panRef.current = { x: newPanX, y: newPanY };
+    },
+    [canvasWidth, canvasHeight, viewportRef]
+  );
 
   const zoomIn = useCallback(() => {
     setZoom(prev => Math.min(3.5, prev + 0.15));
@@ -514,15 +762,16 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const resetZoom = useCallback(() => {
     setZoomState(1.0);
-    if (viewportRef.current && artboardContainerRef.current) {
-      viewportRef.current.scrollTo({
-        left: artboardContainerRef.current.offsetLeft - 40,
-        top: artboardContainerRef.current.offsetTop - 40,
-        behavior: 'smooth'
-      });
+    zoomRef.current = 1.0;
+    if (viewportRef.current) {
+      const vp = viewportRef.current;
+      const centeredX = Math.round((vp.clientWidth - canvasWidth) / 2);
+      const centeredY = Math.round((vp.clientHeight - canvasHeight) / 2);
+      setPanState({ x: centeredX, y: centeredY });
+      panRef.current = { x: centeredX, y: centeredY };
       showSnackbar('Vue recentrée (100%)', 'center_focus_strong');
     }
-  }, [showSnackbar]);
+  }, [canvasWidth, canvasHeight, showSnackbar, viewportRef]);
 
   const setCanvasDimensions = useCallback(
     (width: number, height: number) => {
@@ -567,10 +816,17 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (viewportRef.current) {
           const vpW = viewportRef.current.clientWidth - 100;
           const vpH = viewportRef.current.clientHeight - 100;
+          let currentFit = 1.0;
           if (vpW > 100 && vpH > 100 && (naturalWidth > vpW || naturalHeight > vpH)) {
             const fitZoom = Math.min(1.0, Math.max(0.1, Math.min(vpW / naturalWidth, vpH / naturalHeight)));
-            setZoomState(Math.round(fitZoom * 100) / 100);
+            currentFit = Math.round(fitZoom * 100) / 100;
+            setZoomState(currentFit);
+            zoomRef.current = currentFit;
           }
+          const newPanX = Math.round((viewportRef.current.clientWidth - naturalWidth * currentFit) / 2);
+          const newPanY = Math.round((viewportRef.current.clientHeight - naturalHeight * currentFit) / 2);
+          setPanState({ x: newPanX, y: newPanY });
+          panRef.current = { x: newPanX, y: newPanY };
         }
 
         showSnackbar(`Image de fond appliquée : composition adaptée à ${naturalWidth} × ${naturalHeight} px`, 'aspect_ratio');
@@ -588,7 +844,13 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Apply composition directly (e.g. from resolved template or undo)
   const applyCompositionDirectly = useCallback(
     (
-      comp: { background: BackgroundConfig; elements: CanvasElement[]; exportZone: ExportZone },
+      comp: {
+        background: BackgroundConfig;
+        elements: CanvasElement[];
+        exportZone: ExportZone;
+        canvasWidth?: number;
+        canvasHeight?: number;
+      },
       recordHist = true
     ) => {
       if (recordHist) {
@@ -597,9 +859,38 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setBackgroundState(comp.background);
       setElements(comp.elements);
       setExportZoneState(comp.exportZone);
-      setSelectedElementId(null);
+      setSelectedElementIds([]);
+
+      // Dimensions fixes définies par la composition (master/override/variant)
+      const targetW = comp.canvasWidth || comp.exportZone?.width || 800;
+      const targetH = comp.canvasHeight || comp.exportZone?.height || 600;
+
+      setCanvasWidth(targetW);
+      setCanvasHeight(targetH);
+
+      // Adapter le zoom et centrer la composition dans le viewport si nécessaire
+      if (viewportRef.current) {
+        const vpW = viewportRef.current.clientWidth - 80;
+        const vpH = viewportRef.current.clientHeight - 80;
+        if (vpW > 100 && vpH > 100 && (targetW > vpW || targetH > vpH)) {
+          const fitZoom = Math.min(1.0, Math.max(0.1, Math.min(vpW / targetW, vpH / targetH)));
+          const roundFit = Math.round(fitZoom * 100) / 100;
+          setZoomState(roundFit);
+          zoomRef.current = roundFit;
+          const newPanX = Math.round((viewportRef.current.clientWidth - targetW * roundFit) / 2);
+          const newPanY = Math.round((viewportRef.current.clientHeight - targetH * roundFit) / 2);
+          setPanState({ x: newPanX, y: newPanY });
+          panRef.current = { x: newPanX, y: newPanY };
+        } else {
+          const currentZ = zoomRef.current || 1.0;
+          const newPanX = Math.round((viewportRef.current.clientWidth - targetW * currentZ) / 2);
+          const newPanY = Math.round((viewportRef.current.clientHeight - targetH * currentZ) / 2);
+          setPanState({ x: newPanX, y: newPanY });
+          panRef.current = { x: newPanX, y: newPanY };
+        }
+      }
     },
-    [recordHistory]
+    [recordHistory, viewportRef]
   );
 
   // Apply a BundleItem with cascade resolution
@@ -609,7 +900,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       recordHistory();
 
       const masterConfig = (loadedBundle.master?.config as BannerMasterConfig) || {};
-      let resolved: { background: BackgroundConfig; elements: CanvasElement[]; exportZone: ExportZone };
+      let resolved: { background: BackgroundConfig; elements: CanvasElement[]; exportZone: ExportZone; canvasWidth: number; canvasHeight: number };
 
       if (item.type === 'master') {
         resolved = resolveComposition(
@@ -650,13 +941,13 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const exportCanvasAsTemplateYaml = useCallback(
     (customName?: string) => {
       const templateName = customName || loadedBundle?.master?.name || 'banner_template';
-      const masterConfig = serializeCanvasToMaster(templateName, background, elements, exportZone);
+      const masterConfig = serializeCanvasToMaster(templateName, background, elements, exportZone, canvasWidth, canvasHeight);
       const yamlStr = stringifyYaml(masterConfig);
       const filename = `${templateName.toLowerCase().replace(/[^a-z0-9]/gi, '_')}.yml`;
       downloadFile(filename, yamlStr, 'text/yaml');
       showSnackbar(`Template exporté : ${filename}`, 'download');
     },
-    [background, elements, exportZone, loadedBundle, showSnackbar]
+    [background, elements, exportZone, canvasWidth, canvasHeight, loadedBundle, showSnackbar]
   );
 
   // Export current canvas state into a complete Bundle ZIP
@@ -666,7 +957,9 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         loadedBundle?.name || 'marketing_bundle',
         background,
         elements,
-        exportZone
+        exportZone,
+        canvasWidth,
+        canvasHeight
       );
 
       const bundleToExport: LoadedBundle = loadedBundle || {
@@ -695,10 +988,10 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [loadedBundle, background, elements, exportZone, showSnackbar]);
 
-  const selectedElementIdRef = useRef<string | null>(selectedElementId);
+  const selectedElementIdsRef = useRef<string[]>(selectedElementIds);
   useEffect(() => {
-    selectedElementIdRef.current = selectedElementId;
-  }, [selectedElementId]);
+    selectedElementIdsRef.current = selectedElementIds;
+  }, [selectedElementIds]);
 
   // Global keyboard shortcuts for Suppr / Del, Undo / Redo
   useEffect(() => {
@@ -712,12 +1005,16 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       if (isInput) return;
 
-      // Touche Suppr / Del / Backspace pour supprimer l'élément sélectionné
+      // Touche Suppr / Del / Backspace pour supprimer le(s) élément(s) sélectionné(s)
       if (e.key === 'Delete' || e.key === 'Del' || e.key === 'Backspace') {
-        const currentId = selectedElementIdRef.current;
-        if (currentId) {
+        const currentIds = selectedElementIdsRef.current;
+        if (currentIds.length > 1) {
           e.preventDefault();
-          deleteElement(currentId);
+          deleteSelectedElements();
+          return;
+        } else if (currentIds.length === 1) {
+          e.preventDefault();
+          deleteElement(currentIds[0]);
           showSnackbar('Élément supprimé', 'delete');
           return;
         }
@@ -739,7 +1036,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [deleteElement, undo, redo, showSnackbar]);
+  }, [deleteElement, deleteSelectedElements, undo, redo, showSnackbar]);
 
   return (
     <EditorContext.Provider
@@ -750,11 +1047,13 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           background,
           elements,
           selectedElementId,
+          selectedElementIds,
           activePanel,
           exportZone,
           isDrawingExportMode,
           theme,
           zoom,
+          pan,
           canUndo,
           canRedo
         },
@@ -779,6 +1078,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         addShape,
         updateElement,
         deleteElement,
+        deleteSelectedElements,
         selectElement,
         setActivePanel,
         updateExportZone,
@@ -788,11 +1088,18 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setZoom,
         zoomIn,
         zoomOut,
+        setPan,
         toggleTheme,
         recordHistory,
         undo,
         redo,
         clearAll,
+        bringForward,
+        sendBackward,
+        bringToFront,
+        sendToBack,
+        alignSelected,
+        distributeSelected,
         loadedBundle,
         setLoadedBundle,
         activeBundleItemId,

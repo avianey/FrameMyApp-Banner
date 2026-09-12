@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import { useEditor } from '../../context/EditorContext';
 import { ShapeElementModel, ShapeType, FillType, GradientStop } from '../../types';
 import { ColorAlphaPicker } from '../common/ColorAlphaPicker';
+import { LayerOrderControls } from './LayerOrderControls';
 
 const shapesList: { id: ShapeType; label: string; icon: string }[] = [
   { id: 'rectangle', label: 'Rectangle', icon: 'rectangle' },
@@ -61,6 +62,9 @@ export const ShapeControls: React.FC<ShapeControlsProps> = ({ element }) => {
           Surchargeable dans les templates YAML : <code className="text-m3-sys-primary font-mono text-[10px]">elements.{element.customId || 'id'}</code>
         </p>
       </div>
+
+      {/* Hiérarchie et ordre des calques */}
+      <LayerOrderControls elementId={element.id} />
 
       {/* Choix de la forme */}
       <div className="space-y-1.5">

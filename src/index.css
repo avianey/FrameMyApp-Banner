@@ -67,6 +67,7 @@ html, body, #root {
   justify-content: center;
   vertical-align: middle;
   line-height: 1;
+  text-transform: none;
 }
 
 .material-symbols-rounded.filled {
