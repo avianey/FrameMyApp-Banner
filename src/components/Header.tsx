@@ -15,7 +15,8 @@ export const Header: React.FC = () => {
     isLeftSidebarOpen,
     setIsLeftSidebarOpen,
     loadedBundle,
-    setIsBatchExportModalOpen
+    setIsBatchExportModalOpen,
+    setIsDocOpen
   } = useEditor();
   const { theme, zoom, canUndo, canRedo } = state;
 
@@ -143,6 +144,15 @@ export const Header: React.FC = () => {
           }`}
         >
           <span className="material-symbols-rounded text-xl leading-none">wallpaper</span>
+        </button>
+
+        {/* Documentation & Guide */}
+        <button
+          onClick={() => setIsDocOpen(true)}
+          title="Ouvrir la documentation & guide d'utilisation (Canevas, Alpha, Templates, Batch Export)"
+          className="w-10 h-10 rounded-full flex items-center justify-center border border-m3-sys-outlineVariant/40 bg-m3-sys-surfaceContainerLow hover:bg-m3-sys-surfaceContainerHighest hover:border-m3-sys-primary text-m3-sys-onSurface active:scale-95 shadow-sm transition-all cursor-pointer"
+        >
+          <span className="material-symbols-rounded text-xl leading-none">menu_book</span>
         </button>
 
         {/* Séparateur */}

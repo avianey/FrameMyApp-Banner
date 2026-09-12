@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { useEditor } from '../../context/EditorContext';
-import { ShapeElementModel, ShapeType, FillType } from '../../types';
+import { ShapeElementModel, ShapeType, FillType, GradientStop } from '../../types';
 import { ColorAlphaPicker } from '../common/ColorAlphaPicker';
 
 const shapesList: { id: ShapeType; label: string; icon: string }[] = [
@@ -124,50 +124,325 @@ export const ShapeControls: React.FC<ShapeControlsProps> = ({ element }) => {
         </div>
       )}
 
-      {element.fillType === 'linear' && (
-        <div className="space-y-4">
-          <ColorAlphaPicker
-            label="Couleur 1"
-            value={element.color1}
-            onChange={rgba => handleUpdate({ color1: rgba })}
-          />
-          <ColorAlphaPicker
-            label="Couleur 2"
-            value={element.color2}
-            onChange={rgba => handleUpdate({ color2: rgba })}
-          />
-          <div className="bg-m3-sys-surfaceContainer rounded-xl p-3 border border-m3-sys-outlineVariant/30">
-            <div className="flex justify-between text-xs mb-1">
-              <span>Angle du dégradé</span>
-              <span>{element.angle}°</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="360"
-              step="1"
-              value={element.angle}
-              onChange={e => handleUpdate({ angle: parseInt(e.target.value, 10) })}
-              className="w-full accent-m3-sys-primary"
-            />
-          </div>
-        </div>
-      )}
+      {/* Dégradé Linéaire avec gestion complète des stops */}
+      {element.fillType === 'linear' && (() => {
+        const stops: GradientStop[] = element.gradientStops && element.gradientStops.length > 0
+          ? element.gradientStops
+          : [
+              { color: element.color1 || 'rgba(6, 182, 212, 0.9)', offset: 0 },
+              { color: element.color2 || 'rgba(59, 130, 246, 0.9)', offset: 100 }
+            ];
 
-      {element.fillType === 'radial' && (
-        <div className="space-y-4">
-          <ColorAlphaPicker
-            label="Couleur centrale"
-            value={element.radialColor1}
-            onChange={rgba => handleUpdate({ radialColor1: rgba })}
-          />
-          <ColorAlphaPicker
-            label="Couleur extérieure"
-            value={element.radialColor2}
-            onChange={rgba => handleUpdate({ radialColor2: rgba })}
-          />
-        </div>
-      )}
+        const previewCss = [...stops]
+          .sort((a, b) => a.offset - b.offset)
+          .map(s => `${s.color} ${s.offset}%`)
+          .join(', ');
+
+        const handleStopColorChange = (index: number, newColor: string) => {
+          const next = stops.map((s, i) => i === index ? { ...s, color: newColor } : s);
+          handleUpdate({
+            gradientStops: next,
+            color1: next[0]?.color || element.color1,
+            color2: next[next.length - 1]?.color || element.color2
+          });
+        };
+
+        const handleStopOffsetChange = (index: number, newOffset: number) => {
+          const next = stops.map((s, i) => i === index ? { ...s, offset: Math.max(0, Math.min(100, newOffset)) } : s);
+          handleUpdate({ gradientStops: next });
+        };
+
+        const handleAddStop = () => {
+          const sorted = [...stops].sort((a, b) => a.offset - b.offset);
+          let newOffset = 50;
+          if (sorted.length >= 2) {
+            let maxGap = 0;
+            let gapMid = 50;
+            for (let i = 0; i < sorted.length - 1; i++) {
+              const gap = sorted[i + 1].offset - sorted[i].offset;
+              if (gap > maxGap) {
+                maxGap = gap;
+                gapMid = Math.round((sorted[i].offset + sorted[i + 1].offset) / 2);
+              }
+            }
+            newOffset = gapMid;
+          }
+          const newColor = 'rgba(236, 72, 153, 0.9)';
+          const next = [...stops, { color: newColor, offset: newOffset }].sort((a, b) => a.offset - b.offset);
+          handleUpdate({
+            gradientStops: next,
+            color1: next[0]?.color || element.color1,
+            color2: next[next.length - 1]?.color || element.color2
+          });
+        };
+
+        const handleRemoveStop = (index: number) => {
+          if (stops.length <= 2) return;
+          const next = stops.filter((_, i) => i !== index);
+          handleUpdate({
+            gradientStops: next,
+            color1: next[0]?.color || element.color1,
+            color2: next[next.length - 1]?.color || element.color2
+          });
+        };
+
+        return (
+          <div className="space-y-4">
+            {/* Barre de prévisualisation du dégradé */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-m3-sys-onSurfaceVariant uppercase tracking-wider">
+                  Nuancier ({stops.length} étapes)
+                </label>
+                <button
+                  onClick={handleAddStop}
+                  title="Ajouter une couleur intermédiaire au dégradé"
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-m3-sys-primary text-m3-sys-onPrimary text-[11px] font-bold shadow-sm hover:brightness-110 active:scale-95 transition-all cursor-pointer"
+                >
+                  <span className="material-symbols-rounded text-sm">add</span>
+                  <span>Ajouter une étape</span>
+                </button>
+              </div>
+              <div
+                className="h-7 w-full rounded-xl shadow-inner border border-m3-sys-outlineVariant/50 checkerboard-pattern overflow-hidden relative"
+              >
+                <div
+                  className="w-full h-full rounded-xl"
+                  style={{ background: `linear-gradient(to right, ${previewCss})` }}
+                />
+              </div>
+            </div>
+
+            {/* Liste ordonnée des étapes de couleur */}
+            <div className="space-y-3 bg-m3-sys-surfaceContainerLow rounded-2xl p-3 border border-m3-sys-outlineVariant/30">
+              {stops.map((stop, index) => (
+                <div
+                  key={index}
+                  className="p-2.5 bg-m3-sys-surfaceContainer rounded-xl border border-m3-sys-outlineVariant/30 space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <div
+                        className="w-5 h-5 rounded-full border border-white shadow-sm flex-shrink-0"
+                        style={{ backgroundColor: stop.color }}
+                      />
+                      <span className="text-xs font-bold text-m3-sys-onSurface">
+                        Étape {index + 1}
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-[11px] font-mono text-m3-sys-primary font-bold">
+                        {stop.offset}%
+                      </span>
+                      {stops.length > 2 && (
+                        <button
+                          onClick={() => handleRemoveStop(index)}
+                          title="Supprimer cette couleur intermédiaire"
+                          className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-m3-sys-error/20 text-m3-sys-error transition-all cursor-pointer"
+                        >
+                          <span className="material-symbols-rounded text-sm">delete</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Curseur de position (%) */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[10px] text-m3-sys-outline">
+                      <span>Position sur l'axe</span>
+                      <span>{stop.offset}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={stop.offset}
+                      onChange={e => handleStopOffsetChange(index, parseInt(e.target.value, 10))}
+                      className="w-full accent-m3-sys-primary"
+                    />
+                  </div>
+
+                  {/* Sélecteur de couleur avec alpha */}
+                  <ColorAlphaPicker
+                    label={`Couleur de l'étape ${index + 1}`}
+                    value={stop.color}
+                    onChange={rgba => handleStopColorChange(index, rgba)}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* Angle d'orientation du dégradé */}
+            <div className="bg-m3-sys-surfaceContainer rounded-xl p-3 border border-m3-sys-outlineVariant/30">
+              <div className="flex justify-between text-xs mb-1">
+                <span className="font-medium text-m3-sys-onSurface">Orientation du dégradé</span>
+                <span className="font-mono text-m3-sys-primary font-bold">{element.angle}°</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="360"
+                step="1"
+                value={element.angle}
+                onChange={e => handleUpdate({ angle: parseInt(e.target.value, 10) })}
+                className="w-full accent-m3-sys-primary"
+              />
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Dégradé Radial avec gestion complète des stops */}
+      {element.fillType === 'radial' && (() => {
+        const stops: GradientStop[] = element.radialStops && element.radialStops.length > 0
+          ? element.radialStops
+          : [
+              { color: element.radialColor1 || 'rgba(245, 158, 11, 1)', offset: 0 },
+              { color: element.radialColor2 || 'rgba(220, 38, 38, 0.85)', offset: 100 }
+            ];
+
+        const previewCss = [...stops]
+          .sort((a, b) => a.offset - b.offset)
+          .map(s => `${s.color} ${s.offset}%`)
+          .join(', ');
+
+        const handleStopColorChange = (index: number, newColor: string) => {
+          const next = stops.map((s, i) => i === index ? { ...s, color: newColor } : s);
+          handleUpdate({
+            radialStops: next,
+            radialColor1: next[0]?.color || element.radialColor1,
+            radialColor2: next[next.length - 1]?.color || element.radialColor2
+          });
+        };
+
+        const handleStopOffsetChange = (index: number, newOffset: number) => {
+          const next = stops.map((s, i) => i === index ? { ...s, offset: Math.max(0, Math.min(100, newOffset)) } : s);
+          handleUpdate({ radialStops: next });
+        };
+
+        const handleAddStop = () => {
+          const sorted = [...stops].sort((a, b) => a.offset - b.offset);
+          let newOffset = 50;
+          if (sorted.length >= 2) {
+            let maxGap = 0;
+            let gapMid = 50;
+            for (let i = 0; i < sorted.length - 1; i++) {
+              const gap = sorted[i + 1].offset - sorted[i].offset;
+              if (gap > maxGap) {
+                maxGap = gap;
+                gapMid = Math.round((sorted[i].offset + sorted[i + 1].offset) / 2);
+              }
+            }
+            newOffset = gapMid;
+          }
+          const newColor = 'rgba(147, 51, 234, 0.9)';
+          const next = [...stops, { color: newColor, offset: newOffset }].sort((a, b) => a.offset - b.offset);
+          handleUpdate({
+            radialStops: next,
+            radialColor1: next[0]?.color || element.radialColor1,
+            radialColor2: next[next.length - 1]?.color || element.radialColor2
+          });
+        };
+
+        const handleRemoveStop = (index: number) => {
+          if (stops.length <= 2) return;
+          const next = stops.filter((_, i) => i !== index);
+          handleUpdate({
+            radialStops: next,
+            radialColor1: next[0]?.color || element.radialColor1,
+            radialColor2: next[next.length - 1]?.color || element.radialColor2
+          });
+        };
+
+        return (
+          <div className="space-y-4">
+            {/* Barre de prévisualisation du dégradé radial */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-m3-sys-onSurfaceVariant uppercase tracking-wider">
+                  Nuancier radial ({stops.length} étapes)
+                </label>
+                <button
+                  onClick={handleAddStop}
+                  title="Ajouter une couleur intermédiaire au dégradé radial"
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-m3-sys-primary text-m3-sys-onPrimary text-[11px] font-bold shadow-sm hover:brightness-110 active:scale-95 transition-all cursor-pointer"
+                >
+                  <span className="material-symbols-rounded text-sm">add</span>
+                  <span>Ajouter une étape</span>
+                </button>
+              </div>
+              <div
+                className="h-7 w-full rounded-xl shadow-inner border border-m3-sys-outlineVariant/50 checkerboard-pattern overflow-hidden relative"
+              >
+                <div
+                  className="w-full h-full rounded-xl"
+                  style={{ background: `linear-gradient(to right, ${previewCss})` }}
+                />
+              </div>
+            </div>
+
+            {/* Liste des étapes */}
+            <div className="space-y-3 bg-m3-sys-surfaceContainerLow rounded-2xl p-3 border border-m3-sys-outlineVariant/30">
+              {stops.map((stop, index) => (
+                <div
+                  key={index}
+                  className="p-2.5 bg-m3-sys-surfaceContainer rounded-xl border border-m3-sys-outlineVariant/30 space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <div
+                        className="w-5 h-5 rounded-full border border-white shadow-sm flex-shrink-0"
+                        style={{ backgroundColor: stop.color }}
+                      />
+                      <span className="text-xs font-bold text-m3-sys-onSurface">
+                        {index === 0 ? 'Centre' : index === stops.length - 1 ? 'Extérieur' : `Étape ${index + 1}`}
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-[11px] font-mono text-m3-sys-primary font-bold">
+                        {stop.offset}%
+                      </span>
+                      {stops.length > 2 && (
+                        <button
+                          onClick={() => handleRemoveStop(index)}
+                          title="Supprimer cette couleur intermédiaire"
+                          className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-m3-sys-error/20 text-m3-sys-error transition-all cursor-pointer"
+                        >
+                          <span className="material-symbols-rounded text-sm">delete</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Curseur de position (%) */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[10px] text-m3-sys-outline">
+                      <span>Rayon / Éloignement</span>
+                      <span>{stop.offset}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={stop.offset}
+                      onChange={e => handleStopOffsetChange(index, parseInt(e.target.value, 10))}
+                      className="w-full accent-m3-sys-primary"
+                    />
+                  </div>
+
+                  <ColorAlphaPicker
+                    label={`Couleur de l'étape ${index + 1}`}
+                    value={stop.color}
+                    onChange={rgba => handleStopColorChange(index, rgba)}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {element.fillType === 'image' && (
         <div className="space-y-2 bg-m3-sys-surfaceContainer p-3 rounded-xl border border-m3-sys-outlineVariant/30 text-center">

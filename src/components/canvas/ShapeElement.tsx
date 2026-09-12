@@ -61,9 +61,21 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({ element, isSelected 
   } else if (element.fillType === 'solid') {
     shapeStyle.backgroundColor = element.solidColor;
   } else if (element.fillType === 'linear') {
-    shapeStyle.background = `linear-gradient(${element.angle}deg, ${element.color1}, ${element.color2})`;
+    if (element.gradientStops && element.gradientStops.length > 0) {
+      const sortedStops = [...element.gradientStops].sort((a, b) => a.offset - b.offset);
+      const stopsCss = sortedStops.map(s => `${s.color} ${s.offset}%`).join(', ');
+      shapeStyle.background = `linear-gradient(${element.angle}deg, ${stopsCss})`;
+    } else {
+      shapeStyle.background = `linear-gradient(${element.angle}deg, ${element.color1}, ${element.color2})`;
+    }
   } else if (element.fillType === 'radial') {
-    shapeStyle.background = `radial-gradient(circle at center, ${element.radialColor1}, ${element.radialColor2})`;
+    if (element.radialStops && element.radialStops.length > 0) {
+      const sortedStops = [...element.radialStops].sort((a, b) => a.offset - b.offset);
+      const stopsCss = sortedStops.map(s => `${s.color} ${s.offset}%`).join(', ');
+      shapeStyle.background = `radial-gradient(circle at center, ${stopsCss})`;
+    } else {
+      shapeStyle.background = `radial-gradient(circle at center, ${element.radialColor1}, ${element.radialColor2})`;
+    }
   } else if (element.fillType === 'image' && element.imageUrl) {
     shapeStyle.backgroundImage = `url('${element.imageUrl}')`;
     shapeStyle.backgroundSize = 'cover';

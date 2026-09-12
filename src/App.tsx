@@ -8,9 +8,10 @@ import { BottomBar } from './components/BottomBar';
 import { Snackbar } from './components/Snackbar';
 import { ConfirmModal } from './components/ConfirmModal';
 import { BatchExportModal } from './components/modal/BatchExportModal';
+import { DocumentationModal } from './components/modal/DocumentationModal';
 
 export const AppContent: React.FC = () => {
-  const { isConfirmModalOpen, setIsConfirmModalOpen, clearAll } = useEditor();
+  const { isConfirmModalOpen, setIsConfirmModalOpen, clearAll, isDocOpen, setIsDocOpen } = useEditor();
 
   return (
     <div className="h-full w-full bg-m3-sys-surface text-m3-sys-onSurface flex flex-col overflow-hidden font-sans">
@@ -28,6 +29,10 @@ export const AppContent: React.FC = () => {
         onConfirm={clearAll}
       />
       <BatchExportModal />
+      <DocumentationModal
+        isOpen={isDocOpen}
+        onClose={() => setIsDocOpen(false)}
+      />
     </div>
   );
 };

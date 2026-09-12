@@ -25,6 +25,8 @@ interface SnackbarState {
 }
 
 interface HistorySnapshot {
+  canvasWidth?: number;
+  canvasHeight?: number;
   background: BackgroundConfig;
   elements: CanvasElement[];
   exportZone: ExportZone;
@@ -37,6 +39,8 @@ interface EditorContextType {
   setIsConfirmModalOpen: (open: boolean) => void;
   isBatchExportModalOpen: boolean;
   setIsBatchExportModalOpen: (open: boolean) => void;
+  isDocOpen: boolean;
+  setIsDocOpen: (open: boolean) => void;
   isLeftSidebarOpen: boolean;
   setIsLeftSidebarOpen: (open: boolean) => void;
   activeLeftTab: 'templates' | 'customIds';
@@ -47,6 +51,8 @@ interface EditorContextType {
 
   // Background & Elements actions
   setBackground: (updates: Partial<BackgroundConfig>) => void;
+  applyBackgroundImage: (imageUrl: string) => void;
+  setCanvasDimensions: (width: number, height: number) => void;
   addText: () => void;
   addShape: (shapeType?: ShapeType) => void;
   updateElement: (id: string, updates: Partial<CanvasElement>) => void;
@@ -157,12 +163,15 @@ const initialExportZone: ExportZone = {
   preset: 'custom',
   ratio: 700 / 525,
   targetWidth: 1200,
-  targetHeight: 900
+  targetHeight: 900,
+  lockRatio: true
 };
 
 const EditorContext = createContext<EditorContextType | undefined>(undefined);
 
 export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [canvasWidth, setCanvasWidth] = useState<number>(800);
+  const [canvasHeight, setCanvasHeight] = useState<number>(600);
   const [background, setBackgroundState] = useState<BackgroundConfig>(initialBackground);
   const [elements, setElements] = useState<CanvasElement[]>(initialElements);
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
@@ -176,6 +185,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [loadedBundle, setLoadedBundle] = useState<LoadedBundle | null>(null);
   const [activeBundleItemId, setActiveBundleItemId] = useState<string | null>(null);
   const [isBatchExportModalOpen, setIsBatchExportModalOpen] = useState<boolean>(false);
+  const [isDocOpen, setIsDocOpen] = useState<boolean>(false);
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState<boolean>(false);
   const [activeLeftTab, setActiveLeftTab] = useState<'templates' | 'customIds'>('templates');
 
@@ -192,6 +202,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const recordHistory = useCallback(() => {
     pastRef.current.push({
+      canvasWidth,
+      canvasHeight,
       background: JSON.parse(JSON.stringify(background)),
       elements: JSON.parse(JSON.stringify(elements)),
       exportZone: JSON.parse(JSON.stringify(exportZone))
@@ -201,7 +213,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     futureRef.current = [];
     updateHistoryFlags();
-  }, [background, elements, exportZone, updateHistoryFlags]);
+  }, [canvasWidth, canvasHeight, background, elements, exportZone, updateHistoryFlags]);
 
   // Theme support
   const [theme, setThemeState] = useState<'light' | 'dark'>(() => {
@@ -248,6 +260,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (pastRef.current.length === 0) return;
 
     const currentSnapshot: HistorySnapshot = {
+      canvasWidth,
+      canvasHeight,
       background: JSON.parse(JSON.stringify(background)),
       elements: JSON.parse(JSON.stringify(elements)),
       exportZone: JSON.parse(JSON.stringify(exportZone))
@@ -256,6 +270,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const previousSnapshot = pastRef.current.pop();
     if (previousSnapshot) {
+      if (previousSnapshot.canvasWidth) setCanvasWidth(previousSnapshot.canvasWidth);
+      if (previousSnapshot.canvasHeight) setCanvasHeight(previousSnapshot.canvasHeight);
       setBackgroundState(previousSnapshot.background);
       setElements(previousSnapshot.elements);
       setExportZoneState(previousSnapshot.exportZone);
@@ -269,12 +285,14 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     updateHistoryFlags();
     showSnackbar('Action annulée (Undo)', 'undo');
-  }, [background, elements, exportZone, updateHistoryFlags, showSnackbar]);
+  }, [canvasWidth, canvasHeight, background, elements, exportZone, updateHistoryFlags, showSnackbar]);
 
   const redo = useCallback(() => {
     if (futureRef.current.length === 0) return;
 
     const currentSnapshot: HistorySnapshot = {
+      canvasWidth,
+      canvasHeight,
       background: JSON.parse(JSON.stringify(background)),
       elements: JSON.parse(JSON.stringify(elements)),
       exportZone: JSON.parse(JSON.stringify(exportZone))
@@ -283,6 +301,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const nextSnapshot = futureRef.current.pop();
     if (nextSnapshot) {
+      if (nextSnapshot.canvasWidth) setCanvasWidth(nextSnapshot.canvasWidth);
+      if (nextSnapshot.canvasHeight) setCanvasHeight(nextSnapshot.canvasHeight);
       setBackgroundState(nextSnapshot.background);
       setElements(nextSnapshot.elements);
       setExportZoneState(nextSnapshot.exportZone);
@@ -296,26 +316,19 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     updateHistoryFlags();
     showSnackbar('Action rétablie (Redo)', 'redo');
-  }, [background, elements, exportZone, updateHistoryFlags, showSnackbar]);
+  }, [canvasWidth, canvasHeight, background, elements, exportZone, updateHistoryFlags, showSnackbar]);
 
   const clearAll = useCallback(() => {
     recordHistory();
+    setCanvasWidth(800);
+    setCanvasHeight(600);
     setElements([]);
-    setBackgroundState({
-      type: 'solid',
-      solidColor: 'rgba(255, 255, 255, 1)',
-      color1: 'rgba(99, 102, 241, 1)',
-      color2: 'rgba(236, 72, 153, 0.95)',
-      angle: 135,
-      radialShape: 'circle',
-      radialColor1: 'rgba(244, 63, 94, 1)',
-      radialColor2: 'rgba(30, 27, 75, 1)',
-      imageUrl: '',
-      imageFit: 'cover'
-    });
+    setBackgroundState(initialBackground);
     setSelectedElementId(null);
     setActivePanelState(null);
     setActiveBundleItemId(null);
+    setExportZoneState(initialExportZone);
+    setZoomState(1.0);
     showSnackbar('Projet réinitialisé', 'delete_sweep');
   }, [recordHistory, showSnackbar]);
 
@@ -511,6 +524,67 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [showSnackbar]);
 
+  const setCanvasDimensions = useCallback(
+    (width: number, height: number) => {
+      recordHistory();
+      setCanvasWidth(width);
+      setCanvasHeight(height);
+    },
+    [recordHistory]
+  );
+
+  const applyBackgroundImage = useCallback(
+    (imageUrl: string) => {
+      const img = new Image();
+      img.onload = () => {
+        const naturalWidth = img.naturalWidth || 800;
+        const naturalHeight = img.naturalHeight || 600;
+
+        recordHistory();
+        setCanvasWidth(naturalWidth);
+        setCanvasHeight(naturalHeight);
+        setBackgroundState(prev => ({
+          ...prev,
+          type: 'image',
+          imageUrl,
+          imageFit: 'cover'
+        }));
+
+        // La zone de crop est définie sur les dimensions exactes de l'image
+        setExportZoneState({
+          x: 0,
+          y: 0,
+          width: naturalWidth,
+          height: naturalHeight,
+          ratio: naturalWidth / naturalHeight,
+          targetWidth: naturalWidth,
+          targetHeight: naturalHeight,
+          preset: 'custom',
+          lockRatio: true
+        });
+
+        // Zoom automatique pour ajuster à l'écran si nécessaire
+        if (viewportRef.current) {
+          const vpW = viewportRef.current.clientWidth - 100;
+          const vpH = viewportRef.current.clientHeight - 100;
+          if (vpW > 100 && vpH > 100 && (naturalWidth > vpW || naturalHeight > vpH)) {
+            const fitZoom = Math.min(1.0, Math.max(0.1, Math.min(vpW / naturalWidth, vpH / naturalHeight)));
+            setZoomState(Math.round(fitZoom * 100) / 100);
+          }
+        }
+
+        showSnackbar(`Image de fond appliquée : composition adaptée à ${naturalWidth} × ${naturalHeight} px`, 'aspect_ratio');
+      };
+      img.onerror = () => {
+        recordHistory();
+        setBackgroundState(prev => ({ ...prev, type: 'image', imageUrl }));
+        showSnackbar('Image de fond appliquée', 'image');
+      };
+      img.src = imageUrl;
+    },
+    [recordHistory, showSnackbar, viewportRef]
+  );
+
   // Apply composition directly (e.g. from resolved template or undo)
   const applyCompositionDirectly = useCallback(
     (
@@ -621,21 +695,38 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [loadedBundle, background, elements, exportZone, showSnackbar]);
 
-  // Global keyboard shortcuts for Undo / Redo
+  const selectedElementIdRef = useRef<string | null>(selectedElementId);
+  useEffect(() => {
+    selectedElementIdRef.current = selectedElementId;
+  }, [selectedElementId]);
+
+  // Global keyboard shortcuts for Suppr / Del, Undo / Redo
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
-
-      if (!cmdOrCtrl) return;
-
       const activeEl = document.activeElement;
       const isInput =
         activeEl?.tagName === 'INPUT' ||
         activeEl?.tagName === 'TEXTAREA' ||
-        activeEl?.getAttribute('contenteditable') === 'true';
+        activeEl?.getAttribute('contenteditable') === 'true' ||
+        activeEl?.classList.contains('editable-text-content');
 
       if (isInput) return;
+
+      // Touche Suppr / Del / Backspace pour supprimer l'élément sélectionné
+      if (e.key === 'Delete' || e.key === 'Del' || e.key === 'Backspace') {
+        const currentId = selectedElementIdRef.current;
+        if (currentId) {
+          e.preventDefault();
+          deleteElement(currentId);
+          showSnackbar('Élément supprimé', 'delete');
+          return;
+        }
+      }
+
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      if (!cmdOrCtrl) return;
 
       if (e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
@@ -648,12 +739,14 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo]);
+  }, [deleteElement, undo, redo, showSnackbar]);
 
   return (
     <EditorContext.Provider
       value={{
         state: {
+          canvasWidth,
+          canvasHeight,
           background,
           elements,
           selectedElementId,
@@ -670,6 +763,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setIsConfirmModalOpen,
         isBatchExportModalOpen,
         setIsBatchExportModalOpen,
+        isDocOpen,
+        setIsDocOpen,
         isLeftSidebarOpen,
         setIsLeftSidebarOpen,
         activeLeftTab,
@@ -678,6 +773,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         artboardContainerRef,
         viewportRef,
         setBackground,
+        applyBackgroundImage,
+        setCanvasDimensions,
         addText,
         addShape,
         updateElement,

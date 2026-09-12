@@ -13,11 +13,14 @@ export async function exportComposition(
     backgroundColor: null,
   });
 
-  const scaleRatio = capturedCanvas.width / 800;
-  const cropX = zone.x * scaleRatio;
-  const cropY = zone.y * scaleRatio;
-  const cropW = zone.width * scaleRatio;
-  const cropH = zone.height * scaleRatio;
+  const artboardW = artboardElement.clientWidth || 800;
+  const artboardH = artboardElement.clientHeight || 600;
+  const scaleRatioX = capturedCanvas.width / artboardW;
+  const scaleRatioY = capturedCanvas.height / artboardH;
+  const cropX = zone.x * scaleRatioX;
+  const cropY = zone.y * scaleRatioY;
+  const cropW = zone.width * scaleRatioX;
+  const cropH = zone.height * scaleRatioY;
 
   const finalCanvas = document.createElement('canvas');
   finalCanvas.width = zone.targetWidth || 1080;

@@ -15,7 +15,16 @@ export const Artboard: React.FC = () => {
     showSnackbar
   } = useEditor();
 
-  const { background, elements, selectedElementId, activePanel, isDrawingExportMode, zoom } = state;
+  const {
+    background,
+    elements,
+    selectedElementId,
+    activePanel,
+    isDrawingExportMode,
+    zoom,
+    canvasWidth = 800,
+    canvasHeight = 600
+  } = state;
 
   // Background style computation
   const getBackgroundStyle = (): React.CSSProperties => {
@@ -35,7 +44,7 @@ export const Artboard: React.FC = () => {
     if (background.type === 'image' && background.imageUrl) {
       return {
         backgroundImage: `url('${background.imageUrl}')`,
-        backgroundSize: background.imageFit,
+        backgroundSize: background.imageFit === 'contain' ? 'contain' : (background.imageFit === 'auto' ? 'auto' : '100% 100%'),
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat'
       };
@@ -51,12 +60,12 @@ export const Artboard: React.FC = () => {
       if (!rect) return;
 
       const currentZoom = zoom || 1;
-      const startX = Math.max(0, Math.min(800, (e.clientX - rect.left) / currentZoom));
-      const startY = Math.max(0, Math.min(600, (e.clientY - rect.top) / currentZoom));
+      const startX = Math.max(0, Math.min(canvasWidth, (e.clientX - rect.left) / currentZoom));
+      const startY = Math.max(0, Math.min(canvasHeight, (e.clientY - rect.top) / currentZoom));
 
       const onMove = (me: PointerEvent) => {
-        const curX = Math.max(0, Math.min(800, (me.clientX - rect.left) / currentZoom));
-        const curY = Math.max(0, Math.min(600, (me.clientY - rect.top) / currentZoom));
+        const curX = Math.max(0, Math.min(canvasWidth, (me.clientX - rect.left) / currentZoom));
+        const curY = Math.max(0, Math.min(canvasHeight, (me.clientY - rect.top) / currentZoom));
 
         const x = Math.min(startX, curX);
         const y = Math.min(startY, curY);
@@ -110,43 +119,55 @@ export const Artboard: React.FC = () => {
 
   return (
     <div
-      ref={artboardContainerRef}
-      id="artboard-container"
-      className="relative transition-transform duration-150 shadow-m3-3 rounded-2xl overflow-visible touch-none"
+      className="flex items-center justify-center flex-shrink-0 transition-all duration-150"
       style={{
-        width: '800px',
-        height: '600px',
-        transform: `scale(${zoom})`,
-        transformOrigin: 'center center'
+        width: `${Math.round(canvasWidth * zoom)}px`,
+        height: `${Math.round(canvasHeight * zoom)}px`
       }}
     >
       <div
-        ref={artboardRef}
-        id="artboard"
-        onPointerDown={handlePointerDown}
-        className="w-full h-full rounded-2xl relative overflow-hidden bg-white"
+        ref={artboardContainerRef}
+        id="artboard-container"
+        className="relative transition-transform duration-150 shadow-m3-3 rounded-2xl overflow-visible touch-none flex-shrink-0"
+        style={{
+          width: `${canvasWidth}px`,
+          height: `${canvasHeight}px`,
+          minWidth: `${canvasWidth}px`,
+          minHeight: `${canvasHeight}px`,
+          maxWidth: `${canvasWidth}px`,
+          maxHeight: `${canvasHeight}px`,
+          transform: `scale(${zoom})`,
+          transformOrigin: 'center center'
+        }}
       >
-        {/* Fond dynamique */}
         <div
-          id="artboard-bg"
-          className="absolute inset-0 w-full h-full pointer-events-none transition-all duration-200"
-          style={getBackgroundStyle()}
-        />
+          ref={artboardRef}
+          id="artboard"
+          onPointerDown={handlePointerDown}
+          className="w-full h-full rounded-2xl relative overflow-hidden bg-white"
+        >
+          {/* Fond dynamique */}
+          <div
+            id="artboard-bg"
+            className="absolute inset-0 w-full h-full pointer-events-none transition-all duration-200"
+            style={getBackgroundStyle()}
+          />
 
-        {/* Objets (Textes & Formes) */}
-        <div id="artboard-elements" className="absolute inset-0 w-full h-full">
-          {elements.map(el => {
-            const isSelected = selectedElementId === el.id;
-            if (el.type === 'text') {
-              return <TextElement key={el.id} element={el} isSelected={isSelected} />;
-            }
-            return <ShapeElement key={el.id} element={el} isSelected={isSelected} />;
-          })}
+          {/* Objets (Textes & Formes) */}
+          <div id="artboard-elements" className="absolute inset-0 w-full h-full">
+            {elements.map(el => {
+              const isSelected = selectedElementId === el.id;
+              if (el.type === 'text') {
+                return <TextElement key={el.id} element={el} isSelected={isSelected} />;
+              }
+              return <ShapeElement key={el.id} element={el} isSelected={isSelected} />;
+            })}
+          </div>
         </div>
-      </div>
 
-      {/* Masque et boîte de sélection pour l'exportation */}
-      <ExportOverlay />
+        {/* Masque et boîte de sélection pour l'exportation */}
+        <ExportOverlay />
+      </div>
     </div>
   );
 };

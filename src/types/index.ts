@@ -24,6 +24,11 @@ export interface BackgroundConfig {
 export type ShapeType = 'rectangle' | 'rounded-rect' | 'circle' | 'pill' | 'star' | 'hexagon';
 export type FillType = 'none' | 'solid' | 'linear' | 'radial' | 'image';
 
+export interface GradientStop {
+  color: string;
+  offset: number; // 0 à 100%
+}
+
 export interface GlowConfig {
   enable: boolean;
   color: string;
@@ -79,6 +84,8 @@ export interface ShapeElementModel extends BaseElement {
   angle: number;
   radialColor1: string;
   radialColor2: string;
+  gradientStops?: GradientStop[];
+  radialStops?: GradientStop[];
   imageUrl: string;
   opacity: number;
   borderRadius: number;
@@ -97,11 +104,14 @@ export interface ExportZone {
   ratio: number;
   targetWidth: number;
   targetHeight: number;
+  lockRatio?: boolean;
 }
 
 export type ActivePanel = 'bg' | 'text' | 'shape' | 'export' | null;
 
 export interface EditorState {
+  canvasWidth: number;
+  canvasHeight: number;
   background: BackgroundConfig;
   elements: CanvasElement[];
   selectedElementId: string | null;

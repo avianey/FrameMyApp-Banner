@@ -7,7 +7,7 @@ export const CanvasViewport: React.FC = () => {
     viewportRef,
     state,
     updateElement,
-    setBackground,
+    applyBackgroundImage,
     setActivePanel,
     showSnackbar,
     setZoom,
@@ -71,9 +71,8 @@ export const CanvasViewport: React.FC = () => {
           }
         }
 
-        setBackground({ type: 'image', imageUrl: result });
+        applyBackgroundImage(result);
         setActivePanel('bg');
-        showSnackbar('Image de fond mise à jour', 'image');
       };
       reader.readAsDataURL(files[0]);
     }

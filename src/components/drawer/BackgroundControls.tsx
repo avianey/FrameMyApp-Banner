@@ -4,7 +4,7 @@ import { BackgroundType } from '../../types';
 import { ColorAlphaPicker } from '../common/ColorAlphaPicker';
 
 export const BackgroundControls: React.FC = () => {
-  const { state, setBackground } = useEditor();
+  const { state, setBackground, applyBackgroundImage } = useEditor();
   const { background } = state;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -18,7 +18,7 @@ export const BackgroundControls: React.FC = () => {
       reader.onload = ev => {
         const result = ev.target?.result as string;
         if (result) {
-          setBackground({ type: 'image', imageUrl: result });
+          applyBackgroundImage(result);
         }
       };
       reader.readAsDataURL(e.target.files[0]);
@@ -114,9 +114,36 @@ export const BackgroundControls: React.FC = () => {
       {/* Image */}
       {background.type === 'image' && (
         <div className="space-y-4 bg-m3-sys-surfaceContainer rounded-2xl p-4 border border-m3-sys-outlineVariant/30">
-          <label className="text-sm font-medium">Image de fond</label>
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium">Image de fond</label>
+            {background.imageUrl && (
+              <span className="text-[10px] font-mono font-bold text-m3-sys-primary bg-m3-sys-primaryContainer px-2 py-0.5 rounded-full">
+                {state.canvasWidth} × {state.canvasHeight} px
+              </span>
+            )}
+          </div>
+
           <div
             onClick={() => fileInputRef.current?.click()}
+            onDragOver={e => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onDrop={e => {
+              e.preventDefault();
+              e.stopPropagation();
+              const files = e.dataTransfer.files;
+              if (files && files[0] && files[0].type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = ev => {
+                  const result = ev.target?.result as string;
+                  if (result) {
+                    applyBackgroundImage(result);
+                  }
+                };
+                reader.readAsDataURL(files[0]);
+              }
+            }}
             className="border-2 border-dashed border-m3-sys-outlineVariant hover:border-m3-sys-primary rounded-xl p-5 text-center cursor-pointer transition-colors"
           >
             <span className="material-symbols-rounded text-3xl text-m3-sys-primary mb-1">
@@ -133,15 +160,50 @@ export const BackgroundControls: React.FC = () => {
           </div>
 
           {background.imageUrl && (
-            <div className="relative rounded-xl overflow-hidden h-32 border border-m3-sys-outlineVariant">
-              <img src={background.imageUrl} alt="Background" className="w-full h-full object-cover" />
-              <button
-                onClick={() => setBackground({ imageUrl: '' })}
-                title="Supprimer l'image"
-                className="absolute top-2 right-2 w-8 h-8 bg-red-600 text-white rounded-full shadow hover:bg-red-700 active:scale-95 transition-all flex items-center justify-center cursor-pointer"
-              >
-                <span className="material-symbols-rounded text-sm leading-none">delete</span>
-              </button>
+            <div className="space-y-3">
+              <div className="relative rounded-xl overflow-hidden h-32 border border-m3-sys-outlineVariant">
+                <img
+                  src={background.imageUrl}
+                  alt="Background"
+                  className={`w-full h-full ${background.imageFit === 'contain' ? 'object-contain bg-black/10' : 'object-cover'}`}
+                />
+                <button
+                  onClick={() => setBackground({ imageUrl: '', type: 'solid' })}
+                  title="Supprimer l'image"
+                  className="absolute top-2 right-2 w-8 h-8 bg-red-600 text-white rounded-full shadow hover:bg-red-700 active:scale-95 transition-all flex items-center justify-center cursor-pointer"
+                >
+                  <span className="material-symbols-rounded text-sm leading-none">delete</span>
+                </button>
+              </div>
+
+              {/* Options de remplissage */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-m3-sys-onSurfaceVariant">
+                  Mode d'ajustement
+                </label>
+                <div className="grid grid-cols-2 gap-1 bg-m3-sys-surfaceContainerHighest p-1 rounded-xl">
+                  <button
+                    onClick={() => setBackground({ imageFit: 'cover' })}
+                    className={`py-1.5 px-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
+                      background.imageFit !== 'contain'
+                        ? 'bg-m3-sys-primary text-white shadow-sm font-bold'
+                        : 'text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainer'
+                    }`}
+                  >
+                    Remplir (100%)
+                  </button>
+                  <button
+                    onClick={() => setBackground({ imageFit: 'contain' })}
+                    className={`py-1.5 px-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
+                      background.imageFit === 'contain'
+                        ? 'bg-m3-sys-primary text-white shadow-sm font-bold'
+                        : 'text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainer'
+                    }`}
+                  >
+                    Ajuster (Contenir)
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>
