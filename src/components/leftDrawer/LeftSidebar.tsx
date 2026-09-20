@@ -5,7 +5,8 @@ import {
   readFilesBundle,
   readZipBundle,
   readDirectoryBundle,
-  readSingleTemplate
+  readSingleTemplate,
+  verifyDirectoryPermission
 } from '../../utils/bundleIo';
 import { serializeCanvasToMaster } from '../../utils/templateEngine';
 import { stringifyYaml } from '../../utils/yamlHelper';
@@ -30,7 +31,9 @@ export const LeftSidebar: React.FC = () => {
     updateElementCustomId,
     autoGenerateCustomIds,
     deleteElement,
-    showSnackbar
+    showSnackbar,
+    isItemDirty,
+    saveBundleItemToDisk
   } = useEditor();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -41,27 +44,8 @@ export const LeftSidebar: React.FC = () => {
   const hasFsSupport = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 
   const handleUpdateMasterFromCanvas = () => {
-    if (!loadedBundle) return;
-    const newMasterConfig = serializeCanvasToMaster(
-      loadedBundle.master?.name || loadedBundle.name || 'Master',
-      state.background,
-      state.elements,
-      state.exportZone
-    );
-    const updatedMaster: BundleItem = {
-      id: 'master',
-      type: 'master',
-      path: 'master.yml',
-      slug: 'master',
-      name: newMasterConfig.name || 'Master',
-      rawContent: stringifyYaml(newMasterConfig),
-      config: newMasterConfig
-    };
-    setLoadedBundle({
-      ...loadedBundle,
-      master: updatedMaster
-    });
-    showSnackbar('Master mis à jour avec le canvas actuel', 'check_circle');
+    if (!loadedBundle || !loadedBundle.master) return;
+    saveBundleItemToDisk(loadedBundle.master);
   };
 
   // Handle single template or zip file import
@@ -112,7 +96,7 @@ export const LeftSidebar: React.FC = () => {
     if (hasFsSupport) {
       try {
         const dirHandle = await (window as any).showDirectoryPicker({
-          mode: 'read',
+          mode: 'readwrite',
           startIn: 'desktop'
         });
         const bundle = await readDirectoryBundle(dirHandle);
@@ -177,6 +161,26 @@ export const LeftSidebar: React.FC = () => {
       // Check if dropped item is a directory
       if (items && items.length > 0) {
         const firstItem = items[0];
+
+        // 1. Try modern File System Access API first to obtain persistent FileSystemDirectoryHandle
+        if (typeof (firstItem as any).getAsFileSystemHandle === 'function') {
+          try {
+            const handle = await (firstItem as any).getAsFileSystemHandle();
+            if (handle && handle.kind === 'directory') {
+              await verifyDirectoryPermission(handle, true);
+              const bundle = await readDirectoryBundle(handle);
+              setLoadedBundle(bundle);
+              if (bundle.master) {
+                applyBundleItem(bundle.master);
+              }
+              showSnackbar(`Dossier déposé et connecté : ${bundle.name}`, 'folder');
+              return;
+            }
+          } catch (err) {
+            console.warn('getAsFileSystemHandle fallback to webkitGetAsEntry:', err);
+          }
+        }
+
         const entry = (firstItem as any).webkitGetAsEntry?.();
         if (entry && entry.isDirectory) {
           // Read directory recursively using DataTransferItemList
@@ -490,24 +494,31 @@ export const LeftSidebar: React.FC = () => {
                       <button
                         onClick={e => {
                           e.stopPropagation();
-                          applyBundleItem(loadedBundle.master!);
+                          saveBundleItemToDisk(loadedBundle.master!);
                         }}
-                        className={`text-[11px] font-bold px-3 py-1 rounded-full cursor-pointer transition-all ${
-                          activeBundleItemId === loadedBundle.master.id
-                            ? 'bg-indigo-500 text-white shadow-sm'
-                            : 'bg-m3-sys-surfaceContainerHighest text-m3-sys-onSurface hover:bg-indigo-500 hover:text-white'
+                        title={
+                          isItemDirty(loadedBundle.master.id)
+                            ? 'Modifications non enregistrées — Cliquer pour sauvegarder dans master.yml'
+                            : 'Sauvegarder dans master.yml'
+                        }
+                        className={`w-7 h-7 rounded-lg transition-all flex items-center justify-center cursor-pointer flex-shrink-0 ${
+                          isItemDirty(loadedBundle.master.id)
+                            ? 'bg-rose-500/20 text-rose-400 border border-rose-500/50 hover:bg-rose-500 hover:text-white shadow-sm animate-pulse'
+                            : activeBundleItemId === loadedBundle.master.id
+                            ? 'bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/25'
+                            : 'text-m3-sys-onSurfaceVariant/40 hover:text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainerHighest'
                         }`}
                       >
-                        {activeBundleItemId === loadedBundle.master.id ? 'Actif' : 'Appliquer'}
+                        <span className="material-symbols-rounded text-base">save</span>
                       </button>
                     </div>
 
                     <button
                       onClick={handleUpdateMasterFromCanvas}
-                      title="Remplacer la configuration du Master avec le canvas actuel"
+                      title="Enregistrer le canvas actuel dans master.yml sur le disque"
                       className="w-full py-1.5 px-3 rounded-xl bg-m3-sys-surfaceContainerHighest hover:bg-indigo-500/20 text-indigo-400 text-[11px] font-semibold transition-all flex items-center justify-center space-x-1.5 border border-m3-sys-outlineVariant/30 cursor-pointer"
                     >
-                      <span className="material-symbols-rounded text-sm">sync</span>
+                      <span className="material-symbols-rounded text-sm">save</span>
                       <span>Enregistrer le Canvas comme Master</span>
                     </button>
                   </div>
@@ -556,15 +567,22 @@ export const LeftSidebar: React.FC = () => {
                           <button
                             onClick={e => {
                               e.stopPropagation();
-                              applyBundleItem(override);
+                              saveBundleItemToDisk(override);
                             }}
-                            className={`text-[10px] font-bold px-2.5 py-1 rounded-full cursor-pointer transition-all ${
-                              activeBundleItemId === override.id
-                                ? 'bg-amber-500 text-white shadow-sm'
-                                : 'bg-m3-sys-surfaceContainerHighest text-m3-sys-onSurface hover:bg-amber-500 hover:text-white'
+                            title={
+                              isItemDirty(override.id)
+                                ? `Modifications non enregistrées — Cliquer pour sauvegarder dans ${override.slug}.yml`
+                                : `Sauvegarder dans ${override.slug}.yml`
+                            }
+                            className={`w-7 h-7 rounded-lg transition-all flex items-center justify-center cursor-pointer flex-shrink-0 ${
+                              isItemDirty(override.id)
+                                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/50 hover:bg-rose-500 hover:text-white shadow-sm animate-pulse'
+                                : activeBundleItemId === override.id
+                                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25'
+                                : 'text-m3-sys-onSurfaceVariant/40 hover:text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainerHighest'
                             }`}
                           >
-                            {activeBundleItemId === override.id ? 'Actif' : 'Appliquer'}
+                            <span className="material-symbols-rounded text-base">save</span>
                           </button>
                         </div>
                       ))}
@@ -572,7 +590,7 @@ export const LeftSidebar: React.FC = () => {
                   </div>
                 )}
 
-                {/* 3. VARIANTS (Grouped by Language) */}
+                {/* 3. VARIANTS (Grouped by Language or Subfolder) */}
                 {Object.keys(groupedVariants).length > 0 && (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-m3-sys-onSurfaceVariant px-1">
@@ -631,15 +649,22 @@ export const LeftSidebar: React.FC = () => {
                               <button
                                 onClick={e => {
                                   e.stopPropagation();
-                                  applyBundleItem(variant);
+                                  saveBundleItemToDisk(variant);
                                 }}
-                                className={`text-[10px] font-bold px-2.5 py-1 rounded-full cursor-pointer transition-all ${
-                                  activeBundleItemId === variant.id
-                                    ? 'bg-emerald-500 text-white shadow-sm'
-                                    : 'bg-m3-sys-surfaceContainerHighest text-m3-sys-onSurface hover:bg-emerald-500 hover:text-white'
+                                title={
+                                  isItemDirty(variant.id)
+                                    ? `Modifications non enregistrées — Cliquer pour sauvegarder dans ${variant.path}`
+                                    : `Sauvegarder dans ${variant.path}`
+                                }
+                                className={`w-7 h-7 rounded-lg transition-all flex items-center justify-center cursor-pointer flex-shrink-0 ${
+                                  isItemDirty(variant.id)
+                                    ? 'bg-rose-500/20 text-rose-400 border border-rose-500/50 hover:bg-rose-500 hover:text-white shadow-sm animate-pulse'
+                                    : activeBundleItemId === variant.id
+                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25'
+                                    : 'text-m3-sys-onSurfaceVariant/40 hover:text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainerHighest'
                                 }`}
                               >
-                                {activeBundleItemId === variant.id ? 'Actif' : 'Appliquer'}
+                                <span className="material-symbols-rounded text-base">save</span>
                               </button>
                             </div>
                           ))}

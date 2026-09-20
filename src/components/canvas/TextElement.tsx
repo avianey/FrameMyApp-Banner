@@ -123,12 +123,14 @@ export const TextElement: React.FC<TextElementProps> = ({
         spellCheck={false}
         className="editable-text-content w-full h-full p-2 outline-none break-words cursor-text rounded focus:ring-2 focus:ring-m3-sys-primary"
         style={{
-          fontFamily: `'${element.fontFamily}', sans-serif`,
+          fontFamily: `'${element.fontFamily}', 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif`,
           fontWeight: element.fontWeight || 400,
           fontSize: `${element.fontSize}px`,
           color: element.color,
-          letterSpacing: `${element.letterSpacing}px`,
-          lineHeight: element.lineHeight,
+          letterSpacing: element.letterSpacing ? `${element.letterSpacing}px` : 'normal',
+          lineHeight: element.lineHeight || 1.3,
+          overflowWrap: 'anywhere',
+          wordBreak: 'break-word',
           textShadow: combinedShadow,
           minHeight: `${minHeightPx}px`
         }}

@@ -12,6 +12,7 @@ const fonts = [
   'Playfair Display',
   'DM Serif Display',
   'Space Grotesk',
+  'Noto Sans JP',
   'Oswald',
   'Pacifico',
   'Lobster',

@@ -6,7 +6,8 @@ import {
   ShapeElementModel,
   BannerMasterConfig,
   BannerOverrideConfig,
-  BannerVariantConfig
+  BannerVariantConfig,
+  BundleItem
 } from '../types';
 
 function deepClone<T>(obj: T): T {
@@ -286,4 +287,119 @@ export function resolveComposition(
   }
 
   return composition;
+}
+
+/**
+ * Serializes current canvas state into an updated BannerVariantConfig.
+ * Updates the 'content' mapping with text elements by customId / id,
+ * preserves existing override elements, images and metadata.
+ */
+export function serializeCanvasToVariant(
+  variantItem: BundleItem,
+  currentElements: CanvasElement[],
+  masterConfig?: BannerMasterConfig,
+  overrideConfig?: BannerOverrideConfig
+): BannerVariantConfig {
+  const existingConfig = (variantItem.config || {}) as BannerVariantConfig;
+  const newConfig: BannerVariantConfig = deepClone(existingConfig);
+
+  if (!newConfig.name) {
+    newConfig.name = variantItem.name;
+  }
+
+  // 1. Content mapping (text elements with customId or existing key)
+  const newContent: Record<string, string> = { ...(newConfig.content || {}) };
+  for (const el of currentElements) {
+    if (el.type === 'text') {
+      const key = el.customId || el.id;
+      if (key) {
+        newContent[key] = (el as TextElementModel).text;
+      }
+    }
+  }
+  if (Object.keys(newContent).length > 0) {
+    newConfig.content = newContent;
+  }
+
+  // 2. Elements fine-tuning (if variant had custom element properties)
+  if (newConfig.elements && typeof newConfig.elements === 'object' && !Array.isArray(newConfig.elements)) {
+    const updatedElements: Record<string, Partial<CanvasElement>> = { ...newConfig.elements };
+    for (const [key, props] of Object.entries(updatedElements)) {
+      const matchingEl = currentElements.find(e => e.customId === key || e.id === key);
+      if (matchingEl && props) {
+        const newProps: Record<string, any> = { ...props };
+        for (const propKey of Object.keys(props)) {
+          if (propKey in matchingEl) {
+            newProps[propKey] = (matchingEl as any)[propKey];
+          }
+        }
+        updatedElements[key] = newProps;
+      }
+    }
+    newConfig.elements = updatedElements;
+  }
+
+  return newConfig;
+}
+
+/**
+ * Serializes current canvas state into an updated BannerOverrideConfig.
+ */
+export function serializeCanvasToOverride(
+  overrideItem: BundleItem,
+  currentBackground: BackgroundConfig,
+  currentElements: CanvasElement[],
+  currentExportZone: ExportZone,
+  masterConfig?: BannerMasterConfig
+): BannerOverrideConfig {
+  const existingConfig = (overrideItem.config || {}) as BannerOverrideConfig;
+  const newConfig: BannerOverrideConfig = deepClone(existingConfig);
+
+  if (!newConfig.name) {
+    newConfig.name = overrideItem.name;
+  }
+
+  // Update background if it was configured in the override
+  if (newConfig.background || existingConfig.background) {
+    newConfig.background = deepClone(currentBackground);
+  }
+
+  // Update exportZone if it was configured in the override
+  if (newConfig.exportZone || existingConfig.exportZone) {
+    newConfig.exportZone = deepClone(currentExportZone);
+  }
+
+  // Update elements mapping
+  if (newConfig.elements && typeof newConfig.elements === 'object' && !Array.isArray(newConfig.elements)) {
+    const updatedElements: Record<string, Partial<CanvasElement>> = { ...newConfig.elements };
+    for (const [key, props] of Object.entries(updatedElements)) {
+      const matchingEl = currentElements.find(e => e.customId === key || e.id === key);
+      if (matchingEl && props) {
+        const newProps: Record<string, any> = { ...props };
+        for (const propKey of Object.keys(props)) {
+          if (propKey in matchingEl) {
+            newProps[propKey] = (matchingEl as any)[propKey];
+          }
+        }
+        updatedElements[key] = newProps;
+      }
+    }
+    newConfig.elements = updatedElements;
+  }
+
+  // Also update content mapping if override had content
+  if (newConfig.content) {
+    const updatedContent: Record<string, string> = { ...newConfig.content };
+    for (const el of currentElements) {
+      if (el.type === 'text') {
+        const key = el.customId || el.id;
+        if (key && key in updatedContent) {
+          updatedContent[key] = (el as TextElementModel).text;
+        }
+      }
+    }
+    newConfig.content = updatedContent;
+  }
+
+  return newConfig;
 }

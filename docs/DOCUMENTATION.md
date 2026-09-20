@@ -120,9 +120,23 @@ Accessible automatiquement lors de la sélection de 2 éléments ou plus via `Ct
 
 ---
 
-## 3. Gestion des Couleurs, de la Transparence Alpha & des Fonds
+## 3. Dimensions de la Scène & Gestion de l'Arrière-Plan
 
-### 3.1 Gestion Intégrale de l'Alpha (Canal Opacité)
+### 3.1 Paramétrage des Dimensions de la Scène (Canvas)
+En tête du panneau de réglage de fond, une section dédiée permet de configurer les dimensions natives du canevas (`canvasWidth` et `canvasHeight`) :
+- **Saisie manuelle en pixels** : Largeur et Hauteur personnalisables (de 100 à 8000 px).
+- **Recentrage et zoom dynamique** : La scène se recentre automatiquement dans le viewport avec adaptation intelligente du facteur de zoom.
+- **Bouton « Adapter le cadre d'export à la scène »** : Recouvre instantanément l'intégralité du canevas pour l'exportation.
+- **Presets Cards populaires** :
+  - *Google Play Bannière* (1475 × 720 px)
+  - *YouTube / Écran HD 16:9* (1920 × 1080 px)
+  - *Bannière Web / OpenGraph* (1200 × 630 px)
+  - *Format Carré 1:1 Instagram* (1080 × 1080 px)
+  - *Story / Reels / TikTok 9:16* (1080 × 1920 px)
+  - *En-tête Twitter / X 3:1* (1500 × 500 px)
+  - *Standard Studio* (800 × 600 px)
+
+### 3.2 Gestion Intégrale de l'Alpha (Canal Opacité)
 Banner Studio gère la composante de transparence dans toutes les teintes :
 - **Format RGBA** : `rgba(r, g, b, a)` où l'alpha est normalisé entre 0 et 1.
 - **Format HEX8** : format hexadécimal à 8 caractères `#RRGGBBAA` (ex: `#6750A4FF` pour 100% opaque, `#00000080` pour 50% de noir).
@@ -132,7 +146,7 @@ Banner Studio gère la composante de transparence dans toutes les teintes :
   - Champ de saisie direct acceptant aussi bien `#RRGGBB` que `#RRGGBBAA`.
   - Aperçu bicolore avec damier en arrière-plan pour voir immédiatement le niveau de transparence.
 
-### 3.2 Types d'Arrière-Plan Disponibles
+### 3.3 Types d'Arrière-Plan Disponibles
 Le panneau de fond propose 4 modes :
 1. **Couleur Unie (`solid`)** : Teinte unique avec transparence configurable.
 2. **Dégradé Linéaire (`linear`)** : Deux couleurs (avec alpha indépendant) orientées selon un angle réglable (0° à 360°).
@@ -287,6 +301,17 @@ Lorsqu'une déclinaison (`variant`) est sélectionnée ou exportée :
 3. **Variant (`variants/<lang>/<slug>.yml`)** : Les traductions textuelles et les surcharges spécifiques à la langue écrasent les propriétés précédentes.
 4. **Résolution d'assets** : Les images référencées sont résolues prioritairement dans `assets/<lang>/` puis dans `assets/`.
 
+### 8.3 Édition Live & Sauvegarde Directe sur le File System
+- **Sélection d'une déclinaison** : Cliquez sur n'importe quelle variante, surcharge ou master dans le volet de gauche pour charger sa composition. Le style de l'élément (bordure et fond colorés) signale visuellement l'élément actif.
+- **Bouton Disquette de Sauvegarde** :
+  - Chaque variante, override et master dispose d'un bouton disquette à droite de sa ligne.
+  - **Détection des modifications en cours (Dirty State)** : dès qu'une modification est apportée sur le canvas (texte modifié, élément déplacé, couleur changée...), l'icône disquette s'active en **rouge vif** pour avertir des modifications non enregistrées.
+  - **Persistance en un clic** : cliquer sur la disquette écrit immédiatement le YAML mis à jour dans le fichier correspondant sur le disque (`.yml`) via la File System Access API.
+- **Création de Variantes (+ Décliner)** :
+  - Le bouton **« + Décliner »** ouvre la boîte de dialogue de création.
+  - Champ **« Chemin (ex: feature/fr) »** : permet de définir une langue simple (`fr`, `ja`) ou une arborescence complète (`feature/fr`, `marketing/de`).
+  - À la validation, le fichier YAML est immédiatement créé et persisté sur le disque dans le sous-répertoire spécifié.
+
 ---
 
 ## 9. Identifiants Personnalisés (customId)
@@ -404,6 +429,10 @@ La boîte de dialogue **Batch Export** automatise la génération de l'intégral
 
 ### 12.3 Fallback Archive ZIP
 - Si votre navigateur ne supporte pas la sélection directe de répertoire ou si vous préférez une archive unique, cliquez sur **« Télécharger en archive ZIP »**. L'archive contiendra l'arborescence complète générée.
+
+### 12.4 Fidélité Typographique CJK & Rendu Pixel-Perfect
+- Lors de l'export PNG, le moteur extrait préalablement les lignes visuelles natives calculées par le navigateur (`Range.getClientRects()`) et injecte la police japonaise `Noto Sans JP` ainsi que des hauteurs de ligne en pixels absolus (`line-height`).
+- Cela neutralise les dérives de césure et de sous-pixels propres à `html2canvas` sur les textes asiatiques sans espaces (japonais, chinois, coréen) et garantit que les retours à la ligne et les espacements dans le fichier PNG final sont 100% identiques à ceux affichés dans l'éditeur interactif.
 
 ---
 

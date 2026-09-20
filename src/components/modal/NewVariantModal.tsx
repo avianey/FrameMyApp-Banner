@@ -2,6 +2,13 @@ import React, { useState } from 'react';
 import { useEditor } from '../../context/EditorContext';
 import { BundleItem, BannerVariantConfig, TextElementModel } from '../../types';
 import { stringifyYaml } from '../../utils/yamlHelper';
+import {
+  writeTextToDirectory,
+  verifyDirectoryPermission,
+  downloadFile,
+  getDirectoryHandleFromIdb,
+  saveDirectoryHandleToIdb
+} from '../../utils/bundleIo';
 
 interface NewVariantModalProps {
   isOpen: boolean;
@@ -11,7 +18,7 @@ interface NewVariantModalProps {
 export const NewVariantModal: React.FC<NewVariantModalProps> = ({ isOpen, onClose }) => {
   const { loadedBundle, setLoadedBundle, state, showSnackbar, applyBundleItem } = useEditor();
 
-  const [lang, setLang] = useState('de');
+  const [subPath, setSubPath] = useState('fr');
   const [slug, setSlug] = useState('01_promo');
   const [name, setName] = useState('Nouvelle Variante');
 
@@ -32,24 +39,67 @@ export const NewVariantModal: React.FC<NewVariantModalProps> = ({ isOpen, onClos
     setContentValues(prev => ({ ...prev, [key]: val }));
   };
 
-  const handleCreate = () => {
-    const cleanLang = lang.trim().toLowerCase() || 'fr';
-    const cleanSlug = slug.trim().toLowerCase().replace(/[^a-z0-9_]/gi, '_') || 'variant';
-    const path = `variants/${cleanLang}/${cleanSlug}.yml`;
+  const handleCreate = async () => {
+    const cleanSubPath = subPath.trim().replace(/^\/+|\/+$/g, '').replace(/^variants\//i, '') || 'fr';
+    const cleanSlug = slug.trim().toLowerCase().replace(/[^a-z0-9_-]/gi, '_') || 'variant';
+    const relativePath = `variants/${cleanSubPath}/${cleanSlug}.yml`;
 
     const variantConfig: BannerVariantConfig = {
-      name: name || `${cleanLang.toUpperCase()} - ${cleanSlug}`,
+      name: name || `${cleanSubPath} - ${cleanSlug}`,
       content: { ...contentValues }
     };
 
+    const yamlContent = stringifyYaml(variantConfig);
+
+    // Persist directly to filesystem if directoryHandle is available
+    let dirHandle = loadedBundle.directoryHandle;
+    if (!dirHandle) {
+      dirHandle = await getDirectoryHandleFromIdb();
+      if (dirHandle) {
+        loadedBundle.directoryHandle = dirHandle;
+      }
+    }
+
+    const hasFsSupport = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+
+    if (!dirHandle && hasFsSupport) {
+      try {
+        dirHandle = await (window as any).showDirectoryPicker({
+          mode: 'readwrite',
+          startIn: 'desktop'
+        });
+        if (dirHandle) {
+          loadedBundle.directoryHandle = dirHandle;
+          saveDirectoryHandleToIdb(dirHandle);
+        }
+      } catch (e: any) {
+        if (e.name !== 'AbortError') {
+          console.warn('showDirectoryPicker failed:', e);
+        }
+      }
+    }
+
+    let savedOnDisk = false;
+    if (dirHandle) {
+      try {
+        await verifyDirectoryPermission(dirHandle, true);
+        await writeTextToDirectory(dirHandle, relativePath, yamlContent);
+        savedOnDisk = true;
+      } catch (err: any) {
+        console.error('Erreur lors de la création du fichier sur le FS:', err);
+      }
+    } else {
+      downloadFile(`${cleanSlug}.yml`, yamlContent, 'text/yaml');
+    }
+
     const newVariantItem: BundleItem = {
-      id: `variant_${cleanLang}_${cleanSlug}_${Date.now()}`,
+      id: `variant_${cleanSubPath.replace(/[^a-z0-9]/gi, '_')}_${cleanSlug}_${Date.now()}`,
       type: 'variant',
-      path,
+      path: relativePath,
       slug: cleanSlug,
-      lang: cleanLang,
+      lang: cleanSubPath,
       name: variantConfig.name || cleanSlug,
-      rawContent: stringifyYaml(variantConfig),
+      rawContent: yamlContent,
       config: variantConfig
     };
 
@@ -66,7 +116,11 @@ export const NewVariantModal: React.FC<NewVariantModalProps> = ({ isOpen, onClos
     });
 
     applyBundleItem(newVariantItem);
-    showSnackbar(`Variante créée et appliquée : ${newVariantItem.name}`, 'add_circle');
+    if (savedOnDisk) {
+      showSnackbar(`Variante créée et enregistrée dans ${relativePath}`, 'check_circle');
+    } else {
+      showSnackbar(`Variante créée : ${newVariantItem.name}`, 'add_circle');
+    }
     onClose();
   };
 
@@ -99,17 +153,17 @@ export const NewVariantModal: React.FC<NewVariantModalProps> = ({ isOpen, onClos
 
         {/* Form Body */}
         <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto no-scrollbar">
-          {/* Langue & Slug */}
+          {/* Chemin & Slug */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-xs font-semibold text-m3-sys-onSurfaceVariant">
-                Code Langue (ex: fr, en, de, es)
+                Chemin (ex: feature/fr)
               </label>
               <input
                 type="text"
-                value={lang}
-                onChange={e => setLang(e.target.value)}
-                placeholder="de"
+                value={subPath}
+                onChange={e => setSubPath(e.target.value)}
+                placeholder="feature/fr"
                 className="w-full px-3 py-2 bg-m3-sys-surfaceContainerHighest rounded-xl border border-m3-sys-outlineVariant/50 text-sm font-mono focus:ring-2 focus:ring-m3-sys-primary focus:outline-none"
               />
             </div>

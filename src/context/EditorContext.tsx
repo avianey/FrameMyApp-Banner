@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   EditorState,
   BackgroundConfig,
@@ -14,9 +14,22 @@ import {
   BannerOverrideConfig,
   BannerVariantConfig
 } from '../types';
-import { resolveComposition, serializeCanvasToMaster } from '../utils/templateEngine';
+import {
+  resolveComposition,
+  serializeCanvasToMaster,
+  serializeCanvasToVariant,
+  serializeCanvasToOverride
+} from '../utils/templateEngine';
 import { stringifyYaml } from '../utils/yamlHelper';
-import { createBundleZip, downloadBlob, downloadFile } from '../utils/bundleIo';
+import {
+  createBundleZip,
+  downloadBlob,
+  downloadFile,
+  writeTextToDirectory,
+  verifyDirectoryPermission,
+  saveDirectoryHandleToIdb,
+  getDirectoryHandleFromIdb
+} from '../utils/bundleIo';
 import {
   alignElements,
   distributeElements,
@@ -110,6 +123,9 @@ interface EditorContextType {
   exportCanvasAsBundleZip: () => Promise<void>;
   updateElementCustomId: (id: string, customId: string) => void;
   autoGenerateCustomIds: () => void;
+  isItemDirty: (itemId: string) => boolean;
+  markItemSaved: (itemId: string) => void;
+  saveBundleItemToDisk: (item: BundleItem) => Promise<boolean>;
 }
 
 const initialBackground: BackgroundConfig = {
@@ -193,6 +209,68 @@ const initialExportZone: ExportZone = {
   lockRatio: true
 };
 
+function computeCanvasSignature(
+  bg: BackgroundConfig,
+  els: CanvasElement[],
+  zone: ExportZone,
+  w?: number,
+  h?: number
+): string {
+  return JSON.stringify({
+    bg,
+    els: els.map(e => {
+      if (e.type === 'text') {
+        const t = e as TextElementModel;
+        return {
+          id: t.id,
+          customId: t.customId,
+          type: t.type,
+          x: t.x,
+          y: t.y,
+          width: t.width,
+          height: t.height,
+          rotation: t.rotation,
+          opacity: t.opacity,
+          text: t.text,
+          fontSize: t.fontSize,
+          fontFamily: t.fontFamily,
+          color: t.color,
+          lineHeight: t.lineHeight,
+          letterSpacing: t.letterSpacing,
+          textAlign: t.textAlign
+        };
+      } else {
+        const s = e as ShapeElementModel;
+        return {
+          id: s.id,
+          customId: s.customId,
+          type: s.type,
+          x: s.x,
+          y: s.y,
+          width: s.width,
+          height: s.height,
+          rotation: s.rotation,
+          opacity: s.opacity,
+          shapeType: s.shapeType,
+          fillType: s.fillType,
+          solidColor: s.solidColor,
+          imageUrl: s.imageUrl
+        };
+      }
+    }),
+    zone: {
+      x: zone.x,
+      y: zone.y,
+      width: zone.width,
+      height: zone.height,
+      targetWidth: zone.targetWidth,
+      targetHeight: zone.targetHeight
+    },
+    w,
+    h
+  });
+}
+
 const EditorContext = createContext<EditorContextType | undefined>(undefined);
 
 export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -213,9 +291,33 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   panRef.current = pan;
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
 
-  // Bundle & Templates state
-  const [loadedBundle, setLoadedBundle] = useState<LoadedBundle | null>(null);
+  // Bundle & Templates state with persistent directory handle
+  const [loadedBundle, setLoadedBundleState] = useState<LoadedBundle | null>(null);
+  const bundleDirHandleRef = useRef<any>(null);
+
+  // Restore persisted directory handle from IDB on app mount
+  useEffect(() => {
+    getDirectoryHandleFromIdb().then(handle => {
+      if (handle) {
+        bundleDirHandleRef.current = handle;
+      }
+    });
+  }, []);
+
+  const setLoadedBundle = useCallback((bundle: LoadedBundle | null) => {
+    if (bundle) {
+      if (bundle.directoryHandle) {
+        bundleDirHandleRef.current = bundle.directoryHandle;
+        saveDirectoryHandleToIdb(bundle.directoryHandle);
+      } else if (bundleDirHandleRef.current) {
+        bundle.directoryHandle = bundleDirHandleRef.current;
+      }
+    }
+    setLoadedBundleState(bundle);
+  }, []);
+
   const [activeBundleItemId, setActiveBundleItemId] = useState<string | null>(null);
+  const [savedCanvasSignatures, setSavedCanvasSignatures] = useState<Record<string, string>>({});
   const [isBatchExportModalOpen, setIsBatchExportModalOpen] = useState<boolean>(false);
   const [isDocOpen, setIsDocOpen] = useState<boolean>(false);
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState<boolean>(false);
@@ -778,8 +880,30 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       recordHistory();
       setCanvasWidth(width);
       setCanvasHeight(height);
+
+      // Adapter le zoom et centrer la scène dans le viewport si nécessaire
+      if (viewportRef.current) {
+        const vpW = viewportRef.current.clientWidth - 80;
+        const vpH = viewportRef.current.clientHeight - 80;
+        if (vpW > 100 && vpH > 100 && (width > vpW || height > vpH)) {
+          const fitZoom = Math.min(1.0, Math.max(0.1, Math.min(vpW / width, vpH / height)));
+          const roundFit = Math.round(fitZoom * 100) / 100;
+          setZoomState(roundFit);
+          zoomRef.current = roundFit;
+          const newPanX = Math.round((viewportRef.current.clientWidth - width * roundFit) / 2);
+          const newPanY = Math.round((viewportRef.current.clientHeight - height * roundFit) / 2);
+          setPanState({ x: newPanX, y: newPanY });
+          panRef.current = { x: newPanX, y: newPanY };
+        } else {
+          const currentZ = zoomRef.current || 1.0;
+          const newPanX = Math.round((viewportRef.current.clientWidth - width * currentZ) / 2);
+          const newPanY = Math.round((viewportRef.current.clientHeight - height * currentZ) / 2);
+          setPanState({ x: newPanX, y: newPanY });
+          panRef.current = { x: newPanX, y: newPanY };
+        }
+      }
     },
-    [recordHistory]
+    [recordHistory, viewportRef]
   );
 
   const applyBackgroundImage = useCallback(
@@ -893,6 +1017,31 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     [recordHistory, viewportRef]
   );
 
+  // Compute live canvas signature to track changes
+  const currentCanvasSignature = useMemo(() => {
+    return computeCanvasSignature(background, elements, exportZone, canvasWidth, canvasHeight);
+  }, [background, elements, exportZone, canvasWidth, canvasHeight]);
+
+  const isItemDirty = useCallback(
+    (itemId: string) => {
+      if (activeBundleItemId !== itemId) return false;
+      const savedSig = savedCanvasSignatures[itemId];
+      if (!savedSig) return false;
+      return currentCanvasSignature !== savedSig;
+    },
+    [activeBundleItemId, savedCanvasSignatures, currentCanvasSignature]
+  );
+
+  const markItemSaved = useCallback(
+    (itemId: string) => {
+      setSavedCanvasSignatures(prev => ({
+        ...prev,
+        [itemId]: currentCanvasSignature
+      }));
+    },
+    [currentCanvasSignature]
+  );
+
   // Apply a BundleItem with cascade resolution
   const applyBundleItem = useCallback(
     (item: BundleItem) => {
@@ -932,9 +1081,150 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       applyCompositionDirectly(resolved, false);
       setActiveBundleItemId(item.id);
+
+      // Record baseline signature so dirty detection starts clean
+      const initialSig = computeCanvasSignature(
+        resolved.background,
+        resolved.elements,
+        resolved.exportZone,
+        resolved.canvasWidth,
+        resolved.canvasHeight
+      );
+      setSavedCanvasSignatures(prev => ({
+        ...prev,
+        [item.id]: initialSig
+      }));
+
       showSnackbar(`Appliqué : ${item.name}`, 'auto_stories');
     },
     [loadedBundle, recordHistory, applyCompositionDirectly, showSnackbar]
+  );
+
+  // Save current canvas state directly back to the YAML file on the filesystem
+  const saveBundleItemToDisk = useCallback(
+    async (item: BundleItem): Promise<boolean> => {
+      if (!loadedBundle) return false;
+
+      try {
+        let yamlContent = '';
+        let updatedConfig: any = null;
+
+        if (item.type === 'master') {
+          const masterConfig = serializeCanvasToMaster(
+            item.name || 'Master',
+            background,
+            elements,
+            exportZone,
+            canvasWidth,
+            canvasHeight
+          );
+          yamlContent = stringifyYaml(masterConfig);
+          updatedConfig = masterConfig;
+        } else if (item.type === 'override') {
+          const overrideConfig = serializeCanvasToOverride(
+            item,
+            background,
+            elements,
+            exportZone,
+            loadedBundle.master?.config as BannerMasterConfig | undefined
+          );
+          yamlContent = stringifyYaml(overrideConfig);
+          updatedConfig = overrideConfig;
+        } else {
+          // Variant
+          const variantConfig = serializeCanvasToVariant(
+            item,
+            elements,
+            loadedBundle.master?.config as BannerMasterConfig | undefined,
+            loadedBundle.overrides[item.slug]?.config as BannerOverrideConfig | undefined
+          );
+          yamlContent = stringifyYaml(variantConfig);
+          updatedConfig = variantConfig;
+        }
+
+        let dirHandle = loadedBundle.directoryHandle || bundleDirHandleRef.current;
+        if (!dirHandle) {
+          dirHandle = await getDirectoryHandleFromIdb();
+          if (dirHandle) {
+            bundleDirHandleRef.current = dirHandle;
+            loadedBundle.directoryHandle = dirHandle;
+          }
+        }
+
+        const hasFsSupport = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+
+        // Prompt directory picker ONLY if no root handle was ever loaded or persisted
+        if (!dirHandle && hasFsSupport) {
+          try {
+            dirHandle = await (window as any).showDirectoryPicker({
+              mode: 'readwrite',
+              startIn: 'desktop'
+            });
+            if (dirHandle) {
+              bundleDirHandleRef.current = dirHandle;
+              loadedBundle.directoryHandle = dirHandle;
+              saveDirectoryHandleToIdb(dirHandle);
+            }
+          } catch (err: any) {
+            if (err.name === 'AbortError') return false;
+            console.warn('showDirectoryPicker failed:', err);
+          }
+        }
+
+        if (dirHandle) {
+          await verifyDirectoryPermission(dirHandle, true);
+          await writeTextToDirectory(dirHandle, item.path, yamlContent);
+          showSnackbar(`Enregistré dans : ${item.path}`, 'save');
+        } else {
+          downloadFile(item.path.split('/').pop() || 'template.yml', yamlContent, 'text/yaml');
+          showSnackbar(`Fichier téléchargé : ${item.path}`, 'download');
+        }
+
+        // Update in-memory item
+        const updatedItem: BundleItem = {
+          ...item,
+          rawContent: yamlContent,
+          config: updatedConfig
+        };
+
+        if (item.type === 'master') {
+          setLoadedBundle({
+            ...loadedBundle,
+            master: updatedItem
+          });
+        } else if (item.type === 'override') {
+          setLoadedBundle({
+            ...loadedBundle,
+            overrides: {
+              ...loadedBundle.overrides,
+              [item.slug]: updatedItem
+            }
+          });
+        } else {
+          setLoadedBundle({
+            ...loadedBundle,
+            variants: loadedBundle.variants.map(v => (v.id === item.id ? updatedItem : v))
+          });
+        }
+
+        markItemSaved(item.id);
+        return true;
+      } catch (err: any) {
+        console.error('Erreur lors de l\'enregistrement sur le disque :', err);
+        showSnackbar(`Erreur d'enregistrement : ${err.message}`, 'error');
+        return false;
+      }
+    },
+    [
+      loadedBundle,
+      background,
+      elements,
+      exportZone,
+      canvasWidth,
+      canvasHeight,
+      markItemSaved,
+      showSnackbar
+    ]
   );
 
   // Export current canvas state as a standalone YAML file
@@ -1108,7 +1398,10 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         exportCanvasAsTemplateYaml,
         exportCanvasAsBundleZip,
         updateElementCustomId,
-        autoGenerateCustomIds
+        autoGenerateCustomIds,
+        isItemDirty,
+        markItemSaved,
+        saveBundleItemToDisk
       }}
     >
       {children}

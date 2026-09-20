@@ -24,9 +24,10 @@ function extractSlug(path: string): string {
 
 function extractLang(path: string): string | undefined {
   // e.g. variants/fr/01_hero.yml -> fr
+  // e.g. variants/feature/fr/01_promo.yml -> feature/fr
   const parts = path.split('/');
   if (parts.length >= 3 && (parts[0] === 'variants' || parts[0] === 'variant' || parts[0] === 'locales' || parts[0] === 'locale')) {
-    return parts[1];
+    return parts.slice(1, -1).join('/');
   }
   return undefined;
 }
@@ -232,6 +233,7 @@ export async function readDirectoryBundle(dirHandle: any): Promise<LoadedBundle>
   await scanDir(dirHandle, '');
   const bundle = await buildBundleFromEntries(entries, dirHandle.name);
   bundle.directoryHandle = dirHandle;
+  saveDirectoryHandleToIdb(dirHandle);
   return bundle;
 }
 
@@ -325,3 +327,97 @@ export function downloadBlob(filename: string, blob: Blob): void {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Recursively writes a text string to a file inside a FileSystemDirectoryHandle.
+ */
+export async function writeTextToDirectory(
+  rootDirHandle: any,
+  relativePath: string,
+  content: string
+): Promise<void> {
+  const parts = relativePath.split('/').filter(Boolean);
+  const filename = parts.pop();
+  if (!filename) return;
+
+  let currentDir = rootDirHandle;
+  for (const part of parts) {
+    currentDir = await currentDir.getDirectoryHandle(part, { create: true });
+  }
+
+  const fileHandle = await currentDir.getFileHandle(filename, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(content);
+  await writable.close();
+}
+
+/**
+ * Checks and requests readwrite permissions on a FileSystemDirectoryHandle if needed.
+ */
+export async function verifyDirectoryPermission(
+  dirHandle: any,
+  readWrite = true
+): Promise<boolean> {
+  if (!dirHandle) return false;
+  const options = { mode: readWrite ? 'readwrite' : 'read' };
+  try {
+    if (dirHandle.queryPermission && (await dirHandle.queryPermission(options)) === 'granted') {
+      return true;
+    }
+    if (dirHandle.requestPermission && (await dirHandle.requestPermission(options)) === 'granted') {
+      return true;
+    }
+  } catch (e) {
+    console.warn('Could not verify directory permission:', e);
+  }
+  return false;
+}
+
+/**
+ * Persists a FileSystemDirectoryHandle to IndexedDB so it survives page reloads.
+ */
+export async function saveDirectoryHandleToIdb(handle: any): Promise<void> {
+  if (typeof window === 'undefined' || !window.indexedDB || !handle) return;
+  try {
+    const req = indexedDB.open('framemyapp_banner_fs', 1);
+    req.onupgradeneeded = () => {
+      req.result.createObjectStore('handles');
+    };
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction('handles', 'readwrite');
+      tx.objectStore('handles').put(handle, 'root_bundle_dir');
+    };
+  } catch (e) {
+    console.warn('Could not save handle to IndexedDB:', e);
+  }
+}
+
+/**
+ * Retrieves the persisted FileSystemDirectoryHandle from IndexedDB if available.
+ */
+export async function getDirectoryHandleFromIdb(): Promise<any> {
+  if (typeof window === 'undefined' || !window.indexedDB) return null;
+  return new Promise(resolve => {
+    try {
+      const req = indexedDB.open('framemyapp_banner_fs', 1);
+      req.onupgradeneeded = () => {
+        req.result.createObjectStore('handles');
+      };
+      req.onsuccess = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains('handles')) {
+          return resolve(null);
+        }
+        const tx = db.transaction('handles', 'readonly');
+        const getReq = tx.objectStore('handles').get('root_bundle_dir');
+        getReq.onsuccess = () => resolve(getReq.result || null);
+        getReq.onerror = () => resolve(null);
+      };
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
