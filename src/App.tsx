@@ -9,6 +9,7 @@ import { Snackbar } from './components/Snackbar';
 import { ConfirmModal } from './components/ConfirmModal';
 import { BatchExportModal } from './components/modal/BatchExportModal';
 import { DocumentationModal } from './components/modal/DocumentationModal';
+import { SaveModal } from './components/modal/SaveModal';
 
 export const AppContent: React.FC = () => {
   const { isConfirmModalOpen, setIsConfirmModalOpen, clearAll, isDocOpen, setIsDocOpen } = useEditor();
@@ -28,6 +29,7 @@ export const AppContent: React.FC = () => {
         onClose={() => setIsConfirmModalOpen(false)}
         onConfirm={clearAll}
       />
+      <SaveModal />
       <BatchExportModal />
       <DocumentationModal
         isOpen={isDocOpen}

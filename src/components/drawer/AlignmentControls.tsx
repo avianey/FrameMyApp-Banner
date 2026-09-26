@@ -57,6 +57,8 @@ export const AlignmentControls: React.FC = () => {
             const name =
               el.type === 'text'
                 ? el.text || 'Texte'
+                : el.type === 'device'
+                ? `Appareil (${el.deviceType})`
                 : `Forme (${el.shapeType})`;
 
             return (
@@ -144,12 +146,12 @@ export const AlignmentControls: React.FC = () => {
         <p className="text-[11px] text-m3-sys-onSurfaceVariant/80 px-1">
           {reference === 'first' && (
             <>
-              Référence : <strong className="text-m3-sys-onSurface">{firstElement?.type === 'text' ? firstElement.text || '1er Texte' : '1ère Forme'}</strong> (le premier élément que vous avez cliqué).
+              Référence : <strong className="text-m3-sys-onSurface">{firstElement?.type === 'text' ? firstElement.text || '1er Texte' : firstElement?.type === 'device' ? `Appareil (${firstElement.deviceType})` : '1ère Forme'}</strong> (le premier élément que vous avez cliqué).
             </>
           )}
           {reference === 'last' && (
             <>
-              Référence : <strong className="text-m3-sys-onSurface">{lastElement?.type === 'text' ? lastElement.text || 'Dernier Texte' : 'Dernière Forme'}</strong> (le dernier élément cliqué).
+              Référence : <strong className="text-m3-sys-onSurface">{lastElement?.type === 'text' ? lastElement.text || 'Dernier Texte' : lastElement?.type === 'device' ? `Appareil (${lastElement.deviceType})` : 'Dernière Forme'}</strong> (le dernier élément cliqué).
             </>
           )}
           {reference === 'canvas' && (

@@ -1,5 +1,6 @@
 {
-  "name": "framemyapp-banner",
+  "name": "framemyapp-studio",
+  "description": "FrameMy.App Studio - Conception de bannières, templates maîtres, déclinaisons & batch export",
   "private": true,
   "version": "1.0.0",
   "type": "module",

@@ -6,13 +6,16 @@ import {
   TextElementModel,
   ShapeElementModel,
   ShapeType,
+  DeviceElementModel,
+  DeviceModelType,
   ExportZone,
   ActivePanel,
   LoadedBundle,
   BundleItem,
   BannerMasterConfig,
   BannerOverrideConfig,
-  BannerVariantConfig
+  BannerVariantConfig,
+  SyncStatus
 } from '../types';
 import {
   resolveComposition,
@@ -20,7 +23,7 @@ import {
   serializeCanvasToVariant,
   serializeCanvasToOverride
 } from '../utils/templateEngine';
-import { stringifyYaml } from '../utils/yamlHelper';
+import { stringifyYaml, parseYaml } from '../utils/yamlHelper';
 import {
   createBundleZip,
   downloadBlob,
@@ -55,6 +58,29 @@ interface HistorySnapshot {
 interface EditorContextType {
   state: EditorState;
   snackbar: SnackbarState;
+
+  // Project Name (Subtitle) & Save Panel
+  projectName: string;
+  setProjectName: (name: string) => void;
+  isSavePanelOpen: boolean;
+  setIsSavePanelOpen: (open: boolean) => void;
+
+  // Synchronization & Disk Auto-Save
+  syncStatus: SyncStatus;
+  lastSyncTime: Date | null;
+  isAutoSyncEnabled: boolean;
+  setIsAutoSyncEnabled: (enabled: boolean) => void;
+  syncDirectoryName: string | null;
+  setSyncDirectoryName: (name: string | null) => void;
+  syncFilePath: string | null;
+  setSyncFilePath: (path: string | null) => void;
+  syncDirectoryHandle: any;
+  setSyncDirectoryHandle: (handle: any) => void;
+  syncFileHandle: any;
+  syncToDisk: () => Promise<boolean>;
+  selectSyncDirectory: () => Promise<boolean>;
+  selectSyncFile: () => Promise<boolean>;
+
   isConfirmModalOpen: boolean;
   setIsConfirmModalOpen: (open: boolean) => void;
   isBatchExportModalOpen: boolean;
@@ -75,11 +101,14 @@ interface EditorContextType {
   setCanvasDimensions: (width: number, height: number) => void;
   addText: () => void;
   addShape: (shapeType?: ShapeType) => void;
+  addDevice: (deviceType?: DeviceModelType) => void;
   updateElement: (id: string, updates: Partial<CanvasElement>) => void;
   deleteElement: (id: string) => void;
   deleteSelectedElements: () => void;
   selectElement: (id: string | null, multi?: boolean) => void;
   setActivePanel: (panel: ActivePanel) => void;
+  editingImageElementId: string | 'background' | null;
+  setEditingImageElementId: (id: string | 'background' | null) => void;
   updateExportZone: (updates: Partial<ExportZone>) => void;
   setIsDrawingExportMode: (mode: boolean) => void;
   showSnackbar: (message: string, icon?: string) => void;
@@ -138,7 +167,10 @@ const initialBackground: BackgroundConfig = {
   radialColor1: 'rgba(244, 63, 94, 1)',
   radialColor2: 'rgba(30, 27, 75, 1)',
   imageUrl: '',
-  imageFit: 'cover'
+  imageFit: 'cover',
+  imageOffsetX: 0,
+  imageOffsetY: 0,
+  imageScale: 1.0
 };
 
 const initialElements: CanvasElement[] = [
@@ -239,6 +271,44 @@ function computeCanvasSignature(
           letterSpacing: t.letterSpacing,
           textAlign: t.textAlign
         };
+      } else if (e.type === 'device') {
+        const d = e as DeviceElementModel;
+        return {
+          id: d.id,
+          customId: d.customId,
+          type: d.type,
+          x: d.x,
+          y: d.y,
+          width: d.width,
+          height: d.height,
+          rotation: d.rotation,
+          deviceType: d.deviceType,
+          bodyColor: d.bodyColor,
+          brushedMetal: d.brushedMetal,
+          brushedMetalOpacity: d.brushedMetalOpacity,
+          bodyThickness: d.bodyThickness,
+          bodyThicknessPercent: d.bodyThicknessPercent,
+          screenBorderColor: d.screenBorderColor,
+          screenBorderWidth: d.screenBorderWidth,
+          screenBorderWidthPercent: d.screenBorderWidthPercent,
+          screenImageUrl: d.screenImageUrl,
+          imageAspectRatio: d.imageAspectRatio,
+          screenColor: d.screenColor,
+          screenFit: d.screenFit,
+          screenPadding: d.screenPadding,
+          borderRadius: d.borderRadius,
+          borderRadiusPercent: d.borderRadiusPercent,
+          showButtons: d.showButtons,
+          buttonColor: d.buttonColor,
+          showCamera: d.showCamera,
+          showHomeIndicator: d.showHomeIndicator,
+          homeIndicatorColor: d.homeIndicatorColor,
+          showFlare: d.showFlare,
+          flareColor: d.flareColor,
+          flareAngle: d.flareAngle,
+          flareSpread: d.flareSpread,
+          shadow: d.shadow ? { ...d.shadow } : undefined
+        };
       } else {
         const s = e as ShapeElementModel;
         return {
@@ -254,7 +324,11 @@ function computeCanvasSignature(
           shapeType: s.shapeType,
           fillType: s.fillType,
           solidColor: s.solidColor,
-          imageUrl: s.imageUrl
+          imageUrl: s.imageUrl,
+          imageFit: s.imageFit,
+          imageOffsetX: s.imageOffsetX,
+          imageOffsetY: s.imageOffsetY,
+          imageScale: s.imageScale
         };
       }
     }),
@@ -281,6 +355,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const selectedElementId = selectedElementIds.length > 0 ? selectedElementIds[selectedElementIds.length - 1] : null;
   const [activePanel, setActivePanelState] = useState<ActivePanel>(null);
+  const [editingImageElementId, setEditingImageElementId] = useState<string | 'background' | null>(null);
   const [exportZone, setExportZoneState] = useState<ExportZone>(initialExportZone);
   const [isDrawingExportMode, setIsDrawingExportModeState] = useState<boolean>(false);
   const [zoom, setZoomState] = useState<number>(1.0);
@@ -306,14 +381,114 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const setLoadedBundle = useCallback((bundle: LoadedBundle | null) => {
     if (bundle) {
+      if (bundle.name) {
+        setProjectName(bundle.name);
+        setSyncDirectoryName(bundle.name);
+      }
       if (bundle.directoryHandle) {
         bundleDirHandleRef.current = bundle.directoryHandle;
+        syncDirHandleRef.current = bundle.directoryHandle;
+        setSyncDirectoryHandleState(bundle.directoryHandle);
         saveDirectoryHandleToIdb(bundle.directoryHandle);
+        saveDirectoryHandleToIdb(bundle.directoryHandle, 'sync_dir_handle');
       } else if (bundleDirHandleRef.current) {
         bundle.directoryHandle = bundleDirHandleRef.current;
       }
+      setSyncFilePathState('master.yml');
+      setSyncStatus('synced');
     }
     setLoadedBundleState(bundle);
+  }, []);
+
+  // Project Name & Subtitle
+  const [projectName, setProjectNameState] = useState<string>(() => {
+    return localStorage.getItem('framemyapp_project_name') || 'Projet sans nom';
+  });
+  const setProjectName = useCallback((name: string) => {
+    const val = name.trim() || 'Projet sans nom';
+    setProjectNameState(val);
+    try {
+      localStorage.setItem('framemyapp_project_name', val);
+    } catch {}
+  }, []);
+
+  // Save Modal / Panel
+  const [isSavePanelOpen, setIsSavePanelOpen] = useState<boolean>(false);
+
+  // Synchronization & Disk Auto-Save
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [isAutoSyncEnabled, setIsAutoSyncEnabledState] = useState<boolean>(() => {
+    return localStorage.getItem('framemyapp_auto_sync') !== 'false';
+  });
+  const setIsAutoSyncEnabled = useCallback((enabled: boolean) => {
+    setIsAutoSyncEnabledState(enabled);
+    try {
+      localStorage.setItem('framemyapp_auto_sync', String(enabled));
+    } catch {}
+  }, []);
+
+  const [syncDirectoryHandle, setSyncDirectoryHandleState] = useState<any>(null);
+  const syncDirHandleRef = useRef<any>(null);
+  const setSyncDirectoryHandle = useCallback((handle: any) => {
+    syncDirHandleRef.current = handle;
+    setSyncDirectoryHandleState(handle);
+    if (handle) {
+      saveDirectoryHandleToIdb(handle, 'sync_dir_handle');
+    }
+  }, []);
+
+  const [syncDirectoryName, setSyncDirectoryNameState] = useState<string | null>(() => {
+    return localStorage.getItem('framemyapp_sync_dir_name') || null;
+  });
+  const setSyncDirectoryName = useCallback((name: string | null) => {
+    setSyncDirectoryNameState(name);
+    if (name) {
+      localStorage.setItem('framemyapp_sync_dir_name', name);
+    } else {
+      localStorage.removeItem('framemyapp_sync_dir_name');
+    }
+  }, []);
+
+  const [syncFilePath, setSyncFilePathState] = useState<string | null>(() => {
+    return localStorage.getItem('framemyapp_sync_file_path') || null;
+  });
+  const setSyncFilePath = useCallback((path: string | null) => {
+    setSyncFilePathState(path);
+    if (path) {
+      localStorage.setItem('framemyapp_sync_file_path', path);
+    } else {
+      localStorage.removeItem('framemyapp_sync_file_path');
+    }
+  }, []);
+
+  const [syncFileHandle, setSyncFileHandleState] = useState<any>(null);
+  const syncFileHandleRef = useRef<any>(null);
+  const setSyncFileHandle = useCallback((handle: any) => {
+    syncFileHandleRef.current = handle;
+    setSyncFileHandleState(handle);
+    if (handle) {
+      saveDirectoryHandleToIdb(handle, 'sync_file_handle');
+    }
+  }, []);
+
+  const lastSavedSignatureRef = useRef<string>('');
+  const autoSyncTimerRef = useRef<any>(null);
+
+  // Restore persisted sync handles from IDB
+  useEffect(() => {
+    getDirectoryHandleFromIdb('sync_dir_handle').then(handle => {
+      if (handle) {
+        syncDirHandleRef.current = handle;
+        setSyncDirectoryHandleState(handle);
+      }
+    });
+    getDirectoryHandleFromIdb('sync_file_handle').then(handle => {
+      if (handle) {
+        syncFileHandleRef.current = handle;
+        setSyncFileHandleState(handle);
+      }
+    });
   }, []);
 
   const [activeBundleItemId, setActiveBundleItemId] = useState<string | null>(null);
@@ -574,6 +749,91 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     [recordHistory]
   );
 
+  const addDevice = useCallback(
+    (deviceType: DeviceModelType = 'pixel-10') => {
+      recordHistory();
+      const id = 'device-' + Date.now();
+      setElements(prev => {
+        const deviceCount = prev.filter(e => e.type === 'device').length + 1;
+        const customId = deviceCount === 1 ? 'app_screen' : `device_${deviceCount}`;
+        const offset = (prev.length * 15) % 200;
+
+        let width = 260;
+        let height = 565;
+        let borderRadius = 36;
+        let screenPadding = 10;
+        let bodyColor = '#1e2022';
+        let buttonColor = '#3a3f45';
+
+        if (deviceType === 'iphone-pro-max') {
+          width = 265;
+          height = 570;
+          borderRadius = 44;
+          screenPadding = 10;
+          bodyColor = '#1d1d1f';
+          buttonColor = '#3a3835';
+        } else if (deviceType === 'samsung-galaxy') {
+          width = 260;
+          height = 575;
+          borderRadius = 22;
+          screenPadding = 8;
+          bodyColor = '#1a1c1e';
+          buttonColor = '#33373b';
+        } else if (deviceType === 'pixel-tab') {
+          width = 500;
+          height = 325;
+          borderRadius = 26;
+          screenPadding = 16;
+          bodyColor = '#2b2c2e';
+          buttonColor = '#424448';
+        }
+
+        const newDevice: DeviceElementModel = {
+          id,
+          customId,
+          type: 'device',
+          deviceType,
+          x: 160 + offset,
+          y: 90 + offset,
+          width,
+          height,
+          rotation: 0,
+          bodyColor,
+          brushedMetal: true,
+          brushedMetalOpacity: 8,
+          bodyThickness: 10,
+          screenBorderColor: '#000000',
+          screenBorderWidth: 4,
+          screenImageUrl: '',
+          screenColor: '#05070a',
+          screenFit: 'cover',
+          showButtons: true,
+          buttonColor,
+          showCamera: true,
+          showHomeIndicator: true,
+          homeIndicatorColor: 'rgba(255, 255, 255, 0.45)',
+          showFlare: true,
+          flareColor: 'rgba(255, 255, 255, 0.15)',
+          flareAngle: 135,
+          flareSpread: 50,
+          screenPadding: 4,
+          borderRadius,
+          shadow: {
+            enable: true,
+            color: 'rgba(0, 0, 0, 0.35)',
+            blur: 20,
+            x: 0,
+            y: 10
+          }
+        };
+        return [...prev, newDevice];
+      });
+      setSelectedElementIds([id]);
+      setActivePanelState('device');
+    },
+    [recordHistory]
+  );
+
   const updateElement = useCallback((id: string, updates: Partial<CanvasElement>) => {
     setElements(prev => prev.map(el => (el.id === id ? ({ ...el, ...updates } as CanvasElement) : el)));
   }, []);
@@ -588,6 +848,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     recordHistory();
     let textIdx = 1;
     let shapeIdx = 1;
+    let deviceIdx = 1;
     setElements(prev =>
       prev.map(el => {
         if (el.customId && el.customId.trim()) return el;
@@ -595,6 +856,9 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (el.type === 'text') {
           newCustomId = textIdx === 1 ? 'title' : textIdx === 2 ? 'subtitle' : `text_${textIdx}`;
           textIdx++;
+        } else if (el.type === 'device') {
+          newCustomId = deviceIdx === 1 ? 'app_screen' : `device_${deviceIdx}`;
+          deviceIdx++;
         } else {
           newCustomId = shapeIdx === 1 ? 'badge_card' : `shape_${shapeIdx}`;
           shapeIdx++;
@@ -617,7 +881,9 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           setElements(currentEls => {
             const remaining = currentEls.find(e => e.id === next[0]);
             if (remaining) {
-              setActivePanelState(remaining.type === 'text' ? 'text' : 'shape');
+              setActivePanelState(
+                remaining.type === 'text' ? 'text' : remaining.type === 'device' ? 'device' : 'shape'
+              );
             }
             return currentEls;
           });
@@ -642,7 +908,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const selectElement = useCallback((id: string | null, multi = false) => {
     if (!id) {
       setSelectedElementIds([]);
-      setActivePanelState(prev => (prev === 'text' || prev === 'shape' || prev === 'align' ? null : prev));
+      setActivePanelState(prev => (prev === 'text' || prev === 'shape' || prev === 'device' || prev === 'align' ? null : prev));
       return;
     }
 
@@ -662,7 +928,9 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           setElements(currentEls => {
             const found = currentEls.find(e => e.id === singleId);
             if (found) {
-              setActivePanelState(found.type === 'text' ? 'text' : 'shape');
+              setActivePanelState(
+                found.type === 'text' ? 'text' : found.type === 'device' ? 'device' : 'shape'
+              );
             }
             return currentEls;
           });
@@ -677,7 +945,9 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setElements(currentEls => {
         const found = currentEls.find(e => e.id === id);
         if (found) {
-          setActivePanelState(found.type === 'text' ? 'text' : 'shape');
+          setActivePanelState(
+            found.type === 'text' ? 'text' : found.type === 'device' ? 'device' : 'shape'
+          );
         }
         return currentEls;
       });
@@ -914,46 +1184,20 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const naturalHeight = img.naturalHeight || 600;
 
         recordHistory();
-        setCanvasWidth(naturalWidth);
-        setCanvasHeight(naturalHeight);
+        // Les dimensions de la scène restent STRICTEMENT fixes
         setBackgroundState(prev => ({
           ...prev,
           type: 'image',
           imageUrl,
-          imageFit: 'cover'
+          imageFit: prev.imageFit || 'cover',
+          imageOffsetX: 0,
+          imageOffsetY: 0,
+          imageScale: 1.0,
+          imageNaturalWidth: naturalWidth,
+          imageNaturalHeight: naturalHeight
         }));
 
-        // La zone de crop est définie sur les dimensions exactes de l'image
-        setExportZoneState({
-          x: 0,
-          y: 0,
-          width: naturalWidth,
-          height: naturalHeight,
-          ratio: naturalWidth / naturalHeight,
-          targetWidth: naturalWidth,
-          targetHeight: naturalHeight,
-          preset: 'custom',
-          lockRatio: true
-        });
-
-        // Zoom automatique pour ajuster à l'écran si nécessaire
-        if (viewportRef.current) {
-          const vpW = viewportRef.current.clientWidth - 100;
-          const vpH = viewportRef.current.clientHeight - 100;
-          let currentFit = 1.0;
-          if (vpW > 100 && vpH > 100 && (naturalWidth > vpW || naturalHeight > vpH)) {
-            const fitZoom = Math.min(1.0, Math.max(0.1, Math.min(vpW / naturalWidth, vpH / naturalHeight)));
-            currentFit = Math.round(fitZoom * 100) / 100;
-            setZoomState(currentFit);
-            zoomRef.current = currentFit;
-          }
-          const newPanX = Math.round((viewportRef.current.clientWidth - naturalWidth * currentFit) / 2);
-          const newPanY = Math.round((viewportRef.current.clientHeight - naturalHeight * currentFit) / 2);
-          setPanState({ x: newPanX, y: newPanY });
-          panRef.current = { x: newPanX, y: newPanY };
-        }
-
-        showSnackbar(`Image de fond appliquée : composition adaptée à ${naturalWidth} × ${naturalHeight} px`, 'aspect_ratio');
+        showSnackbar(`Image de fond appliquée (${naturalWidth} × ${naturalHeight} px)`, 'image');
       };
       img.onerror = () => {
         recordHistory();
@@ -962,7 +1206,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       };
       img.src = imageUrl;
     },
-    [recordHistory, showSnackbar, viewportRef]
+    [recordHistory, showSnackbar]
   );
 
   // Apply composition directly (e.g. from resolved template or undo)
@@ -1095,9 +1339,18 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         [item.id]: initialSig
       }));
 
+      if (item.path) {
+        setSyncFilePath(item.path);
+      }
+      if (item.name) {
+        setProjectName(item.name);
+      }
+      lastSavedSignatureRef.current = initialSig;
+      setSyncStatus('synced');
+
       showSnackbar(`Appliqué : ${item.name}`, 'auto_stories');
     },
-    [loadedBundle, recordHistory, applyCompositionDirectly, showSnackbar]
+    [loadedBundle, recordHistory, applyCompositionDirectly, setSyncFilePath, setProjectName, showSnackbar]
   );
 
   // Save current canvas state directly back to the YAML file on the filesystem
@@ -1230,21 +1483,22 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Export current canvas state as a standalone YAML file
   const exportCanvasAsTemplateYaml = useCallback(
     (customName?: string) => {
-      const templateName = customName || loadedBundle?.master?.name || 'banner_template';
+      const templateName = customName || projectName || loadedBundle?.master?.name || 'banner_template';
       const masterConfig = serializeCanvasToMaster(templateName, background, elements, exportZone, canvasWidth, canvasHeight);
       const yamlStr = stringifyYaml(masterConfig);
       const filename = `${templateName.toLowerCase().replace(/[^a-z0-9]/gi, '_')}.yml`;
       downloadFile(filename, yamlStr, 'text/yaml');
       showSnackbar(`Template exporté : ${filename}`, 'download');
     },
-    [background, elements, exportZone, canvasWidth, canvasHeight, loadedBundle, showSnackbar]
+    [background, elements, exportZone, canvasWidth, canvasHeight, projectName, loadedBundle, showSnackbar]
   );
 
   // Export current canvas state into a complete Bundle ZIP
   const exportCanvasAsBundleZip = useCallback(async () => {
     try {
+      const bundleName = loadedBundle?.name || projectName || 'marketing_bundle';
       const currentMaster = serializeCanvasToMaster(
-        loadedBundle?.name || 'marketing_bundle',
+        bundleName,
         background,
         elements,
         exportZone,
@@ -1253,7 +1507,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       );
 
       const bundleToExport: LoadedBundle = loadedBundle || {
-        name: 'marketing_bundle',
+        name: bundleName,
         master: {
           id: 'master',
           type: 'master',
@@ -1276,7 +1530,287 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.error(err);
       showSnackbar('Erreur lors de la création du bundle ZIP', 'error');
     }
-  }, [loadedBundle, background, elements, exportZone, showSnackbar]);
+  }, [loadedBundle, projectName, background, elements, exportZone, canvasWidth, canvasHeight, showSnackbar]);
+
+  // Connect local directory for synchronization
+  const selectSyncDirectory = useCallback(async (): Promise<boolean> => {
+    const hasFsSupport = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+    if (!hasFsSupport) {
+      showSnackbar('Votre navigateur ne prend pas en charge le sélecteur de dossier natif', 'error');
+      return false;
+    }
+    try {
+      const handle = await (window as any).showDirectoryPicker({
+        mode: 'readwrite',
+        startIn: 'desktop'
+      });
+      if (handle) {
+        await verifyDirectoryPermission(handle, true);
+        syncDirHandleRef.current = handle;
+        setSyncDirectoryHandle(handle);
+        setSyncDirectoryName(handle.name);
+        if (!syncFilePath) {
+          const defaultPath = `${projectName.toLowerCase().replace(/[^a-z0-9_-]/g, '_') || 'banner_template'}.yml`;
+          setSyncFilePath(defaultPath);
+        }
+        showSnackbar(`Dossier de synchronisation connecté : ${handle.name}`, 'folder');
+        return true;
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') return false;
+      console.warn('selectSyncDirectory error:', err);
+      showSnackbar(`Impossible d'accéder au dossier : ${err.message || ''}`, 'error');
+    }
+    return false;
+  }, [projectName, syncFilePath, setSyncDirectoryHandle, setSyncDirectoryName, setSyncFilePath, showSnackbar]);
+
+  // Connect single local file for synchronization
+  const selectSyncFile = useCallback(async (): Promise<boolean> => {
+    const hasFsSupport = typeof window !== 'undefined' && 'showOpenFilePicker' in window;
+    if (!hasFsSupport) {
+      showSnackbar('Votre navigateur ne prend pas en charge le sélecteur de fichier natif', 'error');
+      return false;
+    }
+    try {
+      const [handle] = await (window as any).showOpenFilePicker({
+        multiple: false,
+        types: [
+          {
+            description: 'Fichiers YAML / JSON de Template',
+            accept: {
+              'text/yaml': ['.yml', '.yaml'],
+              'application/json': ['.json']
+            }
+          }
+        ]
+      });
+      if (handle) {
+        await verifyDirectoryPermission(handle, true);
+        syncFileHandleRef.current = handle;
+        setSyncFileHandle(handle);
+        setSyncFilePath(handle.name);
+
+        const file = await handle.getFile();
+        const raw = await file.text();
+        const config = parseYaml<BannerMasterConfig>(raw);
+        const name = config.name || handle.name.replace(/\.(ya?ml|json)$/i, '');
+        setProjectName(name);
+
+        showSnackbar(`Fichier connecté pour la synchro : ${handle.name}`, 'file_open');
+        return true;
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') return false;
+      console.warn('selectSyncFile error:', err);
+      showSnackbar(`Impossible d'accéder au fichier : ${err.message || ''}`, 'error');
+    }
+    return false;
+  }, [setProjectName, setSyncFileHandle, setSyncFilePath, showSnackbar]);
+
+  // Unified save / sync to disk method
+  const syncToDisk = useCallback(async (): Promise<boolean> => {
+    setSyncStatus('syncing');
+
+    try {
+      let yamlContent = '';
+      let targetFilename = syncFilePath;
+
+      if (loadedBundle && activeBundleItemId) {
+        const item =
+          (loadedBundle.master?.id === activeBundleItemId ? loadedBundle.master : null) ||
+          loadedBundle.overrides[activeBundleItemId] ||
+          loadedBundle.variants.find(v => v.id === activeBundleItemId);
+
+        if (item) {
+          if (item.type === 'master') {
+            const masterConfig = serializeCanvasToMaster(
+              projectName || item.name || 'Master',
+              background,
+              elements,
+              exportZone,
+              canvasWidth,
+              canvasHeight
+            );
+            yamlContent = stringifyYaml(masterConfig);
+          } else if (item.type === 'override') {
+            const overrideConfig = serializeCanvasToOverride(
+              item,
+              background,
+              elements,
+              exportZone,
+              loadedBundle.master?.config as BannerMasterConfig | undefined
+            );
+            yamlContent = stringifyYaml(overrideConfig);
+          } else {
+            const variantConfig = serializeCanvasToVariant(
+              item,
+              elements,
+              loadedBundle.master?.config as BannerMasterConfig | undefined,
+              loadedBundle.overrides[item.slug]?.config as BannerOverrideConfig | undefined
+            );
+            yamlContent = stringifyYaml(variantConfig);
+          }
+          targetFilename = item.path;
+        }
+      }
+
+      if (!yamlContent) {
+        const masterConfig = serializeCanvasToMaster(
+          projectName || 'Projet sans nom',
+          background,
+          elements,
+          exportZone,
+          canvasWidth,
+          canvasHeight
+        );
+        yamlContent = stringifyYaml(masterConfig);
+        if (!targetFilename) {
+          const cleanName = projectName.toLowerCase().replace(/[^a-z0-9_-]/g, '_') || 'banner_template';
+          targetFilename = `${cleanName}.yml`;
+          setSyncFilePath(targetFilename);
+        }
+      }
+
+      let targetFileHandle = syncFileHandleRef.current || syncFileHandle;
+      let targetDirHandle =
+        syncDirHandleRef.current ||
+        syncDirectoryHandle ||
+        loadedBundle?.directoryHandle ||
+        bundleDirHandleRef.current;
+
+      const hasFsSupport = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+
+      // If no directory or file handle connected, prompt user for directory
+      if (!targetDirHandle && !targetFileHandle && hasFsSupport) {
+        try {
+          targetDirHandle = await (window as any).showDirectoryPicker({
+            mode: 'readwrite',
+            startIn: 'desktop'
+          });
+          if (targetDirHandle) {
+            syncDirHandleRef.current = targetDirHandle;
+            setSyncDirectoryHandle(targetDirHandle);
+            setSyncDirectoryName(targetDirHandle.name);
+          }
+        } catch (err: any) {
+          if (err.name === 'AbortError') {
+            setSyncStatus('dirty');
+            return false;
+          }
+        }
+      }
+
+      if (targetFileHandle) {
+        await verifyDirectoryPermission(targetFileHandle, true);
+        const writable = await targetFileHandle.createWritable();
+        await writable.write(yamlContent);
+        await writable.close();
+        showSnackbar(`Synchronisé sur le disque : ${targetFileHandle.name}`, 'cloud_done');
+      } else if (targetDirHandle) {
+        await verifyDirectoryPermission(targetDirHandle, true);
+        await writeTextToDirectory(targetDirHandle, targetFilename || 'banner_template.yml', yamlContent);
+        showSnackbar(`Synchronisé dans ${targetDirHandle.name}/${targetFilename || 'banner_template.yml'}`, 'cloud_done');
+      } else {
+        downloadFile(targetFilename?.split('/').pop() || 'banner_template.yml', yamlContent, 'text/yaml');
+        showSnackbar(`Fichier téléchargé : ${targetFilename || 'banner_template.yml'}`, 'download');
+      }
+
+      const currentSig = computeCanvasSignature(
+        background,
+        elements,
+        exportZone,
+        canvasWidth,
+        canvasHeight
+      );
+      lastSavedSignatureRef.current = currentSig;
+      if (activeBundleItemId) {
+        markItemSaved(activeBundleItemId);
+      }
+      setLastSyncTime(new Date());
+      setSyncStatus('synced');
+      return true;
+    } catch (err: any) {
+      console.error('Erreur lors de la synchronisation disque :', err);
+      setSyncStatus('error');
+      showSnackbar(`Erreur de synchronisation : ${err.message || 'Échec'}`, 'error');
+      return false;
+    }
+  }, [
+    syncFilePath,
+    loadedBundle,
+    activeBundleItemId,
+    projectName,
+    background,
+    elements,
+    exportZone,
+    canvasWidth,
+    canvasHeight,
+    syncFileHandle,
+    syncDirectoryHandle,
+    setSyncDirectoryHandle,
+    setSyncDirectoryName,
+    setSyncFilePath,
+    markItemSaved,
+    showSnackbar
+  ]);
+
+  // Canvas change detection & debounced auto-sync
+  useEffect(() => {
+    const currentSig = computeCanvasSignature(
+      background,
+      elements,
+      exportZone,
+      canvasWidth,
+      canvasHeight
+    );
+
+    if (!lastSavedSignatureRef.current) {
+      lastSavedSignatureRef.current = currentSig;
+      return;
+    }
+
+    if (currentSig !== lastSavedSignatureRef.current) {
+      setSyncStatus('dirty');
+
+      const hasTarget = Boolean(
+        syncFileHandleRef.current ||
+        syncFileHandle ||
+        syncDirHandleRef.current ||
+        syncDirectoryHandle ||
+        loadedBundle?.directoryHandle ||
+        bundleDirHandleRef.current
+      );
+
+      if (isAutoSyncEnabled && hasTarget) {
+        if (autoSyncTimerRef.current) {
+          clearTimeout(autoSyncTimerRef.current);
+        }
+        autoSyncTimerRef.current = setTimeout(() => {
+          syncToDisk();
+        }, 1500);
+      }
+    } else {
+      setSyncStatus('synced');
+    }
+
+    return () => {
+      if (autoSyncTimerRef.current) {
+        clearTimeout(autoSyncTimerRef.current);
+      }
+    };
+  }, [
+    background,
+    elements,
+    exportZone,
+    canvasWidth,
+    canvasHeight,
+    isAutoSyncEnabled,
+    syncDirectoryHandle,
+    syncFileHandle,
+    loadedBundle,
+    syncToDisk
+  ]);
+
 
   const selectedElementIdsRef = useRef<string[]>(selectedElementIds);
   useEffect(() => {
@@ -1294,6 +1828,12 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         activeEl?.classList.contains('editable-text-content');
 
       if (isInput) return;
+
+      if (e.key === 'Escape' && editingImageElementId) {
+        e.preventDefault();
+        setEditingImageElementId(null);
+        return;
+      }
 
       // Touche Suppr / Del / Backspace pour supprimer le(s) élément(s) sélectionné(s)
       if (e.key === 'Delete' || e.key === 'Del' || e.key === 'Backspace') {
@@ -1366,11 +1906,14 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setCanvasDimensions,
         addText,
         addShape,
+        addDevice,
         updateElement,
         deleteElement,
         deleteSelectedElements,
         selectElement,
         setActivePanel,
+        editingImageElementId,
+        setEditingImageElementId,
         updateExportZone,
         setIsDrawingExportMode,
         showSnackbar,
@@ -1401,7 +1944,25 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         autoGenerateCustomIds,
         isItemDirty,
         markItemSaved,
-        saveBundleItemToDisk
+        saveBundleItemToDisk,
+        projectName,
+        setProjectName,
+        isSavePanelOpen,
+        setIsSavePanelOpen,
+        syncStatus,
+        lastSyncTime,
+        isAutoSyncEnabled,
+        setIsAutoSyncEnabled,
+        syncDirectoryName,
+        setSyncDirectoryName,
+        syncFilePath,
+        setSyncFilePath,
+        syncDirectoryHandle,
+        setSyncDirectoryHandle,
+        syncFileHandle,
+        syncToDisk,
+        selectSyncDirectory,
+        selectSyncFile
       }}
     >
       {children}

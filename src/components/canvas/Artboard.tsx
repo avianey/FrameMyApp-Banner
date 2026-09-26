@@ -2,7 +2,9 @@ import React from 'react';
 import { useEditor } from '../../context/EditorContext';
 import { TextElement } from './TextElement';
 import { ShapeElement } from './ShapeElement';
+import { DeviceElement } from './DeviceElement';
 import { ExportOverlay } from './ExportOverlay';
+import { InPlaceImageCropper } from './InPlaceImageCropper';
 
 export const Artboard: React.FC = () => {
   const {
@@ -12,7 +14,11 @@ export const Artboard: React.FC = () => {
     selectElement,
     updateExportZone,
     setIsDrawingExportMode,
-    showSnackbar
+    showSnackbar,
+    setBackground,
+    editingImageElementId,
+    setEditingImageElementId,
+    setActivePanel
   } = useEditor();
 
   const {
@@ -68,6 +74,7 @@ export const Artboard: React.FC = () => {
     // If in drawing export mode, start interactive rectangle drawing
     if (activePanel === 'export' && isDrawingExportMode) {
       e.preventDefault();
+      e.stopPropagation();
       const rect = artboardRef.current?.getBoundingClientRect();
       if (!rect) return;
 
@@ -116,16 +123,14 @@ export const Artboard: React.FC = () => {
       return;
     }
 
-    // Deselect if clicked on artboard backdrop
-    const target = e.target as HTMLElement;
-    if (
-      target === artboardRef.current ||
-      target.id === 'artboard-bg' ||
-      target.id === 'artboard-elements'
-    ) {
-      if (!isDrawingExportMode) {
-        selectElement(null);
-      }
+    // Le clic sur l'arrière-plan du canevas propage vers CanvasViewport pour autoriser le glisser / pan direct de la scène
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    if (background.type === 'image' && background.imageUrl) {
+      e.stopPropagation();
+      setEditingImageElementId('background');
+      setActivePanel('bg');
     }
   };
 
@@ -151,14 +156,36 @@ export const Artboard: React.FC = () => {
         ref={artboardRef}
         id="artboard"
         onPointerDown={handlePointerDown}
+        onDoubleClick={handleDoubleClick}
         className="w-full h-full rounded-2xl relative overflow-hidden bg-white"
       >
         {/* Fond dynamique */}
-        <div
-          id="artboard-bg"
-          className="absolute inset-0 w-full h-full pointer-events-none"
-          style={getBackgroundStyle()}
-        />
+        {background.type === 'image' && background.imageUrl ? (
+          <div id="artboard-bg" className="absolute inset-0 w-full h-full">
+            <InPlaceImageCropper
+              containerWidth={canvasWidth}
+              containerHeight={canvasHeight}
+              imageUrl={background.imageUrl}
+              imageFit={background.imageFit || 'cover'}
+              imageScale={background.imageScale || 1.0}
+              imageOffsetX={background.imageOffsetX || 0}
+              imageOffsetY={background.imageOffsetY || 0}
+              imageNaturalWidth={background.imageNaturalWidth}
+              imageNaturalHeight={background.imageNaturalHeight}
+              isEditing={editingImageElementId === 'background'}
+              onUpdate={updates => setBackground(updates)}
+              onClose={() => setEditingImageElementId(null)}
+              canvasZoom={zoom || 1.0}
+              title="Recadrer l'arrière-plan"
+            />
+          </div>
+        ) : (
+          <div
+            id="artboard-bg"
+            className="absolute inset-0 w-full h-full pointer-events-none"
+            style={getBackgroundStyle()}
+          />
+        )}
 
         {/* Objets (Textes & Formes) */}
         <div id="artboard-elements" className="absolute inset-0 w-full h-full">
@@ -170,6 +197,17 @@ export const Artboard: React.FC = () => {
             if (el.type === 'text') {
               return (
                 <TextElement
+                  key={el.id}
+                  element={el}
+                  isSelected={isSelected}
+                  selectionIndex={selectionIndex}
+                  isMultiSelected={isMultiSelected}
+                />
+              );
+            }
+            if (el.type === 'device') {
+              return (
+                <DeviceElement
                   key={el.id}
                   element={el}
                   isSelected={isSelected}

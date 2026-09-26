@@ -16,13 +16,40 @@ export const Header: React.FC = () => {
     setIsLeftSidebarOpen,
     loadedBundle,
     setIsBatchExportModalOpen,
-    setIsDocOpen
+    setIsDocOpen,
+    projectName,
+    isSavePanelOpen,
+    setIsSavePanelOpen,
+    syncStatus,
+    lastSyncTime,
+    syncToDisk,
+    syncDirectoryName,
+    syncFileHandle
   } = useEditor();
   const { theme, zoom, canUndo, canRedo } = state;
 
+  const handleSyncClick = async () => {
+    if (!syncDirectoryName && !syncFileHandle) {
+      setIsSavePanelOpen(true);
+      return;
+    }
+    await syncToDisk();
+  };
+
+  const getSyncTooltip = () => {
+    if (syncStatus === 'syncing') return 'Synchronisation en cours sur le disque...';
+    if (syncStatus === 'dirty') return 'Modifications non enregistrées — Cliquer pour synchroniser sur le disque';
+    if (syncStatus === 'synced') {
+      return lastSyncTime
+        ? `Synchronisé sur le disque (${lastSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`
+        : 'Synchronisé sur le disque';
+    }
+    return 'Synchronisation disque — Cliquer pour synchroniser ou configurer';
+  };
+
   return (
     <header className="h-16 bg-m3-sys-surfaceContainer flex items-center justify-between px-4 sm:px-6 shadow-m3-1 z-30 flex-shrink-0 border-b border-m3-sys-outlineVariant/30 select-none transition-colors">
-      {/* Marque et titre */}
+      {/* Marque, titre et sous-titre du projet */}
       <div className="flex items-center space-x-3">
         <div className="w-10 h-10 rounded-full bg-m3-sys-primaryContainer flex items-center justify-center text-m3-sys-onPrimaryContainer shadow-sm flex-shrink-0">
           <span className="material-symbols-rounded text-xl leading-none">palette</span>
@@ -30,16 +57,40 @@ export const Header: React.FC = () => {
         <div>
           <div className="flex items-center space-x-2">
             <h1 className="text-lg font-bold leading-none tracking-tight text-m3-sys-onSurface">
-              Banner Studio
+              FrameMy.App Studio
             </h1>
+
+            {/* Bouton de synchro à droite du titre */}
+            <button
+              onClick={handleSyncClick}
+              title={getSyncTooltip()}
+              className={`w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                syncStatus === 'syncing'
+                  ? 'bg-m3-sys-primaryContainer text-m3-sys-primary'
+                  : syncStatus === 'dirty'
+                  ? 'bg-amber-500/20 text-amber-500 hover:bg-amber-500/30'
+                  : syncStatus === 'synced'
+                  ? 'bg-emerald-500/20 text-emerald-500 hover:bg-emerald-500/30'
+                  : 'bg-m3-sys-surfaceContainerHighest text-m3-sys-onSurfaceVariant hover:text-m3-sys-primary'
+              }`}
+            >
+              <span className={`material-symbols-rounded text-base leading-none ${syncStatus === 'syncing' ? 'animate-spin' : ''}`}>
+                {syncStatus === 'synced' ? 'cloud_done' : 'sync'}
+              </span>
+            </button>
+
             {loadedBundle && (
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-m3-sys-primaryContainer text-m3-sys-onPrimaryContainer font-bold hidden sm:inline-block">
                 {loadedBundle.name}
               </span>
             )}
           </div>
-          <p className="text-xs text-m3-sys-onSurfaceVariant mt-1 hidden sm:block">
-            Presets maîtres, déclinaisons & batch export
+          <p
+            onClick={() => setIsSavePanelOpen(true)}
+            title="Cliquer pour modifier le nom du projet ou synchroniser"
+            className="text-xs text-m3-sys-onSurfaceVariant mt-1 cursor-pointer hover:text-m3-sys-primary transition-colors truncate max-w-[200px] sm:max-w-xs"
+          >
+            {projectName || 'Projet sans nom'}
           </p>
         </div>
       </div>
@@ -124,7 +175,7 @@ export const Header: React.FC = () => {
           <span className="material-symbols-rounded text-xl leading-none">filter_center_focus</span>
         </button>
 
-        {/* Volet Templates & Bundles */}
+        {/* Volet Templates & Bundles (icône répertoire) */}
         <button
           onClick={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
           title={isLeftSidebarOpen ? 'Fermer le volet Templates & Bundles' : 'Ouvrir les Templates & Bundles'}
@@ -132,7 +183,18 @@ export const Header: React.FC = () => {
             isLeftSidebarOpen ? 'ring-2 ring-m3-sys-primary bg-m3-sys-primaryContainer/20 text-m3-sys-primary' : ''
           }`}
         >
-          <span className="material-symbols-rounded text-xl leading-none">auto_stories</span>
+          <span className="material-symbols-rounded text-xl leading-none">folder_open</span>
+        </button>
+
+        {/* Panneau de sauvegarde et synchronisation */}
+        <button
+          onClick={() => setIsSavePanelOpen(true)}
+          title="Sauvegarder et exporter le projet (Nom, Disque, Exports)"
+          className={`w-10 h-10 rounded-full flex items-center justify-center border border-m3-sys-outlineVariant/40 bg-m3-sys-surfaceContainerLow hover:bg-m3-sys-surfaceContainerHighest hover:border-m3-sys-primary text-m3-sys-onSurface active:scale-95 shadow-sm transition-all cursor-pointer ${
+            isSavePanelOpen ? 'ring-2 ring-m3-sys-primary bg-m3-sys-primaryContainer/20 text-m3-sys-primary' : ''
+          }`}
+        >
+          <span className="material-symbols-rounded text-xl leading-none">save</span>
         </button>
 
         {/* Modifier le fond */}

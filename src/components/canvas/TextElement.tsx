@@ -53,6 +53,11 @@ export const TextElement: React.FC<TextElementProps> = ({
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('.handle-resize') || target.closest('.handle-rotate-anchor') || target.closest('.drag-pill-handle')) {
+      return;
+    }
+
     e.stopPropagation();
     const isCtrl = e.ctrlKey || e.metaKey;
 

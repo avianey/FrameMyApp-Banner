@@ -19,6 +19,11 @@ export interface BackgroundConfig {
   radialColor2: string;
   imageUrl: string;
   imageFit: 'cover' | 'contain' | 'auto';
+  imageOffsetX?: number;
+  imageOffsetY?: number;
+  imageScale?: number;
+  imageNaturalWidth?: number;
+  imageNaturalHeight?: number;
 }
 
 export type ShapeType = 'rectangle' | 'rounded-rect' | 'circle' | 'pill' | 'star' | 'hexagon';
@@ -88,13 +93,51 @@ export interface ShapeElementModel extends BaseElement {
   gradientStops?: GradientStop[];
   radialStops?: GradientStop[];
   imageUrl: string;
+  imageFit?: 'cover' | 'contain' | 'auto';
+  imageOffsetX?: number;
+  imageOffsetY?: number;
+  imageScale?: number;
+  imageNaturalWidth?: number;
+  imageNaturalHeight?: number;
   opacity: number;
   borderRadius: number;
   stroke: StrokeConfig;
   shadow: ShadowConfig;
 }
 
-export type CanvasElement = TextElementModel | ShapeElementModel;
+export type DeviceModelType = 'pixel-10' | 'iphone-pro-max' | 'samsung-galaxy' | 'pixel-tab';
+
+export interface DeviceElementModel extends BaseElement {
+  type: 'device';
+  deviceType: DeviceModelType;
+  bodyColor: string;
+  brushedMetal?: boolean;
+  brushedMetalOpacity?: number;
+  bodyThickness?: number;
+  bodyThicknessPercent?: number;
+  screenBorderColor?: string;
+  screenBorderWidth?: number;
+  screenBorderWidthPercent?: number;
+  screenImageUrl: string;
+  imageAspectRatio?: number;
+  screenColor?: string;
+  screenFit?: 'cover' | 'contain' | 'fill';
+  showButtons: boolean;
+  buttonColor: string;
+  showCamera: boolean;
+  showHomeIndicator?: boolean;
+  homeIndicatorColor?: string;
+  showFlare?: boolean;
+  flareColor?: string;
+  flareAngle?: number;
+  flareSpread?: number;
+  screenPadding: number;
+  borderRadius: number;
+  borderRadiusPercent?: number;
+  shadow: ShadowConfig;
+}
+
+export type CanvasElement = TextElementModel | ShapeElementModel | DeviceElementModel;
 
 export interface ExportZone {
   x: number;
@@ -108,7 +151,9 @@ export interface ExportZone {
   lockRatio?: boolean;
 }
 
-export type ActivePanel = 'bg' | 'text' | 'shape' | 'export' | 'align' | null;
+export type ActivePanel = 'bg' | 'text' | 'shape' | 'device' | 'export' | 'align' | null;
+
+export type SyncStatus = 'idle' | 'synced' | 'dirty' | 'syncing' | 'error';
 
 export interface EditorState {
   canvasWidth: number;

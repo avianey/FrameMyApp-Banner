@@ -374,9 +374,9 @@ export async function verifyDirectoryPermission(
 }
 
 /**
- * Persists a FileSystemDirectoryHandle to IndexedDB so it survives page reloads.
+ * Persists a FileSystemDirectoryHandle or FileSystemFileHandle to IndexedDB so it survives page reloads.
  */
-export async function saveDirectoryHandleToIdb(handle: any): Promise<void> {
+export async function saveDirectoryHandleToIdb(handle: any, key = 'root_bundle_dir'): Promise<void> {
   if (typeof window === 'undefined' || !window.indexedDB || !handle) return;
   try {
     const req = indexedDB.open('framemyapp_banner_fs', 1);
@@ -386,7 +386,7 @@ export async function saveDirectoryHandleToIdb(handle: any): Promise<void> {
     req.onsuccess = () => {
       const db = req.result;
       const tx = db.transaction('handles', 'readwrite');
-      tx.objectStore('handles').put(handle, 'root_bundle_dir');
+      tx.objectStore('handles').put(handle, key);
     };
   } catch (e) {
     console.warn('Could not save handle to IndexedDB:', e);
@@ -394,9 +394,9 @@ export async function saveDirectoryHandleToIdb(handle: any): Promise<void> {
 }
 
 /**
- * Retrieves the persisted FileSystemDirectoryHandle from IndexedDB if available.
+ * Retrieves the persisted handle from IndexedDB if available.
  */
-export async function getDirectoryHandleFromIdb(): Promise<any> {
+export async function getDirectoryHandleFromIdb(key = 'root_bundle_dir'): Promise<any> {
   if (typeof window === 'undefined' || !window.indexedDB) return null;
   return new Promise(resolve => {
     try {
@@ -410,7 +410,7 @@ export async function getDirectoryHandleFromIdb(): Promise<any> {
           return resolve(null);
         }
         const tx = db.transaction('handles', 'readonly');
-        const getReq = tx.objectStore('handles').get('root_bundle_dir');
+        const getReq = tx.objectStore('handles').get(key);
         getReq.onsuccess = () => resolve(getReq.result || null);
         getReq.onerror = () => resolve(null);
       };
@@ -420,4 +420,5 @@ export async function getDirectoryHandleFromIdb(): Promise<any> {
     }
   });
 }
+
 

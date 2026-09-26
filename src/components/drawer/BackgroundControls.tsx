@@ -13,7 +13,8 @@ interface CanvasPreset {
 }
 
 const canvasPresets: CanvasPreset[] = [
-  { id: 'play-store', name: 'Google Play Bannière', description: 'Format promo jeux & applications', width: 1475, height: 720, icon: 'shop' },
+  { id: 'play-screenshot', name: 'Google Play Screenshot (9:16)', description: 'Capture d’écran smartphone', width: 1080, height: 1920, icon: 'smartphone' },
+  { id: 'play-banner', name: 'Google Play Bannière', description: 'Graphique de promotion officiel', width: 1024, height: 500, icon: 'shop' },
   { id: 'hd-16-9', name: 'YouTube / Écran HD (16:9)', description: 'Vignette & Présentation', width: 1920, height: 1080, icon: 'tv' },
   { id: 'web-banner', name: 'Bannière Web / OpenGraph', description: 'Partage Facebook & LinkedIn', width: 1200, height: 630, icon: 'web' },
   { id: 'insta-sq', name: 'Format Carré (1:1)', description: 'Post Instagram & réseaux', width: 1080, height: 1080, icon: 'crop_square' },
@@ -29,7 +30,9 @@ export const BackgroundControls: React.FC = () => {
     applyBackgroundImage,
     setCanvasDimensions,
     updateExportZone,
-    showSnackbar
+    showSnackbar,
+    editingImageElementId,
+    setEditingImageElementId
   } = useEditor();
 
   const { background, canvasWidth = 800, canvasHeight = 600 } = state;
@@ -391,6 +394,38 @@ export const BackgroundControls: React.FC = () => {
                     Ajuster (Contenir)
                   </button>
                 </div>
+              </div>
+
+              {/* Bouton de recadrage interactif */}
+              <div className="pt-1 space-y-2">
+                <button
+                  onClick={() => setEditingImageElementId(editingImageElementId === 'background' ? null : 'background')}
+                  className={`w-full py-2 px-3 rounded-xl border flex items-center justify-center space-x-2 text-xs font-bold transition-all cursor-pointer shadow-sm ${
+                    editingImageElementId === 'background'
+                      ? 'bg-indigo-500 text-white border-indigo-600'
+                      : 'bg-m3-sys-surfaceContainerHighest hover:bg-indigo-500/15 text-indigo-400 border-indigo-500/30'
+                  }`}
+                >
+                  <span className="material-symbols-rounded text-base">crop</span>
+                  <span>{editingImageElementId === 'background' ? 'Terminer le recadrage' : 'Ajuster / Déplacer l\'image'}</span>
+                </button>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-m3-sys-onSurfaceVariant">
+                    Zoom de l'image : {Math.round((background.imageScale || 1.0) * 100)}%
+                  </span>
+                  <button
+                    onClick={() => setBackground({ imageOffsetX: 0, imageOffsetY: 0, imageScale: 1.0 })}
+                    title="Réinitialiser le centrage et le zoom de l'image"
+                    className="text-[10px] text-indigo-400 hover:underline cursor-pointer"
+                  >
+                    Recentrer
+                  </button>
+                </div>
+
+                <p className="text-[10px] text-m3-sys-onSurfaceVariant/70 italic text-center">
+                  Astuce : Double-cliquez directement sur la scène pour déplacer ou zoomer l'image.
+                </p>
               </div>
             </div>
           )}

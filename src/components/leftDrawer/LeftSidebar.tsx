@@ -22,8 +22,6 @@ export const LeftSidebar: React.FC = () => {
     setLoadedBundle,
     activeBundleItemId,
     applyBundleItem,
-    exportCanvasAsTemplateYaml,
-    exportCanvasAsBundleZip,
     setIsBatchExportModalOpen,
     setIsDocOpen,
     state,
@@ -33,7 +31,11 @@ export const LeftSidebar: React.FC = () => {
     deleteElement,
     showSnackbar,
     isItemDirty,
-    saveBundleItemToDisk
+    saveBundleItemToDisk,
+    setProjectName,
+    setSyncFilePath,
+    setSyncDirectoryName,
+    setSyncDirectoryHandle
   } = useEditor();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -58,30 +60,36 @@ export const LeftSidebar: React.FC = () => {
       if (ext === 'zip') {
         const bundle = await readZipBundle(file);
         setLoadedBundle(bundle);
+        setProjectName(bundle.name);
+        setSyncDirectoryName(bundle.name);
+        setSyncFilePath('master.yml');
         if (bundle.master) {
           applyBundleItem(bundle.master);
         }
         showSnackbar(`Bundle chargé depuis ZIP : ${bundle.name}`, 'folder_zip');
       } else if (ext === 'yml' || ext === 'yaml' || ext === 'json') {
         const { name, config } = await readSingleTemplate(file);
+        const templateName = name || file.name.replace(/\.(yml|yaml|json)$/i, '');
         const item: BundleItem = {
           id: 'template_' + Date.now(),
           type: 'master',
           path: file.name,
           slug: file.name.replace(/\.(yml|yaml|json)$/i, ''),
-          name,
+          name: templateName,
           rawContent: await file.text(),
           config
         };
         setLoadedBundle({
-          name,
+          name: templateName,
           master: item,
           overrides: {},
           variants: [],
           assets: {}
         });
+        setProjectName(templateName);
+        setSyncFilePath(file.name);
         applyBundleItem(item);
-        showSnackbar(`Template YAML chargé : ${name}`, 'auto_stories');
+        showSnackbar(`Template YAML chargé : ${templateName}`, 'auto_stories');
       }
     } catch (err: any) {
       console.error(err);
@@ -101,6 +109,12 @@ export const LeftSidebar: React.FC = () => {
         });
         const bundle = await readDirectoryBundle(dirHandle);
         setLoadedBundle(bundle);
+        setProjectName(bundle.name);
+        setSyncDirectoryName(bundle.name);
+        setSyncFilePath('master.yml');
+        if (bundle.directoryHandle) {
+          setSyncDirectoryHandle(bundle.directoryHandle);
+        }
         if (bundle.master) {
           applyBundleItem(bundle.master);
         }
@@ -122,6 +136,9 @@ export const LeftSidebar: React.FC = () => {
     try {
       const bundle = await readFilesBundle(files);
       setLoadedBundle(bundle);
+      setProjectName(bundle.name);
+      setSyncDirectoryName(bundle.name);
+      setSyncFilePath('master.yml');
       if (bundle.master) {
         applyBundleItem(bundle.master);
       }
@@ -170,6 +187,10 @@ export const LeftSidebar: React.FC = () => {
               await verifyDirectoryPermission(handle, true);
               const bundle = await readDirectoryBundle(handle);
               setLoadedBundle(bundle);
+              setProjectName(bundle.name);
+              setSyncDirectoryName(bundle.name);
+              setSyncFilePath('master.yml');
+              setSyncDirectoryHandle(handle);
               if (bundle.master) {
                 applyBundleItem(bundle.master);
               }
@@ -213,6 +234,9 @@ export const LeftSidebar: React.FC = () => {
             })
           );
           setLoadedBundle(bundle);
+          setProjectName(bundle.name);
+          setSyncDirectoryName(bundle.name);
+          setSyncFilePath('master.yml');
           if (bundle.master) {
             applyBundleItem(bundle.master);
           }
@@ -228,30 +252,36 @@ export const LeftSidebar: React.FC = () => {
         if (ext === 'zip') {
           const bundle = await readZipBundle(file);
           setLoadedBundle(bundle);
+          setProjectName(bundle.name);
+          setSyncDirectoryName(bundle.name);
+          setSyncFilePath('master.yml');
           if (bundle.master) {
             applyBundleItem(bundle.master);
           }
           showSnackbar(`Archive ZIP chargée : ${bundle.name}`, 'folder_zip');
         } else if (ext === 'yml' || ext === 'yaml' || ext === 'json') {
           const { name, config } = await readSingleTemplate(file);
+          const templateName = name || file.name.replace(/\.(yml|yaml|json)$/i, '');
           const item: BundleItem = {
             id: 'template_' + Date.now(),
             type: 'master',
             path: file.name,
             slug: file.name.replace(/\.(yml|yaml|json)$/i, ''),
-            name,
+            name: templateName,
             rawContent: await file.text(),
             config
           };
           setLoadedBundle({
-            name,
+            name: templateName,
             master: item,
             overrides: {},
             variants: [],
             assets: {}
           });
+          setProjectName(templateName);
+          setSyncFilePath(file.name);
           applyBundleItem(item);
-          showSnackbar(`Template YAML chargé : ${name}`, 'auto_stories');
+          showSnackbar(`Template YAML chargé : ${templateName}`, 'auto_stories');
         }
       }
     } catch (err: any) {
@@ -698,38 +728,6 @@ export const LeftSidebar: React.FC = () => {
                 </div>
               </div>
             )}
-
-            {/* Export Current Canvas Options */}
-            <div className="pt-2 border-t border-m3-sys-outlineVariant/30 space-y-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-m3-sys-onSurfaceVariant px-1">
-                Exports du canvas actuel
-              </span>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => exportCanvasAsTemplateYaml()}
-                  title="Exporter le canvas actuel au format YAML autonome"
-                  className="p-2.5 rounded-xl bg-m3-sys-surfaceContainer hover:bg-m3-sys-surfaceContainerHighest border border-m3-sys-outlineVariant/30 text-left transition-all active:scale-95 cursor-pointer shadow-sm"
-                >
-                  <div className="flex items-center space-x-1.5 text-m3-sys-primary mb-1">
-                    <span className="material-symbols-rounded text-base">code</span>
-                    <span className="text-[11px] font-bold">Template YML</span>
-                  </div>
-                  <p className="text-[10px] text-m3-sys-onSurfaceVariant">Fichier unique</p>
-                </button>
-
-                <button
-                  onClick={exportCanvasAsBundleZip}
-                  title="Créer une archive ZIP complète avec master, overrides et variants"
-                  className="p-2.5 rounded-xl bg-m3-sys-surfaceContainer hover:bg-m3-sys-surfaceContainerHighest border border-m3-sys-outlineVariant/30 text-left transition-all active:scale-95 cursor-pointer shadow-sm"
-                >
-                  <div className="flex items-center space-x-1.5 text-m3-sys-primary mb-1">
-                    <span className="material-symbols-rounded text-base">folder_zip</span>
-                    <span className="text-[11px] font-bold">Bundle ZIP</span>
-                  </div>
-                  <p className="text-[10px] text-m3-sys-onSurfaceVariant">Arborescence complète</p>
-                </button>
-              </div>
-            </div>
           </div>
         )}
 
@@ -762,6 +760,20 @@ export const LeftSidebar: React.FC = () => {
                 const isSelected = state.selectedElementIds ? state.selectedElementIds.includes(el.id) : state.selectedElementId === el.id;
                 const selectionIndex = state.selectedElementIds && isSelected ? state.selectedElementIds.indexOf(el.id) + 1 : undefined;
                 const isText = el.type === 'text';
+                const isDevice = el.type === 'device';
+
+                let iconName = 'category';
+                let elementLabel = 'Élément';
+
+                if (isText) {
+                  iconName = 'title';
+                  elementLabel = el.text || 'Texte sans contenu';
+                } else if (isDevice) {
+                  iconName = el.deviceType === 'pixel-tab' ? 'tablet_android' : 'smartphone';
+                  elementLabel = `Appareil (${el.deviceType})`;
+                } else {
+                  elementLabel = `Forme (${el.shapeType})`;
+                }
 
                 return (
                   <div
@@ -781,10 +793,10 @@ export const LeftSidebar: React.FC = () => {
                           </span>
                         )}
                         <span className="material-symbols-rounded text-base text-m3-sys-primary flex-shrink-0">
-                          {isText ? 'title' : 'category'}
+                          {iconName}
                         </span>
                         <span className="text-xs font-semibold text-m3-sys-onSurface truncate">
-                          {isText ? el.text || 'Texte sans contenu' : `Forme (${el.shapeType})`}
+                          {elementLabel}
                         </span>
                       </div>
 
@@ -811,7 +823,7 @@ export const LeftSidebar: React.FC = () => {
                         type="text"
                         value={el.customId || ''}
                         onChange={e => updateElementCustomId(el.id, e.target.value)}
-                        placeholder="ex: title, badge_shape..."
+                        placeholder="ex: title, badge, hero_device..."
                         className="flex-1 px-2.5 py-1 text-xs font-mono font-medium rounded-lg bg-m3-sys-surfaceContainerHighest border border-m3-sys-outlineVariant/40 text-m3-sys-onSurface focus:ring-1 focus:ring-m3-sys-primary focus:outline-none"
                       />
                     </div>

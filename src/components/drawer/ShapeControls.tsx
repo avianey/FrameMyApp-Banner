@@ -18,7 +18,7 @@ interface ShapeControlsProps {
 }
 
 export const ShapeControls: React.FC<ShapeControlsProps> = ({ element }) => {
-  const { updateElement, deleteElement } = useEditor();
+  const { updateElement, deleteElement, editingImageElementId, setEditingImageElementId } = useEditor();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleUpdate = (updates: Partial<ShapeElementModel>) => {
@@ -464,11 +464,41 @@ export const ShapeControls: React.FC<ShapeControlsProps> = ({ element }) => {
             Sélectionner une image
           </button>
           {element.imageUrl && (
-            <img
-              src={element.imageUrl}
-              alt="Shape texture"
-              className="w-full h-20 object-cover rounded-lg mt-2"
-            />
+            <div className="space-y-2 mt-2">
+              <img
+                src={element.imageUrl}
+                alt="Shape texture"
+                className="w-full h-20 object-cover rounded-lg border border-m3-sys-outlineVariant/30"
+              />
+
+              <button
+                onClick={() => setEditingImageElementId(editingImageElementId === element.id ? null : element.id)}
+                className={`w-full py-1.5 px-3 rounded-xl border flex items-center justify-center space-x-1.5 text-xs font-bold transition-all cursor-pointer shadow-sm ${
+                  editingImageElementId === element.id
+                    ? 'bg-indigo-500 text-white border-indigo-600'
+                    : 'bg-m3-sys-surfaceContainerHighest hover:bg-indigo-500/15 text-indigo-400 border-indigo-500/30'
+                }`}
+              >
+                <span className="material-symbols-rounded text-sm">crop</span>
+                <span>{editingImageElementId === element.id ? 'Terminer le recadrage' : 'Ajuster / Déplacer l\'image'}</span>
+              </button>
+
+              <div className="flex items-center justify-between text-[11px] px-1">
+                <span className="text-m3-sys-onSurfaceVariant">
+                  Zoom : {Math.round((element.imageScale || 1.0) * 100)}%
+                </span>
+                <button
+                  onClick={() => handleUpdate({ imageOffsetX: 0, imageOffsetY: 0, imageScale: 1.0 })}
+                  className="text-indigo-400 hover:underline cursor-pointer text-[10px]"
+                >
+                  Recentrer
+                </button>
+              </div>
+
+              <p className="text-[10px] text-m3-sys-onSurfaceVariant/70 italic">
+                Astuce : Double-cliquez sur la forme sur le canevas pour déplacer ou zoomer l'image.
+              </p>
+            </div>
           )}
         </div>
       )}

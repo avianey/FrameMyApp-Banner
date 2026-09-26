@@ -1,6 +1,6 @@
-# Guide Complet d'Utilisation & Système de Templates - Banner Studio
+# Guide Complet d'Utilisation & Système de Templates - FrameMy.App Studio
 
-Bienvenue dans la documentation officielle de **Banner Studio (FrameMyApp)**. Cette documentation détaille l'ensemble des fonctionnalités de création visuelle, la manipulation du canevas interactif, la gestion de la transparence Alpha, le moteur de templates en cascade (Master, Overrides, Variants), les identifiants personnalisés (`customId`) et le Batch Export.
+Bienvenue dans la documentation officielle de **FrameMy.App Studio**. Cette documentation détaille l'ensemble des fonctionnalités de création visuelle, la manipulation du canevas interactif, la gestion de la transparence Alpha, le moteur de templates en cascade (Master, Overrides, Variants), les identifiants personnalisés (`customId`), la synchronisation disque locale et le Batch Export.
 
 ---
 
@@ -13,28 +13,31 @@ Bienvenue dans la documentation officielle de **Banner Studio (FrameMyApp)**. Ce
 5. [Formes Géométriques & Textures Graphiques](#5-formes-géométriques--textures-graphiques)
 6. [Cadrage & Zone d'Exportation](#6-cadrage--zone-dexportation)
 7. [Raccourcis Clavier & Interactions Souris](#7-raccourcis-clavier--interactions-souris)
-8. [Système de Templates & Déclinaisons en Cascade](#8-système-de-templates--déclinaisons-en-cascade)
-9. [Identifiants Personnalisés (customId)](#9-identifiants-personnalisés-customid)
-10. [Spécification & Syntaxe des Fichiers YAML](#10-spécification--syntaxe-des-fichiers-yaml)
-11. [Gestion des Assets Graphiques & Résolution](#11-gestion-des-assets-graphiques--résolution)
-12. [Batch Export (Export par Lot) & Archives ZIP](#12-batch-export-export-par-lot--archives-zip)
-13. [Guide de Maintenance & Évolution du Code](#13-guide-de-maintenance--évolution-du-code)
+8. [Sauvegarde, Synchronisation Disque & Exports](#8-sauvegarde-synchronisation-disque--exports)
+9. [Système de Templates & Déclinaisons en Cascade](#9-système-de-templates--déclinaisons-en-cascade)
+10. [Identifiants Personnalisés (customId)](#10-identifiants-personnalisés-customid)
+11. [Spécification & Syntaxe des Fichiers YAML](#11-spécification--syntaxe-des-fichiers-yaml)
+12. [Gestion des Assets Graphiques & Résolution](#12-gestion-des-assets-graphiques--résolution)
+13. [Batch Export (Export par Lot) & Archives ZIP](#13-batch-export-export-par-lot--archives-zip)
+14. [Guide de Maintenance & Évolution du Code](#14-guide-de-maintenance--évolution-du-code)
 
 ---
 
 ## 1. Vue d'Ensemble & Architecture de l'Interface
 
-Banner Studio adopte les principes de design **Material 3 (M3)** avec support dynamique des thèmes Clair et Sombre, calculs d'élévation d'ombres et palettes de couleurs adaptatives.
+FrameMy.App Studio adopte les principes de design **Material 3 (M3)** avec support dynamique des thèmes Clair et Sombre, calculs d'élévation d'ombres et palettes de couleurs adaptatives.
 
 ### 1.1 Composants de l'Écran
 
 - **En-tête (`Header`)** :
-  - **Identité de l'application** : Logo, titre et badge du bundle chargé.
+  - **Identité de l'application & Sous-titre de projet** : Logo, titre **FrameMy.App Studio**, sous-titre affichant le nom du projet courant (par défaut `Projet sans nom`, modifiable à tout moment), et badge du bundle actif.
+  - **Bouton de synchronisation disque** : Situé directement à droite du titre, il affiche le statut de synchronisation en temps réel (icône `cloud_done` verte si à jour, icône `sync` orange si des modifications sont en attente, ou animation de rotation lors de l'écriture sur le disque). Un clic déclenche la synchronisation immédiate ou ouvre le panneau de configuration.
   - **Batch Export** : Déclenchement direct du rendu de toutes les déclinaisons (visible si un bundle est actif).
-  - **Historique** : Boutons *Annuler* (`undo`) et *Rétablir* (`redo`).
+  - **Historique** : Boutons *Annuler* (`undo`) et *Rétablir* (`redo`). L'historique est conservé dans le cache local du navigateur et n'est pas persisté sur disque.
   - **Nettoyage** : Bouton *Tout effacer* ouvrant un dialogue de confirmation M3 sécurisé.
   - **Contrôles de zoom** : Zoom arrière, affichage du pourcentage (cliquable pour 100%), zoom avant et bouton de recentrage (zoom centré sur le milieu de la composition).
-  - **Volet Templates (`auto_stories`)** : Ouverture/fermeture du volet gauche dédié aux presets et identifiants.
+  - **Volet Ouvrir Templates & Bundles (`folder_open`)** : Ouverture/fermeture du volet gauche dédié aux presets, à l'arborescence de bundle et aux identifiants.
+  - **Panneau de Sauvegarde & Synchronisation (`save`)** : Accès direct au dialogue de gestion du projet (nom, synchronisation sur dossier ou fichier local, sauvegarde automatique, exports Template YML et Bundle ZIP).
   - **Volet Fond (`wallpaper`)** : Accès instantané aux paramètres d'arrière-plan du canevas.
   - **Documentation (`menu_book`)** : Accès direct au présent guide interactif.
   - **Bascule Thème (`light_mode` / `dark_mode`)** : Alternance instantanée entre mode clair et mode sombre.
@@ -46,14 +49,14 @@ Banner Studio adopte les principes de design **Material 3 (M3)** avec support dy
   - Masque SVG de zone d'exportation avec assombrissement hors-champ.
 
 - **Volet Latéral Droit (`SideDrawer`)** :
-  - Affiche contextuellement les contrôles du fond, du texte sélectionné, de la forme sélectionnée ou de la zone d'export.
+  - Affiche contextuellement les contrôles du fond, du texte sélectionné, de la forme sélectionnée, de l'appareil (device) sélectionné ou de la zone d'export.
 
 - **Volet Latéral Gauche (`LeftSidebar`)** :
   - Onglet **Templates & Bundles** : Arborescence Master, Overrides, Variants et importation/exportation de bundles.
-  - Onglet **Custom IDs** : Tableau centralisé de tous les identifiants sémantiques avec attribution automatique.
+  - Onglet **Custom IDs** : Tableau centralisé de tous les identifiants sémantiques (textes, formes, appareils) avec attribution automatique.
 
 - **Barre d'Actions Flottante Inférieure (`BottomBar`)** :
-  - Boutons d'ajout rapide (FAB M3) : *Ajouter un texte*, *Ajouter une forme*, *Définir la zone d'export*, *Exporter en PNG*.
+  - Boutons d'ajout rapide (FAB M3) : *Fond*, *+ Texte*, *+ Forme*, *+ Appareil* (avec menu de sélection immédiate parmi Pixel 10, iPhone Pro Max, Samsung Galaxy, Pixel Tab), *Export*.
 
 ---
 
@@ -101,10 +104,11 @@ Accessible automatiquement lors de la sélection de 2 éléments ou plus via `Ct
 - **Suppression groupée** : Permet de supprimer d'un coup tous les éléments de la multi-sélection (via le bouton dédié ou la touche `Suppr`).
 
 ### 2.4 Redimensionnement & Rotation
-- **Redimensionnement** :
-  - 8 poignées circulaires entourent l'élément sélectionné (4 coins et 4 centres de bordure).
-  - Glissez une poignée pour ajuster la largeur ou la hauteur.
-  - Maintenez la touche `Shift` enfoncée pendant le redimensionnement pour conserver le ratio d'aspect.
+- **Redimensionnement depuis l'ancre** :
+  - La poignée circulaire inférieure droite permet d'ajuster visuellement la taille de l'élément sélectionné (formes, textes, devices).
+  - **Glisser simple** : redimensionnement libre en largeur et en hauteur.
+  - **`Ctrl` + Glisser** (ou `Cmd` + Glisser) : conserve strictement le ratio d'aspect (proportions verrouillées, coin opposé ancré).
+  - **`Ctrl` + `Shift` + Glisser** (ou `Cmd` + `Shift` + Glisser) : conserve le ratio d'aspect **et** ancre le centre de l'élément (le centre géométrique reste exactement au même endroit).
 - **Rotation** :
   - Une poignée circulaire supérieure reliée par une tige permet d'effectuer une rotation libre à 360°.
   - Glissez la poignée circulaire pour pivoter l'élément. L'angle exact en degrés est calculé et mémorisé.
@@ -115,6 +119,7 @@ Accessible automatiquement lors de la sélection de 2 éléments ou plus via `Ct
 
 ### 2.4 Drag & Drop d'Images Externes & Adaptation de la Composition
 - Vous pouvez glisser-déposer une image (`.png`, `.jpg`, `.webp`, `.svg`) depuis votre gestionnaire de fichiers :
+  - **Sur un appareil (Device)** : l'image devient la capture d'écran du mockup et la hauteur de l'appareil s'adapte automatiquement au ratio d'aspect exact de l'image (sans rognage ni déformation).
   - **Sur une forme** : l'image devient la texture de remplissage de cette forme.
   - **Sur le fond du canevas** : l'image est automatiquement définie comme arrière-plan. La **composition adopte instantanément les dimensions réelles** de l'image (`naturalWidth` × `naturalHeight`) et la **zone de cadrage/crop est initialisée sur ces mêmes dimensions**. L'utilisateur reste ensuite entièrement libre de déplacer, redimensionner ou modifier la zone de cadrage à sa guise.
 
@@ -128,7 +133,8 @@ En tête du panneau de réglage de fond, une section dédiée permet de configur
 - **Recentrage et zoom dynamique** : La scène se recentre automatiquement dans le viewport avec adaptation intelligente du facteur de zoom.
 - **Bouton « Adapter le cadre d'export à la scène »** : Recouvre instantanément l'intégralité du canevas pour l'exportation.
 - **Presets Cards populaires** :
-  - *Google Play Bannière* (1475 × 720 px)
+  - *Google Play Screenshot (9:16)* (1080 × 1920 px)
+  - *Google Play Bannière* (1024 × 500 px)
   - *YouTube / Écran HD 16:9* (1920 × 1080 px)
   - *Bannière Web / OpenGraph* (1200 × 630 px)
   - *Format Carré 1:1 Instagram* (1080 × 1080 px)
@@ -137,7 +143,7 @@ En tête du panneau de réglage de fond, une section dédiée permet de configur
   - *Standard Studio* (800 × 600 px)
 
 ### 3.2 Gestion Intégrale de l'Alpha (Canal Opacité)
-Banner Studio gère la composante de transparence dans toutes les teintes :
+FrameMy.App Studio gère la composante de transparence dans toutes les teintes :
 - **Format RGBA** : `rgba(r, g, b, a)` où l'alpha est normalisé entre 0 et 1.
 - **Format HEX8** : format hexadécimal à 8 caractères `#RRGGBBAA` (ex: `#6750A4FF` pour 100% opaque, `#00000080` pour 50% de noir).
 - **Composant `ColorAlphaPicker`** :
@@ -152,9 +158,16 @@ Le panneau de fond propose 4 modes :
 2. **Dégradé Linéaire (`linear`)** : Deux couleurs (avec alpha indépendant) orientées selon un angle réglable (0° à 360°).
 3. **Dégradé Radial (`radial`)** : Deux couleurs rayonnant depuis le centre vers les bordures.
 4. **Image d'arrière-plan (`image`)** :
-   - Importation d'une image locale (clic ou drag & drop) ou saisie d'une URL.
-   - **Adaptation automatique** : la composition et la zone de crop s'ajustent instantanément à la taille native de l'image téléchargée, avec ajustement automatique du zoom pour un confort optimal.
-   - Mode de redimensionnement : *Couvrir (Cover)*, *Contenir (Contain)*, ou *Étirer (Stretch)*.
+   - Importation d'une image locale (clic ou drag & drop) ou saisie d'une URL. Les dimensions de la scène restent **strictement fixes** et ne sont pas écrasées lors du chargement.
+   - **Ouverture directe du panneau** : Un simple clic sur l'arrière-plan ou la scène ouvre instantanément le volet de configuration de fond (`bg`) et désélectionne les éléments actifs.
+   - **Mode Ajustement & Recadrage interactif (Double-clic)** :
+     - En double-cliquant sur la scène (ou en cliquant sur *« Ajuster / Déplacer l'image »* dans le panneau), l'utilisateur entre en mode manipulation d'image in-place.
+     - **Déplacement au curseur** : Glisser l'image pour la repositionner librement dans le cadre.
+     - **Zoom / Échelle** : Molette de la souris ou boutons flottants pour zoomer (de 100% à 500%). En mode *Remplir (Cover)*, l'image ne peut pas être réduite en dessous de 100% pour garantir qu'elle recouvre toujours intégralement la scène.
+     - **Retour élastique sur les bords (Rubber-Band)** : Si l'utilisateur tire l'image au-delà des limites (par exemple le bord droit plus à gauche que le bord droit de la scène), une résistance élastique s'applique et l'image rebondit automatiquement sur le bord strict au relâchement.
+     - **Persistance YAML** : Les coordonnées de décalage (`imageOffsetX`, `imageOffsetY`) et le facteur d'échelle (`imageScale`) sont automatiquement sauvegardés et persistés dans les templates YAML.
+     - **Formes avec texture image** : Le même comportement s'applique aux formes géométriques (`ShapeElement`) remplies avec une image (double-clic pour ajuster l'image dans la forme).
+   - Mode de redimensionnement : *Remplir (Cover)* ou *Ajuster (Contenir)*.
    - Opacité globale de l'image (0 à 100%).
 
 ---
@@ -185,6 +198,7 @@ Lorsqu'un élément de texte est sélectionné, le panneau **TextControls** offr
 
 ## 5. Formes Géométriques & Textures Graphiques
 
+### 5.1 Formes Géométriques
 Lorsqu'une forme est sélectionnée, le panneau **ShapeControls** offre :
 
 - **Identifiant Personnalisé (`customId`)** : Clé pour surcharges YAML (ex: `cta_btn`, `card_container`).
@@ -214,11 +228,50 @@ Lorsqu'une forme est sélectionnée, le panneau **ShapeControls** offre :
 - **Ordre d'empilement (Z-Index)** :
   - Passer au premier plan, monter d'un niveau, descendre d'un niveau, passer à l'arrière-plan.
 
+### 5.2 Mockups d'Appareils Réalistes (Devices)
+FrameMy.App Studio intègre un type d'élément dédié aux mockups de terminaux mobiles et tablettes avec un skin CSS ultra-réaliste :
+
+- **4 Modèles Disponibles** :
+  - **Pixel 10** : Flagship Google avec poinçon caméra centré, coins arrondis à 36 px, écouteur supérieur discret et boutons physiques sur le côté droit (Power + Volume).
+  - **iPhone Pro Max** : Modèle Apple avec Dynamic Island interactive (double capteur FaceID et optique), coins arrondis à 44 px, boutons Action et Volume à gauche, bouton latéral Power à droite.
+  - **Samsung Galaxy** : Écran Infinity avec discret poinçon central, bordures d'écran ultra-fines (8 px), coins à 22 px et boutons latéraux droits.
+  - **Pixel Tab** : Tablette Google format 16:10 paysage avec bordures symétriques larges de préhension (16 px), caméra discrète sur la lunette supérieure et boutons sur la tranche supérieure.
+
+- **Skin CSS Réaliste Haut de Gamme & Dimensions Proportionnelles** :
+  - **Châssis & Biseau Métallique** : Rendu multi-couches en pur CSS combinant biseau de lumière interne (`inset 0 0 0 1px rgba(255,255,255,0.2)`), contour sombre d'ajustage et ombre portée extérieure.
+  - **Finition Métal Brossé Réaliste (`brushedMetal`)** : Texture de traits verticaux en dégradé continu le long de la hauteur (2 à 6 points blancs aléatoires par strie, opacité entre 0% et 5% par défaut, configurable de 1% à 20% via `brushedMetalOpacity`), simulant fidèlement le brossage métallique sans quadrillage ni répétition artificielle.
+  - **Dimensions & Géométrie Proportionnelles à la Taille du Terminal** :
+    - L'arrondi du boîtier (`borderRadius`), l'épaisseur du châssis (`bodyThickness`) et la bordure d'écran (`screenBorderWidth`) sont exprimés en **pourcentage de la taille de l'appareil** (largeur) plutôt qu'en pixels fixes figés.
+    - Quel que soit le facteur d'échelle appliqué au device ou la résolution du canevas (du petit format web au 4K Ultra HD), les proportions visuelles, l'arrondi des angles, les boutons physiques, l'encoche/caméra et l'écouteur restent parfaitement homogènes et fidèles sans jamais paraître disproportionnés.
+    - Les curseurs du panneau latéral affichent simultanément le pourcentage et la valeur effective calculée en pixels : Épaisseur de châssis (0.5% à 15%), Bordure d'écran (0% à 10%) et Arrondi des coins (0% à 25%).
+  - **Bordure d'Écran Distincte (Bezel Intérieur)** : Épaisseur réglable en pourcentage avec couleur dédiée (`screenBorderColor`, par défaut noire `#000000`). La capture d'écran est logée à 100% à l'intérieur de la bordure d'écran, elle-même emboîtée à l'intérieur du boîtier, évitant tout masquage accidentel.
+  - **Reflet d'Écran Paramétrable (Flare)** : Interrupteur (`showFlare`), sélecteur de couleur et d'opacité (`flareColor`), curseur d'angle d'orientation (0° à 360°, `flareAngle`) et curseur d'étendue (10% à 100%, `flareSpread`).
+  - **Barre de Navigation Système (*Home Indicator*)** : Interrupteur de présence (`showHomeIndicator`) et sélecteur de couleur avec canal Alpha (`homeIndicatorColor`, par défaut `rgba(255, 255, 255, 0.45)`), dimensionnés proportionnellement à l'échelle de l'appareil.
+  - **Notch & Caméra Frontale Épurés** : Silhouette noire pure et nette proportionnelle (Dynamic Island, punch-hole, poinçon ou caméra tablette) sans reflet ni lentille pour un rendu mockup vectoriel moderne.
+
+- **Configuration de la Capture d'Écran & Préservation Stricte du Ratio d'Image** :
+  - Chargement par fichier local, saisie d'URL ou Drag & Drop direct depuis l'explorateur de fichiers sur l'appareil.
+  - **Verrouillage Automatique du Ratio d'Image au Redimensionnement** :
+    - Dès qu'un appareil possède une image de fond / capture d'écran, le ratio d'aspect de l'image est **strictement préservé** lors du redimensionnement via les poignées de manipulation du canevas.
+    - Toute modification de la largeur ou de la hauteur (que ce soit via la souris ou les champs de saisie manuelle) recalcule instantanément l'autre dimension pour que la zone active d'affichage respecte exactement le ratio naturel (`naturalWidth / naturalHeight`), interdisant tout étirement, écrasement ou rognage indésirable.
+  - Mode d'ajustement : *Remplir (Cover)* ou *Ajuster (Contain)*.
+  - Couleur de fond de l'écran configurable en cas de format spécifique.
+
+- **Personnalisation Complète** :
+  - **Couleur de la Coque (`bodyColor`)** : Sélecteur de couleur Alpha complet avec nuancier de teintes constructeurs (Obsidienne, Titane Naturel, Gris Sidéral, Argent Porcelaine, Or Titane, Vert Forêt, Bleu Minuit) et bascule métal brossé.
+  - **Boutons Physiques** : Interrupteur d'activation (`showButtons`) et personnalisation de la couleur des boutons (`buttonColor`).
+  - **Caméra Frontale / Notch** : Interrupteur de visibilité (`showCamera`) pour afficher ou masquer la Dynamic Island ou le punch hole noir épuré.
+  - **Bordures de l'Écran (`screenPadding`, `screenBorderColor`)** : Réglage indépendant de la couleur et de l'épaisseur du bezel d'écran.
+  - **Arrondi du Boîtier (`borderRadius`)** : Curseur de rayon de courbure (0 à 60 px).
+  - **Ombre Portée Réaliste (`shadow`)** : Couleur avec canal Alpha, rayon de flou, décalages horizontaux (X) et verticaux (Y).
+  - **Manipulation & Hiérarchie** : Déplacement à la souris, redimensionnement via poignées de coin, rotation (-180° à +180°), ordre des calques (Z-Index) et sélection multiple avec alignement automatique.
+  - **Templates YAML & Identifiant Personnalisé (`customId`)** : Remplacement automatique de la capture d'écran selon les variantes linguistiques via `images.<customId>: "assets/screen_fr.png"` et surcharge des finitions matérielles via `elements.<customId>`.
+
 ---
 
 ## 6. Cadrage & Zone d'Exportation
 
-Banner Studio permet d'isoler une région précise de la composition lors du rendu final et de définir librement les dimensions de sortie :
+FrameMy.App Studio permet d'isoler une région précise de la composition lors du rendu final et de définir librement les dimensions de sortie :
 
 ### 6.1 Résolution Cible Réelle & Dimensions Souhaitées Custom
 - **Saisie Libre des Dimensions** : Vous pouvez indiquer librement la largeur (`targetWidth`) et la hauteur (`targetHeight`) en pixels de votre rendu (de 50 px à 10 000 px, jusqu'en 4K Ultra HD ou 8K).
@@ -229,6 +282,8 @@ Banner Studio permet d'isoler une région précise de la composition lors du ren
 
 ### 6.2 Préréglages de Formats Sociaux & HD
 Des presets prédéfinis permettent d'appliquer instantanément les standards graphiques courants :
+- *Google Play Screenshot (9:16)* : 1080 × 1920 px (fiche Play Store smartphone)
+- *Google Play Bannière* : 1024 × 500 px (graphique de promotion officiel)
 - *Instagram Carré (1:1)* : 1080 × 1080 px
 - *Story / TikTok / Reels (9:16)* : 1080 × 1920 px (format vertical)
 - *YouTube / Écran HD (16:9)* : 1920 × 1080 px (vignettes & présentations)
@@ -258,17 +313,55 @@ Des presets prédéfinis permettent d'appliquer instantanément les standards gr
 | `Shift + Flèches directionnelles` | Déplacer l'élément sélectionné de 10 pixels |
 | `Molette de la souris` (sur le canevas) | Zoomer et dézoomer interactivement (20% à 350%) en conservant le point sous le curseur comme point fixe (style Inkscape) |
 | `Loupes de zoom / boutons +/-` | Zoomer et dézoomer centré sur le milieu de la composition |
-| `Clic molette / Espace + Glisser` | Panoramique interactif du canevas |
-| `Shift + Redimensionnement` | Conserver le ratio hauteur/largeur d'un élément |
+| `Glisser sur l'arrière-plan / Clic molette / Espace + Glisser` | Panoramique interactif (glisser-déplacer la scène et le canevas) |
+| `Double-clic sur l'arrière-plan ou une forme avec image` | Activer le mode d'ajustement in-place (déplacer, zoomer l'image avec retour élastique) |
+| `Échap / Clic Terminer` | Valider et quitter le mode d'ajustement d'image |
+| `Glisser l'ancre de redimensionnement` | Redimensionner librement largeur et hauteur |
+| `Ctrl + Glisser l'ancre` / `Cmd + Glisser` | Conserver le ratio d'aspect de l'élément |
+| `Ctrl + Shift + Glisser l'ancre` / `Cmd + Shift + Glisser` | Conserver le ratio d'aspect et ancrer le centre de l'élément (centre fixe) |
 | `Glisser-déposer de fichier` | Assigner une image de fond ou une texture de forme |
 
 ---
 
-## 8. Système de Templates & Déclinaisons en Cascade
+## 8. Sauvegarde, Synchronisation Disque & Exports
+
+FrameMy.App Studio intègre un système moderne de synchronisation directe avec le système de fichiers local (File System Access API) pour travailler de manière fluide et sécurisée entre votre navigateur et vos dossiers de projet.
+
+### 8.1 Panneau de Sauvegarde & Synchronisation (`save`)
+Accessible depuis l'icône de disquette (`save`) dans l'en-tête :
+- **Nom du Projet (Sous-titre)** : Permet de définir le titre du projet affiché en sous-titre de l'en-tête (par défaut `Projet sans nom`). Ce nom est également utilisé pour nommer les exports de fichiers.
+- **Sélection du Répertoire ou Fichier de Synchronisation** :
+  - **Choisir un dossier local** : Connecte un répertoire sur votre disque via le sélecteur natif du navigateur. Tous les changements sur le canevas peuvent être écrits directement dans ce dossier (`master.yml` ou `${nom}.yml`).
+  - **Choisir un fichier YAML existant** : Ouvre un fichier template individuel et initialise la synchronisation directe vers ce fichier.
+- **Sauvegarde Automatique sur le Disque** :
+  - Un commutateur permet d'activer la synchronisation automatique en continu. Dès qu'une modification survient sur le canevas (déplacement d'un texte, changement de couleur, redimensionnement d'une forme), l'écriture est déclenchée sur votre disque avec temporisation debounced.
+- **Synchronisation Manuelle** :
+  - Un bouton d'enregistrement immédiat permet de forcer l'écriture immédiate sur le disque et indique l'heure de la dernière écriture réussie.
+
+### 8.2 Bouton de Synchronisation dans l'En-tête
+Placé directement à droite du titre **FrameMy.App Studio** :
+- **Icône dynamique** :
+  - `cloud_done` (vert) : Le canevas est à jour et synchronisé avec le fichier sur disque.
+  - `sync` (orange / alerte) : Des modifications sont en attente d'enregistrement sur disque.
+  - `sync` (animation en rotation) : Écriture en cours sur le disque.
+- **Interaction rapide** : Un clic sur ce bouton enregistre immédiatement le projet si un dossier ou fichier est connecté, ou ouvre le panneau de configuration de sauvegarde si aucun emplacement n'est encore configuré.
+
+### 8.3 Gestion de l'Historique (Undo / Redo)
+> [!NOTE]
+> **Règle stricte sur l'historique :** Les retours arrière (`Ctrl+Z`) et avant (`Ctrl+Y`) ne sont pas enregistrés sur le disque. Ils sont maintenus exclusivement dans le cache mémoire local de votre navigateur pendant votre session de travail, garantissant des fichiers YAML propres et sans surcharge d'historique.
+
+### 8.4 Exports du Canvas Actuel
+Les options d'export ont été centralisées dans le panneau de sauvegarde :
+- **Template YML** : Exporte le canevas actuel sous forme d'un fichier YAML autonome de template maître.
+- **Bundle ZIP** : Génère une archive ZIP complète comprenant le `master.yml`, les `overrides/`, les `variants/` et le dossier `assets/`.
+
+---
+
+## 9. Système de Templates & Déclinaisons en Cascade
 
 Le moteur de templates permet d'automatiser la création de bannières déclinées en plusieurs langues, thèmes ou formats publicitaires sans dupliquer les fichiers volumineux.
 
-### 8.1 La Hiérarchie en Cascade
+### 9.1 La Hiérarchie en Cascade
 
 ```text
 📁 bundle/ (ou archive .zip)
@@ -314,11 +407,11 @@ Lorsqu'une déclinaison (`variant`) est sélectionnée ou exportée :
 
 ---
 
-## 9. Identifiants Personnalisés (customId)
+## 10. Identifiants Personnalisés (customId)
 
 Pour que les fichiers YAML puissent cibler les textes et formes indépendamment de leur identifiant technique interne (ex: `txt-1718900`), chaque élément possède un **`customId`**.
 
-### 9.1 Attribution des Identifiants
+### 10.1 Attribution des Identifiants
 - **Dans TextControls / ShapeControls** : Champ de texte *« ID Personnalisé (customId) »*.
 - **Dans le volet gauche (Onglet « Custom IDs »)** :
   - Tableau de synthèse affichant chaque élément, son type, son aperçu et son `customId`.
@@ -326,9 +419,9 @@ Pour que les fichiers YAML puissent cibler les textes et formes indépendamment 
 
 ---
 
-## 10. Spécification & Syntaxe des Fichiers YAML
+## 11. Spécification & Syntaxe des Fichiers YAML
 
-### 10.1 Exemple de `master.yml`
+### 11.1 Exemple de `master.yml`
 ```yaml
 version: "1.0"
 background:
@@ -366,7 +459,7 @@ elements:
     borderRadius: 30
 ```
 
-### 10.2 Exemple d'Override (`overrides/01_flash_sale.yml`)
+### 11.2 Exemple d'Override (`overrides/01_flash_sale.yml`)
 ```yaml
 background:
   type: "linear"
@@ -377,7 +470,7 @@ elements:
     solidColor: "rgba(251, 191, 36, 1)"
 ```
 
-### 10.3 Exemple de Variante (`variants/fr/01_flash_sale.yml`)
+### 11.3 Exemple de Variante (`variants/fr/01_flash_sale.yml`)
 ```yaml
 content:
   main_title: "Vente Flash Exceptionnelle !"
@@ -386,7 +479,7 @@ images:
   background: "banner_fr.jpg"
 ```
 
-### 10.4 Exemple de Variante (`variants/en/01_flash_sale.yml`)
+### 11.4 Exemple de Variante (`variants/en/01_flash_sale.yml`)
 ```yaml
 content:
   main_title: "Limited Time Flash Sale!"
@@ -397,7 +490,7 @@ images:
 
 ---
 
-## 11. Gestion des Assets Graphiques & Résolution
+## 12. Gestion des Assets Graphiques & Résolution
 
 Lorsque vous utilisez des images relatives dans vos fichiers YAML (`images: { background: "mon_fond.jpg" }`) :
 - Le moteur cherche d'abord dans le dossier spécifique de la langue : `assets/<lang>/mon_fond.jpg`.
@@ -406,11 +499,11 @@ Lorsque vous utilisez des images relatives dans vos fichiers YAML (`images: { ba
 
 ---
 
-## 12. Batch Export (Export par Lot) & Archives ZIP
+## 13. Batch Export (Export par Lot) & Archives ZIP
 
 La boîte de dialogue **Batch Export** automatise la génération de l'intégralité des visuels :
 
-### 12.1 Organisation en Groupes Repliables & Sélection Intelligente
+### 13.1 Organisation en Groupes Repliables & Sélection Intelligente
 - Les éléments à générer sont structurés en 3 sections avec caret repliable :
   - **Master (Canevas de référence)** : replié et non sélectionné par défaut.
   - **Overrides (Surcharges thématiques)** : replié et non sélectionnées par défaut.
@@ -418,7 +511,7 @@ La boîte de dialogue **Batch Export** automatise la génération de l'intégral
 - Chaque groupe dispose de sa propre case à cocher d'en-tête (avec gestion de l'état indéterminé) et d'un compteur dédié (*ex: 0 / 6* ou *42 / 42*).
 - Des raccourcis globaux *« Tout cocher »* et *« Tout décocher »* permettent d'ajuster l'ensemble de la liste en un clic.
 
-### 12.2 Export direct sur Dossier Disque (File System Access API)
+### 13.2 Export direct sur Dossier Disque (File System Access API)
 - Cliquez sur **« Sélectionner un dossier de destination »**.
 - L'application crée un sous-répertoire horodaté reproduisant fidèlement l'arborescence :
   - `master.png`
@@ -427,18 +520,18 @@ La boîte de dialogue **Batch Export** automatise la génération de l'intégral
   - `variants/en/01_flash_sale.png`
 - La progression est affichée en direct avec barre de pourcentage et nom de chaque déclinaison en cours de capture.
 
-### 12.3 Fallback Archive ZIP
+### 13.3 Fallback Archive ZIP
 - Si votre navigateur ne supporte pas la sélection directe de répertoire ou si vous préférez une archive unique, cliquez sur **« Télécharger en archive ZIP »**. L'archive contiendra l'arborescence complète générée.
 
-### 12.4 Fidélité Typographique CJK & Rendu Pixel-Perfect
+### 13.4 Fidélité Typographique CJK & Rendu Pixel-Perfect
 - Lors de l'export PNG, le moteur extrait préalablement les lignes visuelles natives calculées par le navigateur (`Range.getClientRects()`) et injecte la police japonaise `Noto Sans JP` ainsi que des hauteurs de ligne en pixels absolus (`line-height`).
 - Cela neutralise les dérives de césure et de sous-pixels propres à `html2canvas` sur les textes asiatiques sans espaces (japonais, chinois, coréen) et garantit que les retours à la ligne et les espacements dans le fichier PNG final sont 100% identiques à ceux affichés dans l'éditeur interactif.
 
 ---
 
-## 13. Guide de Maintenance & Évolution du Code
+## 14. Guide de Maintenance & Évolution du Code
 
-Toute évolution de FrameMyApp-Banner doit respecter la politique de synchronisation stricte :
+Toute évolution de FrameMy.App Studio doit respecter la politique de synchronisation stricte :
 
 ### Règle des 6 Étapes de Synchronisation :
 1. **Types TypeScript (`src/types/`)** : Déclarer le nouvel attribut dans `index.ts` et `template.ts`.

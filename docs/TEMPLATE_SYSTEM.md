@@ -1,7 +1,7 @@
-# Spécification Technique & Guide de Génération de Bundles/Templates (FrameMyApp-Banner)
+# Spécification Technique & Guide de Génération de Bundles/Templates (FrameMy.App Studio)
 
 > **Destinataires** : Développeurs, Agents IA, Intégrations LLM automatisées.  
-> **Objet** : Guide normatif complet pour générer automatiquement l'arborescence, les fichiers YAML (`master`, `overrides`, `variants`) et les ressources graphiques d'un Bundle prêt à être importé dans Banner Studio.
+> **Objet** : Guide normatif complet pour générer automatiquement l'arborescence, les fichiers YAML (`master`, `overrides`, `variants`) et les ressources graphiques d'un Bundle prêt à être importé dans FrameMy.App Studio.
 
 ---
 
@@ -286,7 +286,7 @@ Pour qu'une IA produise un bundle valide sans erreur d'interprétation, elle doi
 Copiez-collez ce prompt pour instruire une IA de générer un bundle complet :
 
 ````markdown
-Tu es un générateur expert de templates de bannières pour Banner Studio (FrameMyApp).
+Tu es un générateur expert de templates de bannières pour FrameMy.App Studio.
 Génère l'arborescence et les fichiers YAML complets pour une campagne publicitaire sur le thème : "[THÈME OU PRODUIT]".
 
 Contraintes impératives :

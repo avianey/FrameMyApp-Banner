@@ -4,6 +4,7 @@ import {
   ExportZone,
   TextElementModel,
   ShapeElementModel,
+  DeviceElementModel,
   BannerMasterConfig,
   BannerOverrideConfig,
   BannerVariantConfig,
@@ -151,6 +152,9 @@ function applyLayer(
         if (target && target.type === 'shape') {
           const resolved = resolveAsset(imgVal, variantPath, assetsMap);
           if (resolved) (target as ShapeElementModel).imageUrl = resolved;
+        } else if (target && target.type === 'device') {
+          const resolved = resolveAsset(imgVal, variantPath, assetsMap);
+          if (resolved) (target as DeviceElementModel).screenImageUrl = resolved;
         }
       }
     }
@@ -195,11 +199,14 @@ function applyLayer(
     }
   }
 
-  // Resolve shape images inside elements
+  // Resolve shape and device images inside elements
   for (const el of composition.elements) {
     if (el.type === 'shape' && (el as ShapeElementModel).imageUrl) {
       const resolved = resolveAsset((el as ShapeElementModel).imageUrl, variantPath, assetsMap);
       if (resolved) (el as ShapeElementModel).imageUrl = resolved;
+    } else if (el.type === 'device' && (el as DeviceElementModel).screenImageUrl) {
+      const resolved = resolveAsset((el as DeviceElementModel).screenImageUrl, variantPath, assetsMap);
+      if (resolved) (el as DeviceElementModel).screenImageUrl = resolved;
     }
   }
 }

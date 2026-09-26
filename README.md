@@ -1,6 +1,6 @@
-# Banner Studio - FrameMyApp
+# FrameMy.App Studio
 
-Application de conception visuelle Material 3, gestion de transparence Alpha complète (RGBA / HEX8 `#FFFFFFFF`), mode sombre dynamique, zoom interactif et export haute fidélité.
+Application de conception visuelle Material 3, gestion de transparence Alpha complète (RGBA / HEX8 `#FFFFFFFF`), synchronisation et sauvegarde sur disque local, presets maîtres, déclinaisons & batch export haute fidélité.
 Projet Node.js / React moderne développé avec Vite, TypeScript et Tailwind CSS.
 
 ## 🚀 Démarrage rapide

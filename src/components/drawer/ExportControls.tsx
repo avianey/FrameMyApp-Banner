@@ -14,6 +14,8 @@ interface ExportPreset {
 }
 
 const presets: ExportPreset[] = [
+  { id: 'play-screenshot', name: 'Google Play Screenshot', description: '9:16 (Fiche Play Store)', w: 337, h: 600, outW: 1080, outH: 1920, icon: 'smartphone' },
+  { id: 'play-banner', name: 'Google Play Bannière', description: 'Promo Play Store (1024 × 500)', w: 600, h: 293, outW: 1024, outH: 500, icon: 'shop' },
   { id: 'insta-sq', name: 'Instagram Carré', description: '1:1 (Post feed)', w: 500, h: 500, outW: 1080, outH: 1080, icon: 'crop_square' },
   { id: 'insta-story', name: 'Story / Reels / TikTok', description: '9:16 (Vertical plein écran)', w: 337, h: 600, outW: 1080, outH: 1920, icon: 'stay_current_portrait' },
   { id: 'yt-thumb', name: 'YouTube / Écran HD', description: '16:9 (Vignette & Présentation)', w: 640, h: 360, outW: 1920, outH: 1080, icon: 'tv' },

@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import { ShapeElementModel } from '../../types';
 import { useEditor } from '../../context/EditorContext';
 import { SelectionHandles } from './SelectionHandles';
+import { InPlaceImageCropper } from './InPlaceImageCropper';
 
 interface ShapeElementProps {
   element: ShapeElementModel;
@@ -16,11 +17,16 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
   selectionIndex,
   isMultiSelected
 }) => {
-  const { selectElement, updateElement, state, recordHistory } = useEditor();
+  const { selectElement, updateElement, state, recordHistory, editingImageElementId, setEditingImageElementId, setActivePanel } = useEditor();
   const nodeRef = useRef<HTMLDivElement>(null);
   const currentZoom = state.zoom || 1;
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    // Si on est en mode édition de l'image de cette forme, laisser le cropper gérer l'image
+    if (editingImageElementId === element.id) {
+      return;
+    }
+
     // If click on resize or rotate handle, let those handle it
     const target = e.target as HTMLElement;
     if (target.closest('.handle-resize') || target.closest('.handle-rotate-anchor')) {
@@ -104,10 +110,6 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
     } else {
       shapeStyle.background = `radial-gradient(circle at center, ${element.radialColor1}, ${element.radialColor2})`;
     }
-  } else if (element.fillType === 'image' && element.imageUrl) {
-    shapeStyle.backgroundImage = `url('${element.imageUrl}')`;
-    shapeStyle.backgroundSize = 'cover';
-    shapeStyle.backgroundPosition = 'center';
   }
 
   // Stroke
@@ -145,6 +147,14 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
     shapeStyle.clipPath = 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)';
   }
 
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    if (element.fillType === 'image' && element.imageUrl) {
+      e.stopPropagation();
+      setEditingImageElementId(element.id);
+      setActivePanel('shape');
+    }
+  };
+
   return (
     <div
       ref={nodeRef}
@@ -158,9 +168,37 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
         transform: `rotate(${element.rotation || 0}deg)`
       }}
       onPointerDown={handlePointerDown}
+      onDoubleClick={handleDoubleClick}
     >
-      <div className="shape-render-content w-full h-full cursor-move" style={shapeStyle} />
-      {isSelected && !isMultiSelected && (
+      <div
+        className={`shape-render-content w-full h-full relative overflow-hidden ${
+          editingImageElementId === element.id ? 'cursor-default' : 'cursor-move'
+        }`}
+        style={shapeStyle}
+      >
+        {element.fillType === 'image' && element.imageUrl && (
+          <InPlaceImageCropper
+            containerWidth={element.width}
+            containerHeight={element.height}
+            imageUrl={element.imageUrl}
+            imageFit={element.imageFit || 'cover'}
+            imageScale={element.imageScale || 1.0}
+            imageOffsetX={element.imageOffsetX || 0}
+            imageOffsetY={element.imageOffsetY || 0}
+            imageNaturalWidth={element.imageNaturalWidth}
+            imageNaturalHeight={element.imageNaturalHeight}
+            isEditing={editingImageElementId === element.id}
+            onUpdate={updates => updateElement(element.id, updates)}
+            onClose={() => setEditingImageElementId(null)}
+            canvasZoom={currentZoom}
+            borderRadius={shapeStyle.borderRadius}
+            clipPath={shapeStyle.clipPath}
+            title="Recadrer l'image"
+          />
+        )}
+      </div>
+
+      {isSelected && !isMultiSelected && editingImageElementId !== element.id && (
         <SelectionHandles element={element} elementRef={nodeRef} />
       )}
       {isSelected && isMultiSelected && (

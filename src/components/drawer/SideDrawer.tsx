@@ -1,9 +1,10 @@
 import React from 'react';
 import { useEditor } from '../../context/EditorContext';
-import { TextElementModel, ShapeElementModel } from '../../types';
+import { TextElementModel, ShapeElementModel, DeviceElementModel } from '../../types';
 import { BackgroundControls } from './BackgroundControls';
 import { TextControls } from './TextControls';
 import { ShapeControls } from './ShapeControls';
+import { DeviceControls } from './DeviceControls';
 import { ExportControls } from './ExportControls';
 import { AlignmentControls } from './AlignmentControls';
 
@@ -25,6 +26,9 @@ export const SideDrawer: React.FC = () => {
   } else if (activePanel === 'shape') {
     drawerTitle = 'Propriétés de la Forme';
     drawerIcon = 'shapes';
+  } else if (activePanel === 'device') {
+    drawerTitle = 'Propriétés de l’Appareil';
+    drawerIcon = 'smartphone';
   } else if (activePanel === 'export') {
     drawerTitle = 'Zone d’Exportation';
     drawerIcon = 'crop';
@@ -69,6 +73,9 @@ export const SideDrawer: React.FC = () => {
         )}
         {activePanel === 'shape' && selectedElement?.type === 'shape' && (
           <ShapeControls element={selectedElement as ShapeElementModel} />
+        )}
+        {activePanel === 'device' && selectedElement?.type === 'device' && (
+          <DeviceControls element={selectedElement as DeviceElementModel} />
         )}
         {activePanel === 'export' && <ExportControls />}
         {activePanel === 'align' && <AlignmentControls />}
