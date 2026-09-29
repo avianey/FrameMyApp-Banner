@@ -3,6 +3,7 @@ import { useEditor } from '../../context/EditorContext';
 import { ShapeElementModel, ShapeType, FillType, GradientStop } from '../../types';
 import { ColorAlphaPicker } from '../common/ColorAlphaPicker';
 import { LayerOrderControls } from './LayerOrderControls';
+import { SceneAlignmentControls } from './SceneAlignmentControls';
 
 const shapesList: { id: ShapeType; label: string; icon: string }[] = [
   { id: 'rectangle', label: 'Rectangle', icon: 'rectangle' },
@@ -65,6 +66,9 @@ export const ShapeControls: React.FC<ShapeControlsProps> = ({ element }) => {
 
       {/* Hiérarchie et ordre des calques */}
       <LayerOrderControls elementId={element.id} />
+
+      {/* Alignement et collage sur la scène */}
+      <SceneAlignmentControls elementId={element.id} />
 
       {/* Choix de la forme */}
       <div className="space-y-1.5">

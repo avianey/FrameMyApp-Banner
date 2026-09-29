@@ -75,7 +75,7 @@ FrameMy.App Studio adopte les principes de design **Material 3 (M3)** avec suppo
   - Déplacement au clavier : touches fléchées pour déplacer d'un pixel (ou `Shift + Flèches` pour des incréments de 10 pixels).
 
 ### 2.2 Hiérarchie & Ordre des Calques (Z-Index)
-Lorsqu'un élément est sélectionné seul, son panneau de propriétés (Texte ou Forme) intègre la section **Hiérarchie & Calques** :
+Lorsqu'un élément est sélectionné seul, son panneau de propriétés (Texte, Forme ou Appareil) intègre la section **Hiérarchie & Calques** :
 - **Indicateur de niveau** : Affiche la position de l'élément dans la pile (ex: *Niveau 3 / 5*).
 - **1er plan (`vertical_align_top`)** : Place l'élément au sommet absolu de la pile (au-dessus de tous les autres éléments).
 - **Monter (`keyboard_arrow_up`)** : Monte l'élément d'un cran au-dessus de son voisin direct.
@@ -83,7 +83,20 @@ Lorsqu'un élément est sélectionné seul, son panneau de propriétés (Texte o
 - **Arrière-plan (`vertical_align_bottom`)** : Place l'élément à la base de la pile (sous tous les autres éléments).
 - Les boutons se désactivent automatiquement lorsque l'élément a déjà atteint le sommet ou la base.
 
-### 2.3 Volet d'Alignement & Espacement Uniforme (Distribution)
+### 2.3 Alignement & Collage sur la Scène (Élément Unique)
+Présent directement sous les contrôles de changement de plan dans le volet d'options lorsqu'un élément individuel (Texte, Forme ou Appareil) est sélectionné seul :
+- **Raccourci « Centrer tout » (`filter_center_focus`)** : Positionne instantanément l'élément au centre absolu de la scène (horizontalement et verticalement).
+- **Alignement Horizontal** :
+  - *À gauche* (`align_horizontal_left`) : Colle l'élément contre la bordure gauche de la composition (`x = 0`).
+  - *Centrer H* (`align_horizontal_center`) : Centre l'élément horizontalement par rapport à la largeur de la scène.
+  - *À droite* (`align_horizontal_right`) : Colle l'élément contre la bordure droite de la composition (`x = canvasWidth - width`).
+- **Alignement Vertical** :
+  - *En haut* (`align_vertical_top`) : Colle l'élément contre la bordure supérieure de la composition (`y = 0`).
+  - *Centrer V* (`align_vertical_center`) : Centre l'élément verticalement par rapport à la hauteur de la scène.
+  - *En bas* (`align_vertical_bottom`) : Colle l'élément contre la bordure inférieure de la composition (`y = canvasHeight - height`).
+- Chaque action est conservée dans l'historique d'annulation (`Ctrl+Z` / `Ctrl+Y`) et affiche une notification contextuelle (Snackbar).
+
+### 2.4 Volet d'Alignement & Espacement Uniforme (Multi-sélection)
 Accessible automatiquement lors de la sélection de 2 éléments ou plus via `Ctrl + Clic` :
 - **Cible de référence** :
   1. **1er sélectionné** : Utilise le premier élément cliqué comme ancre de référence fixe.
@@ -103,7 +116,7 @@ Accessible automatiquement lors de la sélection de 2 éléments ou plus via `Ct
   - *Espacement fixe personnalisé* : Option permettant de définir un espacement précis en pixels (curseur ou saisie numérique).
 - **Suppression groupée** : Permet de supprimer d'un coup tous les éléments de la multi-sélection (via le bouton dédié ou la touche `Suppr`).
 
-### 2.4 Redimensionnement & Rotation
+### 2.5 Redimensionnement & Rotation
 - **Redimensionnement depuis l'ancre** :
   - La poignée circulaire inférieure droite permet d'ajuster visuellement la taille de l'élément sélectionné (formes, textes, devices).
   - **Glisser simple** : redimensionnement libre en largeur et en hauteur.
@@ -113,11 +126,11 @@ Accessible automatiquement lors de la sélection de 2 éléments ou plus via `Ct
   - Une poignée circulaire supérieure reliée par une tige permet d'effectuer une rotation libre à 360°.
   - Glissez la poignée circulaire pour pivoter l'élément. L'angle exact en degrés est calculé et mémorisé.
 
-### 2.3 Édition de Texte en Ligne
+### 2.6 Édition de Texte en Ligne
 - Cliquez directement sur un bloc de texte pour éditer son contenu sur place.
 - La modification est immédiatement synchronisée avec le store de l'application et conservée dans l'historique d'annulation.
 
-### 2.4 Drag & Drop d'Images Externes & Adaptation de la Composition
+### 2.7 Drag & Drop d'Images Externes & Adaptation de la Composition
 - Vous pouvez glisser-déposer une image (`.png`, `.jpg`, `.webp`, `.svg`) depuis votre gestionnaire de fichiers :
   - **Sur un appareil (Device)** : l'image devient la capture d'écran du mockup et la hauteur de l'appareil s'adapte automatiquement au ratio d'aspect exact de l'image (sans rognage ni déformation).
   - **Sur une forme** : l'image devient la texture de remplissage de cette forme.

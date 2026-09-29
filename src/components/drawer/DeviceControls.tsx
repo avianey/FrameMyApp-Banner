@@ -3,6 +3,7 @@ import { useEditor } from '../../context/EditorContext';
 import { DeviceElementModel, DeviceModelType } from '../../types';
 import { ColorAlphaPicker } from '../common/ColorAlphaPicker';
 import { LayerOrderControls } from './LayerOrderControls';
+import { SceneAlignmentControls } from './SceneAlignmentControls';
 import {
   getDeviceEffectiveDimensions,
   computeDeviceHeightFromWidth,
@@ -196,6 +197,9 @@ export const DeviceControls: React.FC<DeviceControlsProps> = ({ element }) => {
 
       {/* Hiérarchie et ordre des calques */}
       <LayerOrderControls elementId={element.id} />
+
+      {/* Alignement et collage sur la scène */}
+      <SceneAlignmentControls elementId={element.id} />
 
       {/* Choix du modèle d'appareil */}
       <div className="space-y-2">

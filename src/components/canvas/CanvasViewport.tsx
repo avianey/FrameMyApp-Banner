@@ -18,6 +18,7 @@ export const CanvasViewport: React.FC = () => {
     zoomIn,
     zoomOut,
     resetZoom,
+    centerCanvas,
     setPan,
     selectElement,
     editingImageElementId,
@@ -30,10 +31,22 @@ export const CanvasViewport: React.FC = () => {
   const panStartRef = useRef<{ startX: number; startY: number; initPanX: number; initPanY: number } | null>(null);
   const hasMovedRef = useRef<boolean>(false);
   const editingImageElementIdRef = useRef(editingImageElementId);
+  const hasInitiallyCenteredRef = useRef<boolean>(false);
 
   useEffect(() => {
     editingImageElementIdRef.current = editingImageElementId;
   }, [editingImageElementId]);
+
+  // Centrage automatique et calcul du meilleur zoom à l'ouverture de la scène
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!hasInitiallyCenteredRef.current) {
+        centerCanvas(state.canvasWidth, state.canvasHeight, true);
+        hasInitiallyCenteredRef.current = true;
+      }
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [centerCanvas, state.canvasWidth, state.canvasHeight]);
 
   // Wheel zoom event handler (non-passive to allow e.preventDefault)
   useEffect(() => {

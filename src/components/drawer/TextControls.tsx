@@ -3,6 +3,7 @@ import { useEditor } from '../../context/EditorContext';
 import { TextElementModel } from '../../types';
 import { ColorAlphaPicker } from '../common/ColorAlphaPicker';
 import { LayerOrderControls } from './LayerOrderControls';
+import { SceneAlignmentControls } from './SceneAlignmentControls';
 
 const fonts = [
   'Roboto',
@@ -71,6 +72,9 @@ export const TextControls: React.FC<TextControlsProps> = ({ element }) => {
 
       {/* Hiérarchie et ordre des calques */}
       <LayerOrderControls elementId={element.id} />
+
+      {/* Alignement et collage sur la scène */}
+      <SceneAlignmentControls elementId={element.id} />
 
       {/* Contenu du texte */}
       <div className="space-y-1.5">

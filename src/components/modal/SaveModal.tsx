@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useEditor } from '../../context/EditorContext';
+import { useEditor, slugifyFilename } from '../../context/EditorContext';
 
 export const SaveModal: React.FC = () => {
   const {
@@ -126,8 +126,12 @@ export const SaveModal: React.FC = () => {
                 {localName ? `${localName.length} car.` : 'défaut'}
               </span>
             </div>
-            <p className="text-[11px] text-m3-sys-onSurfaceVariant px-1">
-              Ce nom s'affiche en sous-titre sous <strong>FrameMy.App Studio</strong> et servira d'identifiant par défaut pour vos exports.
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-[11px] text-m3-sys-onSurfaceVariant px-1 gap-1">
+              <span>Fichier disque cible : <strong className="font-mono text-m3-sys-primary">{syncFilePath || `${slugifyFilename(localName || 'Projet sans nom')}.yml`}</strong></span>
+              <span>Nom dans le YAML : <strong className="font-mono text-m3-sys-primary">&quot;{localName || 'Projet sans nom'}&quot;</strong></span>
+            </div>
+            <p className="text-[11px] text-m3-sys-onSurfaceVariant/80 px-1">
+              Renommer le projet met à jour le sous-titre de l'en-tête, actualise le champ <code>name</code> dans le fichier YAML et synchronise le fichier sous ce nouveau nom dans votre répertoire de sauvegarde.
             </p>
           </div>
 

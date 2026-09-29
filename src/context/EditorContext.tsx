@@ -1,45 +1,29 @@
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import {
   EditorState,
   BackgroundConfig,
   CanvasElement,
-  TextElementModel,
-  ShapeElementModel,
   ShapeType,
-  DeviceElementModel,
   DeviceModelType,
   ExportZone,
   ActivePanel,
   LoadedBundle,
   BundleItem,
-  BannerMasterConfig,
-  BannerOverrideConfig,
-  BannerVariantConfig,
   SyncStatus
 } from '../types';
 import {
-  resolveComposition,
-  serializeCanvasToMaster,
-  serializeCanvasToVariant,
-  serializeCanvasToOverride
-} from '../utils/templateEngine';
-import { stringifyYaml, parseYaml } from '../utils/yamlHelper';
-import {
-  createBundleZip,
-  downloadBlob,
-  downloadFile,
-  writeTextToDirectory,
-  verifyDirectoryPermission,
-  saveDirectoryHandleToIdb,
-  getDirectoryHandleFromIdb
-} from '../utils/bundleIo';
-import {
-  alignElements,
-  distributeElements,
-  AlignReference,
-  AlignType,
-  DistributeType
-} from '../utils/alignment';
+  createTextElement,
+  createShapeElement,
+  createDeviceElement
+} from '../utils/elementFactories';
+import { useCanvasHistory, HistorySnapshot } from '../hooks/useCanvasHistory';
+import { useViewportNavigation } from '../hooks/useViewportNavigation';
+import { useElementHierarchy } from '../hooks/useElementHierarchy';
+import { useDiskSync, slugifyFilename, computeCanvasSignature } from '../hooks/useDiskSync';
+import { useBundleManager } from '../hooks/useBundleManager';
+
+export { slugifyFilename, computeCanvasSignature };
+export type { HistorySnapshot };
 
 interface SnackbarState {
   message: string;
@@ -47,15 +31,7 @@ interface SnackbarState {
   visible: boolean;
 }
 
-interface HistorySnapshot {
-  canvasWidth?: number;
-  canvasHeight?: number;
-  background: BackgroundConfig;
-  elements: CanvasElement[];
-  exportZone: ExportZone;
-}
-
-interface EditorContextType {
+export interface EditorContextType {
   state: EditorState;
   snackbar: SnackbarState;
 
@@ -113,6 +89,7 @@ interface EditorContextType {
   setIsDrawingExportMode: (mode: boolean) => void;
   showSnackbar: (message: string, icon?: string) => void;
   resetZoom: () => void;
+  centerCanvas: (customWidth?: number, customHeight?: number, autoFit?: boolean) => void;
   setZoom: (zoomOrUpdater: number | ((prev: number) => number), focalPoint?: { clientX: number; clientY: number }) => void;
   zoomIn: () => void;
   zoomOut: () => void;
@@ -130,8 +107,9 @@ interface EditorContextType {
   sendToBack: (id: string) => void;
 
   // Alignment & Distribution actions
-  alignSelected: (type: AlignType, reference: AlignReference) => void;
-  distributeSelected: (type: DistributeType, reference: AlignReference, customGap?: number) => void;
+  alignSelected: (type: any, reference: any) => void;
+  alignElementToCanvas: (id: string, type: any) => void;
+  distributeSelected: (type: any, reference: any, customGap?: number) => void;
 
   // Bundle & Templates actions
   loadedBundle: LoadedBundle | null;
@@ -203,28 +181,28 @@ const initialElements: CanvasElement[] = [
     y: 200,
     width: 230,
     height: 230,
-    rotation: 12,
+    rotation: -8,
     fillType: 'linear',
-    solidColor: 'rgba(16, 185, 129, 0.9)',
-    color1: 'rgba(6, 182, 212, 0.9)',
-    color2: 'rgba(59, 130, 246, 0.9)',
+    solidColor: 'rgba(99, 102, 241, 0.85)',
+    color1: 'rgba(59, 130, 246, 0.9)',
+    color2: 'rgba(147, 51, 234, 0.9)',
     angle: 45,
-    radialColor1: 'rgba(245, 158, 11, 1)',
-    radialColor2: 'rgba(220, 38, 38, 0.85)',
+    radialColor1: 'rgba(251, 191, 36, 1)',
+    radialColor2: 'rgba(185, 28, 28, 0.9)',
     imageUrl: '',
     opacity: 0.95,
     borderRadius: 32,
     stroke: {
       enable: true,
-      width: 3,
-      color: 'rgba(255, 255, 255, 0.9)'
+      width: 2,
+      color: 'rgba(255, 255, 255, 0.4)'
     },
     shadow: {
       enable: true,
-      color: 'rgba(0, 0, 0, 0.35)',
-      blur: 16,
-      x: 4,
-      y: 8
+      color: 'rgba(0, 0, 0, 0.3)',
+      blur: 24,
+      x: 0,
+      y: 12
     }
   }
 ];
@@ -241,290 +219,33 @@ const initialExportZone: ExportZone = {
   lockRatio: true
 };
 
-function computeCanvasSignature(
-  bg: BackgroundConfig,
-  els: CanvasElement[],
-  zone: ExportZone,
-  w?: number,
-  h?: number
-): string {
-  return JSON.stringify({
-    bg,
-    els: els.map(e => {
-      if (e.type === 'text') {
-        const t = e as TextElementModel;
-        return {
-          id: t.id,
-          customId: t.customId,
-          type: t.type,
-          x: t.x,
-          y: t.y,
-          width: t.width,
-          height: t.height,
-          rotation: t.rotation,
-          opacity: t.opacity,
-          text: t.text,
-          fontSize: t.fontSize,
-          fontFamily: t.fontFamily,
-          color: t.color,
-          lineHeight: t.lineHeight,
-          letterSpacing: t.letterSpacing,
-          textAlign: t.textAlign
-        };
-      } else if (e.type === 'device') {
-        const d = e as DeviceElementModel;
-        return {
-          id: d.id,
-          customId: d.customId,
-          type: d.type,
-          x: d.x,
-          y: d.y,
-          width: d.width,
-          height: d.height,
-          rotation: d.rotation,
-          deviceType: d.deviceType,
-          bodyColor: d.bodyColor,
-          brushedMetal: d.brushedMetal,
-          brushedMetalOpacity: d.brushedMetalOpacity,
-          bodyThickness: d.bodyThickness,
-          bodyThicknessPercent: d.bodyThicknessPercent,
-          screenBorderColor: d.screenBorderColor,
-          screenBorderWidth: d.screenBorderWidth,
-          screenBorderWidthPercent: d.screenBorderWidthPercent,
-          screenImageUrl: d.screenImageUrl,
-          imageAspectRatio: d.imageAspectRatio,
-          screenColor: d.screenColor,
-          screenFit: d.screenFit,
-          screenPadding: d.screenPadding,
-          borderRadius: d.borderRadius,
-          borderRadiusPercent: d.borderRadiusPercent,
-          showButtons: d.showButtons,
-          buttonColor: d.buttonColor,
-          showCamera: d.showCamera,
-          showHomeIndicator: d.showHomeIndicator,
-          homeIndicatorColor: d.homeIndicatorColor,
-          showFlare: d.showFlare,
-          flareColor: d.flareColor,
-          flareAngle: d.flareAngle,
-          flareSpread: d.flareSpread,
-          shadow: d.shadow ? { ...d.shadow } : undefined
-        };
-      } else {
-        const s = e as ShapeElementModel;
-        return {
-          id: s.id,
-          customId: s.customId,
-          type: s.type,
-          x: s.x,
-          y: s.y,
-          width: s.width,
-          height: s.height,
-          rotation: s.rotation,
-          opacity: s.opacity,
-          shapeType: s.shapeType,
-          fillType: s.fillType,
-          solidColor: s.solidColor,
-          imageUrl: s.imageUrl,
-          imageFit: s.imageFit,
-          imageOffsetX: s.imageOffsetX,
-          imageOffsetY: s.imageOffsetY,
-          imageScale: s.imageScale
-        };
-      }
-    }),
-    zone: {
-      x: zone.x,
-      y: zone.y,
-      width: zone.width,
-      height: zone.height,
-      targetWidth: zone.targetWidth,
-      targetHeight: zone.targetHeight
-    },
-    w,
-    h
-  });
-}
-
 const EditorContext = createContext<EditorContextType | undefined>(undefined);
 
 export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [canvasWidth, setCanvasWidth] = useState<number>(800);
-  const [canvasHeight, setCanvasHeight] = useState<number>(600);
-  const [background, setBackgroundState] = useState<BackgroundConfig>(initialBackground);
-  const [elements, setElements] = useState<CanvasElement[]>(initialElements);
-  const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
-  const selectedElementId = selectedElementIds.length > 0 ? selectedElementIds[selectedElementIds.length - 1] : null;
-  const [activePanel, setActivePanelState] = useState<ActivePanel>(null);
-  const [editingImageElementId, setEditingImageElementId] = useState<string | 'background' | null>(null);
-  const [exportZone, setExportZoneState] = useState<ExportZone>(initialExportZone);
-  const [isDrawingExportMode, setIsDrawingExportModeState] = useState<boolean>(false);
-  const [zoom, setZoomState] = useState<number>(1.0);
-  const zoomRef = useRef(zoom);
-  zoomRef.current = zoom;
-  const [pan, setPanState] = useState<{ x: number; y: number }>({ x: 60, y: 40 });
-  const panRef = useRef(pan);
-  panRef.current = pan;
-  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
+  // DOM References
+  const artboardRef = useRef<HTMLDivElement>(null);
+  const artboardContainerRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const snackbarTimerRef = useRef<number | null>(null);
 
-  // Bundle & Templates state with persistent directory handle
-  const [loadedBundle, setLoadedBundleState] = useState<LoadedBundle | null>(null);
-  const bundleDirHandleRef = useRef<any>(null);
-
-  // Restore persisted directory handle from IDB on app mount
-  useEffect(() => {
-    getDirectoryHandleFromIdb().then(handle => {
-      if (handle) {
-        bundleDirHandleRef.current = handle;
-      }
-    });
-  }, []);
-
-  const setLoadedBundle = useCallback((bundle: LoadedBundle | null) => {
-    if (bundle) {
-      if (bundle.name) {
-        setProjectName(bundle.name);
-        setSyncDirectoryName(bundle.name);
-      }
-      if (bundle.directoryHandle) {
-        bundleDirHandleRef.current = bundle.directoryHandle;
-        syncDirHandleRef.current = bundle.directoryHandle;
-        setSyncDirectoryHandleState(bundle.directoryHandle);
-        saveDirectoryHandleToIdb(bundle.directoryHandle);
-        saveDirectoryHandleToIdb(bundle.directoryHandle, 'sync_dir_handle');
-      } else if (bundleDirHandleRef.current) {
-        bundle.directoryHandle = bundleDirHandleRef.current;
-      }
-      setSyncFilePathState('master.yml');
-      setSyncStatus('synced');
-    }
-    setLoadedBundleState(bundle);
-  }, []);
-
-  // Project Name & Subtitle
-  const [projectName, setProjectNameState] = useState<string>(() => {
-    return localStorage.getItem('framemyapp_project_name') || 'Projet sans nom';
+  // Snackbar Notification State
+  const [snackbar, setSnackbar] = useState<SnackbarState>({
+    message: '',
+    icon: 'check_circle',
+    visible: false
   });
-  const setProjectName = useCallback((name: string) => {
-    const val = name.trim() || 'Projet sans nom';
-    setProjectNameState(val);
-    try {
-      localStorage.setItem('framemyapp_project_name', val);
-    } catch {}
-  }, []);
 
-  // Save Modal / Panel
-  const [isSavePanelOpen, setIsSavePanelOpen] = useState<boolean>(false);
-
-  // Synchronization & Disk Auto-Save
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
-  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
-  const [isAutoSyncEnabled, setIsAutoSyncEnabledState] = useState<boolean>(() => {
-    return localStorage.getItem('framemyapp_auto_sync') !== 'false';
-  });
-  const setIsAutoSyncEnabled = useCallback((enabled: boolean) => {
-    setIsAutoSyncEnabledState(enabled);
-    try {
-      localStorage.setItem('framemyapp_auto_sync', String(enabled));
-    } catch {}
-  }, []);
-
-  const [syncDirectoryHandle, setSyncDirectoryHandleState] = useState<any>(null);
-  const syncDirHandleRef = useRef<any>(null);
-  const setSyncDirectoryHandle = useCallback((handle: any) => {
-    syncDirHandleRef.current = handle;
-    setSyncDirectoryHandleState(handle);
-    if (handle) {
-      saveDirectoryHandleToIdb(handle, 'sync_dir_handle');
+  const showSnackbar = useCallback((message: string, icon = 'check_circle') => {
+    if (snackbarTimerRef.current) {
+      window.clearTimeout(snackbarTimerRef.current);
     }
+    setSnackbar({ message, icon, visible: true });
+    snackbarTimerRef.current = window.setTimeout(() => {
+      setSnackbar(prev => ({ ...prev, visible: false }));
+    }, 2800);
   }, []);
 
-  const [syncDirectoryName, setSyncDirectoryNameState] = useState<string | null>(() => {
-    return localStorage.getItem('framemyapp_sync_dir_name') || null;
-  });
-  const setSyncDirectoryName = useCallback((name: string | null) => {
-    setSyncDirectoryNameState(name);
-    if (name) {
-      localStorage.setItem('framemyapp_sync_dir_name', name);
-    } else {
-      localStorage.removeItem('framemyapp_sync_dir_name');
-    }
-  }, []);
-
-  const [syncFilePath, setSyncFilePathState] = useState<string | null>(() => {
-    return localStorage.getItem('framemyapp_sync_file_path') || null;
-  });
-  const setSyncFilePath = useCallback((path: string | null) => {
-    setSyncFilePathState(path);
-    if (path) {
-      localStorage.setItem('framemyapp_sync_file_path', path);
-    } else {
-      localStorage.removeItem('framemyapp_sync_file_path');
-    }
-  }, []);
-
-  const [syncFileHandle, setSyncFileHandleState] = useState<any>(null);
-  const syncFileHandleRef = useRef<any>(null);
-  const setSyncFileHandle = useCallback((handle: any) => {
-    syncFileHandleRef.current = handle;
-    setSyncFileHandleState(handle);
-    if (handle) {
-      saveDirectoryHandleToIdb(handle, 'sync_file_handle');
-    }
-  }, []);
-
-  const lastSavedSignatureRef = useRef<string>('');
-  const autoSyncTimerRef = useRef<any>(null);
-
-  // Restore persisted sync handles from IDB
-  useEffect(() => {
-    getDirectoryHandleFromIdb('sync_dir_handle').then(handle => {
-      if (handle) {
-        syncDirHandleRef.current = handle;
-        setSyncDirectoryHandleState(handle);
-      }
-    });
-    getDirectoryHandleFromIdb('sync_file_handle').then(handle => {
-      if (handle) {
-        syncFileHandleRef.current = handle;
-        setSyncFileHandleState(handle);
-      }
-    });
-  }, []);
-
-  const [activeBundleItemId, setActiveBundleItemId] = useState<string | null>(null);
-  const [savedCanvasSignatures, setSavedCanvasSignatures] = useState<Record<string, string>>({});
-  const [isBatchExportModalOpen, setIsBatchExportModalOpen] = useState<boolean>(false);
-  const [isDocOpen, setIsDocOpen] = useState<boolean>(false);
-  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState<boolean>(false);
-  const [activeLeftTab, setActiveLeftTab] = useState<'templates' | 'customIds'>('templates');
-
-  // Undo / Redo history stacks
-  const pastRef = useRef<HistorySnapshot[]>([]);
-  const futureRef = useRef<HistorySnapshot[]>([]);
-  const [canUndo, setCanUndo] = useState<boolean>(false);
-  const [canRedo, setCanRedo] = useState<boolean>(false);
-
-  const updateHistoryFlags = useCallback(() => {
-    setCanUndo(pastRef.current.length > 0);
-    setCanRedo(futureRef.current.length > 0);
-  }, []);
-
-  const recordHistory = useCallback(() => {
-    pastRef.current.push({
-      canvasWidth,
-      canvasHeight,
-      background: JSON.parse(JSON.stringify(background)),
-      elements: JSON.parse(JSON.stringify(elements)),
-      exportZone: JSON.parse(JSON.stringify(exportZone))
-    });
-    if (pastRef.current.length > 50) {
-      pastRef.current.shift();
-    }
-    futureRef.current = [];
-    updateHistoryFlags();
-  }, [canvasWidth, canvasHeight, background, elements, exportZone, updateHistoryFlags]);
-
-  // Theme support
+  // Theme Support
   const [theme, setThemeState] = useState<'light' | 'dark'>(() => {
     const saved = localStorage.getItem('theme');
     if (saved === 'dark' || saved === 'light') return saved;
@@ -544,636 +265,193 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setThemeState(prev => (prev === 'light' ? 'dark' : 'light'));
   }, []);
 
-  const [snackbar, setSnackbar] = useState<SnackbarState>({
-    message: 'Notification',
-    icon: 'check_circle',
-    visible: false
+  // Modals & Sidebars
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
+  const [isSavePanelOpen, setIsSavePanelOpen] = useState<boolean>(false);
+  const [isBatchExportModalOpen, setIsBatchExportModalOpen] = useState<boolean>(false);
+  const [isDocOpen, setIsDocOpen] = useState<boolean>(false);
+  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState<boolean>(false);
+  const [activeLeftTab, setActiveLeftTab] = useState<'templates' | 'customIds'>('templates');
+
+  // Core Canvas State (with localStorage draft fallback)
+  const [background, setBackgroundState] = useState<BackgroundConfig>(() => {
+    try {
+      const draft = localStorage.getItem('framemyapp_draft_project');
+      if (draft) {
+        const parsed = JSON.parse(draft);
+        if (parsed.background) return { ...initialBackground, ...parsed.background };
+      }
+    } catch {}
+    return initialBackground;
   });
 
-  const snackbarTimerRef = useRef<number | null>(null);
-  const artboardRef = useRef<HTMLDivElement>(null);
-  const artboardContainerRef = useRef<HTMLDivElement>(null);
-  const viewportRef = useRef<HTMLDivElement>(null);
-
-  // Centrage initial de la composition dans le viewport
-  useEffect(() => {
-    const centerIfReady = () => {
-      if (viewportRef.current) {
-        const vp = viewportRef.current;
-        if (vp.clientWidth > 0 && vp.clientHeight > 0) {
-          const initX = Math.round((vp.clientWidth - canvasWidth * zoomRef.current) / 2);
-          const initY = Math.round((vp.clientHeight - canvasHeight * zoomRef.current) / 2);
-          setPanState({ x: initX, y: initY });
-          panRef.current = { x: initX, y: initY };
-          return true;
-        }
+  const [elements, setElements] = useState<CanvasElement[]>(() => {
+    try {
+      const draft = localStorage.getItem('framemyapp_draft_project');
+      if (draft) {
+        const parsed = JSON.parse(draft);
+        if (parsed.elements && Array.isArray(parsed.elements)) return parsed.elements;
       }
-      return false;
-    };
+    } catch {}
+    return initialElements;
+  });
 
-    if (!centerIfReady()) {
-      const timer = setTimeout(centerIfReady, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [canvasWidth, canvasHeight]);
+  const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
+  const selectedElementId = selectedElementIds.length > 0 ? selectedElementIds[selectedElementIds.length - 1] : null;
+  const [activePanel, setActivePanelState] = useState<ActivePanel>(null);
+  const [editingImageElementId, setEditingImageElementId] = useState<string | 'background' | null>(null);
 
-  const showSnackbar = useCallback((message: string, icon = 'check_circle') => {
-    if (snackbarTimerRef.current) {
-      window.clearTimeout(snackbarTimerRef.current);
-    }
-    setSnackbar({ message, icon, visible: true });
-    snackbarTimerRef.current = window.setTimeout(() => {
-      setSnackbar(prev => ({ ...prev, visible: false }));
-    }, 2800);
-  }, []);
+  // Hook 1: Viewport Navigation (Zoom, Pan, Dimensions, ExportZone)
+  const initialDimensions = (() => {
+    try {
+      const draft = localStorage.getItem('framemyapp_draft_project');
+      if (draft) {
+        const p = JSON.parse(draft);
+        return {
+          w: p.canvasWidth || 800,
+          h: p.canvasHeight || 600,
+          zone: p.exportZone ? { ...initialExportZone, ...p.exportZone } : initialExportZone
+        };
+      }
+    } catch {}
+    return { w: 800, h: 600, zone: initialExportZone };
+  })();
 
-  const undo = useCallback(() => {
-    if (pastRef.current.length === 0) return;
+  // Forward declaration of recordHistory for navigation hook
+  const recordHistoryRef = useRef<() => void>(() => {});
 
-    const currentSnapshot: HistorySnapshot = {
-      canvasWidth,
-      canvasHeight,
-      background: JSON.parse(JSON.stringify(background)),
-      elements: JSON.parse(JSON.stringify(elements)),
-      exportZone: JSON.parse(JSON.stringify(exportZone))
-    };
-    futureRef.current.push(currentSnapshot);
+  const navigation = useViewportNavigation({
+    viewportRef,
+    recordHistory: () => recordHistoryRef.current(),
+    showSnackbar,
+    initialCanvasWidth: initialDimensions.w,
+    initialCanvasHeight: initialDimensions.h,
+    initialExportZone: initialDimensions.zone
+  });
 
-    const previousSnapshot = pastRef.current.pop();
-    if (previousSnapshot) {
-      if (previousSnapshot.canvasWidth) setCanvasWidth(previousSnapshot.canvasWidth);
-      if (previousSnapshot.canvasHeight) setCanvasHeight(previousSnapshot.canvasHeight);
-      setBackgroundState(previousSnapshot.background);
-      setElements(previousSnapshot.elements);
-      setExportZoneState(previousSnapshot.exportZone);
+  // Hook 2: Element Hierarchy & Alignment
+  const hierarchy = useElementHierarchy({
+    elements,
+    setElements,
+    selectedElementIds,
+    canvasWidth: navigation.canvasWidth,
+    canvasHeight: navigation.canvasHeight,
+    recordHistory: () => recordHistoryRef.current(),
+    showSnackbar
+  });
 
-      setSelectedElementIds(prevIds =>
-        prevIds.filter(id => previousSnapshot.elements.some(e => e.id === id))
-      );
-    }
+  // Hook 3: Canvas History (Undo / Redo & Shortcuts)
+  const history = useCanvasHistory({
+    canvasWidth: navigation.canvasWidth,
+    canvasHeight: navigation.canvasHeight,
+    background,
+    elements,
+    exportZone: navigation.exportZone,
+    selectedElementIds,
+    editingImageElementId,
+    onApplySnapshot: snapshot => {
+      if (snapshot.canvasWidth) navigation.setCanvasWidth(snapshot.canvasWidth);
+      if (snapshot.canvasHeight) navigation.setCanvasHeight(snapshot.canvasHeight);
+      setBackgroundState(snapshot.background);
+      setElements(snapshot.elements);
+      navigation.setExportZoneState(snapshot.exportZone);
+      setSelectedElementIds(prevIds => prevIds.filter(id => snapshot.elements.some(e => e.id === id)));
+    },
+    onDeleteSelected: () => {
+      if (selectedElementIds.length > 0) {
+        recordHistoryRef.current();
+        setElements(prev => prev.filter(e => !selectedElementIds.includes(e.id)));
+        setSelectedElementIds([]);
+        setActivePanelState(null);
+        showSnackbar('Élément(s) supprimé(s)', 'delete');
+      }
+    },
+    onExitImageEditing: () => setEditingImageElementId(null),
+    showSnackbar
+  });
 
-    updateHistoryFlags();
-    showSnackbar('Action annulée (Undo)', 'undo');
-  }, [canvasWidth, canvasHeight, background, elements, exportZone, updateHistoryFlags, showSnackbar]);
+  recordHistoryRef.current = history.recordHistory;
 
-  const redo = useCallback(() => {
-    if (futureRef.current.length === 0) return;
+  // Forward declaration of bundle manager helpers
+  const markItemSavedRef = useRef<(id: string) => void>(() => {});
+  const loadedBundleRef = useRef<LoadedBundle | null>(null);
 
-    const currentSnapshot: HistorySnapshot = {
-      canvasWidth,
-      canvasHeight,
-      background: JSON.parse(JSON.stringify(background)),
-      elements: JSON.parse(JSON.stringify(elements)),
-      exportZone: JSON.parse(JSON.stringify(exportZone))
-    };
-    pastRef.current.push(currentSnapshot);
+  // Hook 4: Disk Sync (Handles, Auto-Save, Renaming, Startup Restore)
+  const diskSync = useDiskSync({
+    canvasWidth: navigation.canvasWidth,
+    canvasHeight: navigation.canvasHeight,
+    background,
+    elements,
+    exportZone: navigation.exportZone,
+    loadedBundle: loadedBundleRef.current,
+    activeBundleItemId: null,
+    setCanvasWidth: navigation.setCanvasWidth,
+    setCanvasHeight: navigation.setCanvasHeight,
+    setBackground: setBackgroundState,
+    setElements,
+    setExportZone: navigation.setExportZoneState,
+    setLoadedBundleState: () => {},
+    markItemSaved: id => markItemSavedRef.current(id),
+    showSnackbar,
+    centerCanvas: (w, h, autoFit) => navigation.centerCanvas(w, h, autoFit),
+    initialBackground,
+    initialExportZone
+  });
 
-    const nextSnapshot = futureRef.current.pop();
-    if (nextSnapshot) {
-      if (nextSnapshot.canvasWidth) setCanvasWidth(nextSnapshot.canvasWidth);
-      if (nextSnapshot.canvasHeight) setCanvasHeight(nextSnapshot.canvasHeight);
-      setBackgroundState(nextSnapshot.background);
-      setElements(nextSnapshot.elements);
-      setExportZoneState(nextSnapshot.exportZone);
+  // Application direct composition
+  const applyCompositionDirectly = useCallback(
+    (
+      comp: {
+        background: BackgroundConfig;
+        elements: CanvasElement[];
+        exportZone: ExportZone;
+        canvasWidth?: number;
+        canvasHeight?: number;
+      },
+      recordHist = true
+    ) => {
+      if (recordHist) {
+        history.recordHistory();
+      }
+      setBackgroundState(comp.background);
+      setElements(comp.elements);
+      navigation.setExportZoneState(comp.exportZone);
+      setSelectedElementIds([]);
 
-      setSelectedElementIds(prevIds =>
-        prevIds.filter(id => nextSnapshot.elements.some(e => e.id === id))
-      );
-    }
+      const targetW = comp.canvasWidth || comp.exportZone?.width || 800;
+      const targetH = comp.canvasHeight || comp.exportZone?.height || 600;
+      navigation.setCanvasDimensions(targetW, targetH);
+    },
+    [history, navigation]
+  );
 
-    updateHistoryFlags();
-    showSnackbar('Action rétablie (Redo)', 'redo');
-  }, [canvasWidth, canvasHeight, background, elements, exportZone, updateHistoryFlags, showSnackbar]);
+  // Hook 5: Bundle & Template Manager
+  const bundleManager = useBundleManager({
+    background,
+    elements,
+    exportZone: navigation.exportZone,
+    canvasWidth: navigation.canvasWidth,
+    canvasHeight: navigation.canvasHeight,
+    projectName: diskSync.projectName,
+    setProjectName: diskSync.setProjectName,
+    setSyncFilePath: diskSync.setSyncFilePath,
+    setSyncStatus: diskSync.setSyncStatus,
+    lastSavedSignatureRef: diskSync.lastSavedSignatureRef,
+    recordHistory: history.recordHistory,
+    applyCompositionDirectly,
+    showSnackbar
+  });
 
-  const clearAll = useCallback(() => {
-    recordHistory();
-    setCanvasWidth(800);
-    setCanvasHeight(600);
-    setElements([]);
-    setBackgroundState(initialBackground);
-    setSelectedElementIds([]);
-    setActivePanelState(null);
-    setActiveBundleItemId(null);
-    setExportZoneState(initialExportZone);
-    setZoomState(1.0);
-    showSnackbar('Projet réinitialisé', 'delete_sweep');
-  }, [recordHistory, showSnackbar]);
+  loadedBundleRef.current = bundleManager.loadedBundle;
+  markItemSavedRef.current = bundleManager.markItemSaved;
 
+  // Element Actions
   const setBackground = useCallback(
     (updates: Partial<BackgroundConfig>) => {
-      recordHistory();
+      history.recordHistory();
       setBackgroundState(prev => ({ ...prev, ...updates }));
     },
-    [recordHistory]
-  );
-
-  const addText = useCallback(() => {
-    recordHistory();
-    const id = 'txt-' + Date.now();
-    setElements(prev => {
-      const textCount = prev.filter(e => e.type === 'text').length + 1;
-      const customId = textCount === 1 ? 'title' : textCount === 2 ? 'subtitle' : `text_${textCount}`;
-      const offset = (prev.length * 15) % 200;
-      const newText: TextElementModel = {
-        id,
-        customId,
-        type: 'text',
-        text: 'Nouveau Texte',
-        x: 120 + offset,
-        y: 120 + offset,
-        width: 280,
-        height: 60,
-        rotation: 0,
-        fontFamily: 'Roboto',
-        fontWeight: 400,
-        fontSize: 32,
-        color: 'rgba(30, 27, 75, 1)',
-        letterSpacing: 0,
-        lineHeight: 1.3,
-        minLines: 1,
-        glow: { enable: false, color: 'rgba(56, 189, 248, 0.75)', blur: 10, x: 0, y: 0 },
-        shadow: { enable: false, color: 'rgba(0, 0, 0, 0.3)', blur: 4, x: 2, y: 2 }
-      };
-      return [...prev, newText];
-    });
-    setSelectedElementIds([id]);
-    setActivePanelState('text');
-  }, [recordHistory]);
-
-  const addShape = useCallback(
-    (shapeType: ShapeType = 'rounded-rect') => {
-      recordHistory();
-      const id = 'shape-' + Date.now();
-      setElements(prev => {
-        const shapeCount = prev.filter(e => e.type === 'shape').length + 1;
-        const customId = shapeCount === 1 ? 'hero_badge' : `shape_${shapeCount}`;
-        const offset = (prev.length * 15) % 200;
-        const newShape: ShapeElementModel = {
-          id,
-          customId,
-          type: 'shape',
-          shapeType,
-          x: 140 + offset,
-          y: 140 + offset,
-          width: 190,
-          height: 190,
-          rotation: 0,
-          fillType: 'solid',
-          solidColor: 'rgba(103, 80, 164, 0.9)',
-          color1: 'rgba(139, 92, 246, 0.9)',
-          color2: 'rgba(236, 72, 153, 0.9)',
-          angle: 90,
-          radialColor1: 'rgba(251, 191, 36, 1)',
-          radialColor2: 'rgba(185, 28, 28, 0.9)',
-          imageUrl: '',
-          opacity: 1,
-          borderRadius: 16,
-          stroke: {
-            enable: false,
-            width: 2,
-            color: 'rgba(255, 255, 255, 1)'
-          },
-          shadow: {
-            enable: true,
-            color: 'rgba(0, 0, 0, 0.25)',
-            blur: 14,
-            x: 0,
-            y: 6
-          }
-        };
-        return [...prev, newShape];
-      });
-      setSelectedElementIds([id]);
-      setActivePanelState('shape');
-    },
-    [recordHistory]
-  );
-
-  const addDevice = useCallback(
-    (deviceType: DeviceModelType = 'pixel-10') => {
-      recordHistory();
-      const id = 'device-' + Date.now();
-      setElements(prev => {
-        const deviceCount = prev.filter(e => e.type === 'device').length + 1;
-        const customId = deviceCount === 1 ? 'app_screen' : `device_${deviceCount}`;
-        const offset = (prev.length * 15) % 200;
-
-        let width = 260;
-        let height = 565;
-        let borderRadius = 36;
-        let screenPadding = 10;
-        let bodyColor = '#1e2022';
-        let buttonColor = '#3a3f45';
-
-        if (deviceType === 'iphone-pro-max') {
-          width = 265;
-          height = 570;
-          borderRadius = 44;
-          screenPadding = 10;
-          bodyColor = '#1d1d1f';
-          buttonColor = '#3a3835';
-        } else if (deviceType === 'samsung-galaxy') {
-          width = 260;
-          height = 575;
-          borderRadius = 22;
-          screenPadding = 8;
-          bodyColor = '#1a1c1e';
-          buttonColor = '#33373b';
-        } else if (deviceType === 'pixel-tab') {
-          width = 500;
-          height = 325;
-          borderRadius = 26;
-          screenPadding = 16;
-          bodyColor = '#2b2c2e';
-          buttonColor = '#424448';
-        }
-
-        const newDevice: DeviceElementModel = {
-          id,
-          customId,
-          type: 'device',
-          deviceType,
-          x: 160 + offset,
-          y: 90 + offset,
-          width,
-          height,
-          rotation: 0,
-          bodyColor,
-          brushedMetal: true,
-          brushedMetalOpacity: 8,
-          bodyThickness: 10,
-          screenBorderColor: '#000000',
-          screenBorderWidth: 4,
-          screenImageUrl: '',
-          screenColor: '#05070a',
-          screenFit: 'cover',
-          showButtons: true,
-          buttonColor,
-          showCamera: true,
-          showHomeIndicator: true,
-          homeIndicatorColor: 'rgba(255, 255, 255, 0.45)',
-          showFlare: true,
-          flareColor: 'rgba(255, 255, 255, 0.15)',
-          flareAngle: 135,
-          flareSpread: 50,
-          screenPadding: 4,
-          borderRadius,
-          shadow: {
-            enable: true,
-            color: 'rgba(0, 0, 0, 0.35)',
-            blur: 20,
-            x: 0,
-            y: 10
-          }
-        };
-        return [...prev, newDevice];
-      });
-      setSelectedElementIds([id]);
-      setActivePanelState('device');
-    },
-    [recordHistory]
-  );
-
-  const updateElement = useCallback((id: string, updates: Partial<CanvasElement>) => {
-    setElements(prev => prev.map(el => (el.id === id ? ({ ...el, ...updates } as CanvasElement) : el)));
-  }, []);
-
-  const updateElementCustomId = useCallback((id: string, customId: string) => {
-    setElements(prev =>
-      prev.map(el => (el.id === id ? ({ ...el, customId: customId.trim() } as CanvasElement) : el))
-    );
-  }, []);
-
-  const autoGenerateCustomIds = useCallback(() => {
-    recordHistory();
-    let textIdx = 1;
-    let shapeIdx = 1;
-    let deviceIdx = 1;
-    setElements(prev =>
-      prev.map(el => {
-        if (el.customId && el.customId.trim()) return el;
-        let newCustomId = '';
-        if (el.type === 'text') {
-          newCustomId = textIdx === 1 ? 'title' : textIdx === 2 ? 'subtitle' : `text_${textIdx}`;
-          textIdx++;
-        } else if (el.type === 'device') {
-          newCustomId = deviceIdx === 1 ? 'app_screen' : `device_${deviceIdx}`;
-          deviceIdx++;
-        } else {
-          newCustomId = shapeIdx === 1 ? 'badge_card' : `shape_${shapeIdx}`;
-          shapeIdx++;
-        }
-        return { ...el, customId: newCustomId } as CanvasElement;
-      })
-    );
-    showSnackbar('IDs personnalisés générés avec succès', 'badge');
-  }, [recordHistory, showSnackbar]);
-
-  const deleteElement = useCallback(
-    (id: string) => {
-      recordHistory();
-      setElements(prev => prev.filter(el => el.id !== id));
-      setSelectedElementIds(prev => {
-        const next = prev.filter(x => x !== id);
-        if (next.length === 0) {
-          setActivePanelState(null);
-        } else if (next.length === 1) {
-          setElements(currentEls => {
-            const remaining = currentEls.find(e => e.id === next[0]);
-            if (remaining) {
-              setActivePanelState(
-                remaining.type === 'text' ? 'text' : remaining.type === 'device' ? 'device' : 'shape'
-              );
-            }
-            return currentEls;
-          });
-        }
-        return next;
-      });
-    },
-    [recordHistory]
-  );
-
-  const deleteSelectedElements = useCallback(() => {
-    if (selectedElementIds.length === 0) return;
-    recordHistory();
-    const count = selectedElementIds.length;
-    const idsToDelete = new Set(selectedElementIds);
-    setElements(prev => prev.filter(el => !idsToDelete.has(el.id)));
-    setSelectedElementIds([]);
-    setActivePanelState(null);
-    showSnackbar(`${count} élément${count > 1 ? 's supprimés' : ' supprimé'}`, 'delete_sweep');
-  }, [selectedElementIds, recordHistory, showSnackbar]);
-
-  const selectElement = useCallback((id: string | null, multi = false) => {
-    if (!id) {
-      setSelectedElementIds([]);
-      setActivePanelState(prev => (prev === 'text' || prev === 'shape' || prev === 'device' || prev === 'align' ? null : prev));
-      return;
-    }
-
-    if (multi) {
-      setSelectedElementIds(prev => {
-        let next: string[];
-        if (prev.includes(id)) {
-          next = prev.filter(x => x !== id);
-        } else {
-          next = [...prev, id];
-        }
-
-        if (next.length === 0) {
-          setActivePanelState(null);
-        } else if (next.length === 1) {
-          const singleId = next[0];
-          setElements(currentEls => {
-            const found = currentEls.find(e => e.id === singleId);
-            if (found) {
-              setActivePanelState(
-                found.type === 'text' ? 'text' : found.type === 'device' ? 'device' : 'shape'
-              );
-            }
-            return currentEls;
-          });
-        } else {
-          setActivePanelState('align');
-        }
-
-        return next;
-      });
-    } else {
-      setSelectedElementIds([id]);
-      setElements(currentEls => {
-        const found = currentEls.find(e => e.id === id);
-        if (found) {
-          setActivePanelState(
-            found.type === 'text' ? 'text' : found.type === 'device' ? 'device' : 'shape'
-          );
-        }
-        return currentEls;
-      });
-    }
-  }, []);
-
-  // Layer hierarchy actions
-  const bringForward = useCallback(
-    (id: string) => {
-      recordHistory();
-      setElements(prev => {
-        const idx = prev.findIndex(e => e.id === id);
-        if (idx === -1 || idx >= prev.length - 1) return prev;
-        const next = [...prev];
-        const temp = next[idx];
-        next[idx] = next[idx + 1];
-        next[idx + 1] = temp;
-        return next;
-      });
-      showSnackbar('Calque monté d’un niveau', 'keyboard_arrow_up');
-    },
-    [recordHistory, showSnackbar]
-  );
-
-  const sendBackward = useCallback(
-    (id: string) => {
-      recordHistory();
-      setElements(prev => {
-        const idx = prev.findIndex(e => e.id === id);
-        if (idx <= 0) return prev;
-        const next = [...prev];
-        const temp = next[idx];
-        next[idx] = next[idx - 1];
-        next[idx - 1] = temp;
-        return next;
-      });
-      showSnackbar('Calque descendu d’un niveau', 'keyboard_arrow_down');
-    },
-    [recordHistory, showSnackbar]
-  );
-
-  const bringToFront = useCallback(
-    (id: string) => {
-      recordHistory();
-      setElements(prev => {
-        const target = prev.find(e => e.id === id);
-        if (!target) return prev;
-        return [...prev.filter(e => e.id !== id), target];
-      });
-      showSnackbar('Placé au premier plan', 'vertical_align_top');
-    },
-    [recordHistory, showSnackbar]
-  );
-
-  const sendToBack = useCallback(
-    (id: string) => {
-      recordHistory();
-      setElements(prev => {
-        const target = prev.find(e => e.id === id);
-        if (!target) return prev;
-        return [target, ...prev.filter(e => e.id !== id)];
-      });
-      showSnackbar('Placé à l’arrière-plan', 'vertical_align_bottom');
-    },
-    [recordHistory, showSnackbar]
-  );
-
-  // Alignment & Distribution actions
-  const alignSelected = useCallback(
-    (type: AlignType, reference: AlignReference) => {
-      if (selectedElementIds.length === 0) return;
-      recordHistory();
-      setElements(prev =>
-        alignElements(prev, selectedElementIds, type, reference, {
-          width: canvasWidth,
-          height: canvasHeight
-        })
-      );
-      showSnackbar('Alignement appliqué', 'format_align_center');
-    },
-    [selectedElementIds, canvasWidth, canvasHeight, recordHistory, showSnackbar]
-  );
-
-  const distributeSelected = useCallback(
-    (type: DistributeType, reference: AlignReference, customGap?: number) => {
-      if (selectedElementIds.length < 2) return;
-      recordHistory();
-      setElements(prev =>
-        distributeElements(
-          prev,
-          selectedElementIds,
-          type,
-          reference,
-          { width: canvasWidth, height: canvasHeight },
-          customGap
-        )
-      );
-      showSnackbar('Espacement uniforme appliqué', 'distribute_horizontal');
-    },
-    [selectedElementIds, canvasWidth, canvasHeight, recordHistory, showSnackbar]
-  );
-
-  const setActivePanel = useCallback((panel: ActivePanel) => {
-    setActivePanelState(panel);
-    if (panel === 'bg' || panel === 'export') {
-      setSelectedElementIds([]);
-    }
-  }, []);
-
-  const updateExportZone = useCallback((updates: Partial<ExportZone>) => {
-    setExportZoneState(prev => ({ ...prev, ...updates }));
-  }, []);
-
-  const setIsDrawingExportMode = useCallback((mode: boolean) => {
-    setIsDrawingExportModeState(mode);
-  }, []);
-
-  const setPan = useCallback((panOrUpdater: { x: number; y: number } | ((prev: { x: number; y: number }) => { x: number; y: number })) => {
-    setPanState(prev => {
-      const next = typeof panOrUpdater === 'function' ? panOrUpdater(prev) : panOrUpdater;
-      panRef.current = next;
-      return next;
-    });
-  }, []);
-
-  const setZoom = useCallback(
-    (
-      zoomOrUpdater: number | ((prev: number) => number),
-      focalPoint?: { clientX: number; clientY: number }
-    ) => {
-      const prevZoom = zoomRef.current;
-      const targetRaw = typeof zoomOrUpdater === 'function' ? zoomOrUpdater(prevZoom) : zoomOrUpdater;
-      const nextZoom = Math.min(3.5, Math.max(0.2, Math.round(targetRaw * 100) / 100));
-
-      if (nextZoom === prevZoom) return;
-
-      const vp = viewportRef.current;
-      const currentPan = panRef.current;
-
-      if (!vp) {
-        setZoomState(nextZoom);
-        zoomRef.current = nextZoom;
-        return;
-      }
-
-      const vpRect = vp.getBoundingClientRect();
-      let focalVpX: number;
-      let focalVpY: number;
-
-      if (focalPoint) {
-        // Zoom via roulette : le point pointé par la souris (dans le repère du viewport)
-        focalVpX = focalPoint.clientX - vpRect.left;
-        focalVpY = focalPoint.clientY - vpRect.top;
-      } else {
-        // Zoom via loupes de la toolbar / boutons +/- : le CENTRE DE LA COMPOSITION
-        focalVpX = currentPan.x + (canvasWidth / 2) * prevZoom;
-        focalVpY = currentPan.y + (canvasHeight / 2) * prevZoom;
-      }
-
-      // Coordonnées du point focal dans le document de composition
-      const canvasX = (focalVpX - currentPan.x) / prevZoom;
-      const canvasY = (focalVpY - currentPan.y) / prevZoom;
-
-      // Nouvelle position pan pour que le point (canvasX, canvasY) reste immobile à (focalVpX, focalVpY)
-      const newPanX = Math.round(focalVpX - canvasX * nextZoom);
-      const newPanY = Math.round(focalVpY - canvasY * nextZoom);
-
-      setZoomState(nextZoom);
-      zoomRef.current = nextZoom;
-
-      setPanState({ x: newPanX, y: newPanY });
-      panRef.current = { x: newPanX, y: newPanY };
-    },
-    [canvasWidth, canvasHeight, viewportRef]
-  );
-
-  const zoomIn = useCallback(() => {
-    setZoom(prev => Math.min(3.5, prev + 0.15));
-  }, [setZoom]);
-
-  const zoomOut = useCallback(() => {
-    setZoom(prev => Math.max(0.2, prev - 0.15));
-  }, [setZoom]);
-
-  const resetZoom = useCallback(() => {
-    setZoomState(1.0);
-    zoomRef.current = 1.0;
-    if (viewportRef.current) {
-      const vp = viewportRef.current;
-      const centeredX = Math.round((vp.clientWidth - canvasWidth) / 2);
-      const centeredY = Math.round((vp.clientHeight - canvasHeight) / 2);
-      setPanState({ x: centeredX, y: centeredY });
-      panRef.current = { x: centeredX, y: centeredY };
-      showSnackbar('Vue recentrée (100%)', 'center_focus_strong');
-    }
-  }, [canvasWidth, canvasHeight, showSnackbar, viewportRef]);
-
-  const setCanvasDimensions = useCallback(
-    (width: number, height: number) => {
-      recordHistory();
-      setCanvasWidth(width);
-      setCanvasHeight(height);
-
-      // Adapter le zoom et centrer la scène dans le viewport si nécessaire
-      if (viewportRef.current) {
-        const vpW = viewportRef.current.clientWidth - 80;
-        const vpH = viewportRef.current.clientHeight - 80;
-        if (vpW > 100 && vpH > 100 && (width > vpW || height > vpH)) {
-          const fitZoom = Math.min(1.0, Math.max(0.1, Math.min(vpW / width, vpH / height)));
-          const roundFit = Math.round(fitZoom * 100) / 100;
-          setZoomState(roundFit);
-          zoomRef.current = roundFit;
-          const newPanX = Math.round((viewportRef.current.clientWidth - width * roundFit) / 2);
-          const newPanY = Math.round((viewportRef.current.clientHeight - height * roundFit) / 2);
-          setPanState({ x: newPanX, y: newPanY });
-          panRef.current = { x: newPanX, y: newPanY };
-        } else {
-          const currentZ = zoomRef.current || 1.0;
-          const newPanX = Math.round((viewportRef.current.clientWidth - width * currentZ) / 2);
-          const newPanY = Math.round((viewportRef.current.clientHeight - height * currentZ) / 2);
-          setPanState({ x: newPanX, y: newPanY });
-          panRef.current = { x: newPanX, y: newPanY };
-        }
-      }
-    },
-    [recordHistory, viewportRef]
+    [history]
   );
 
   const applyBackgroundImage = useCallback(
@@ -1183,8 +461,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const naturalWidth = img.naturalWidth || 800;
         const naturalHeight = img.naturalHeight || 600;
 
-        recordHistory();
-        // Les dimensions de la scène restent STRICTEMENT fixes
+        history.recordHistory();
         setBackgroundState(prev => ({
           ...prev,
           type: 'image',
@@ -1200,692 +477,188 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         showSnackbar(`Image de fond appliquée (${naturalWidth} × ${naturalHeight} px)`, 'image');
       };
       img.onerror = () => {
-        recordHistory();
+        history.recordHistory();
         setBackgroundState(prev => ({ ...prev, type: 'image', imageUrl }));
         showSnackbar('Image de fond appliquée', 'image');
       };
       img.src = imageUrl;
     },
-    [recordHistory, showSnackbar]
+    [history, showSnackbar]
   );
 
-  // Apply composition directly (e.g. from resolved template or undo)
-  const applyCompositionDirectly = useCallback(
-    (
-      comp: {
-        background: BackgroundConfig;
-        elements: CanvasElement[];
-        exportZone: ExportZone;
-        canvasWidth?: number;
-        canvasHeight?: number;
-      },
-      recordHist = true
-    ) => {
-      if (recordHist) {
-        recordHistory();
-      }
-      setBackgroundState(comp.background);
-      setElements(comp.elements);
-      setExportZoneState(comp.exportZone);
-      setSelectedElementIds([]);
+  const addText = useCallback(() => {
+    history.recordHistory();
+    setElements(prev => {
+      const textCount = prev.filter(e => e.type === 'text').length + 1;
+      const offset = (prev.length * 15) % 200;
+      const newText = createTextElement(textCount, offset);
+      setSelectedElementIds([newText.id]);
+      return [...prev, newText];
+    });
+    setActivePanelState('text');
+  }, [history]);
 
-      // Dimensions fixes définies par la composition (master/override/variant)
-      const targetW = comp.canvasWidth || comp.exportZone?.width || 800;
-      const targetH = comp.canvasHeight || comp.exportZone?.height || 600;
-
-      setCanvasWidth(targetW);
-      setCanvasHeight(targetH);
-
-      // Adapter le zoom et centrer la composition dans le viewport si nécessaire
-      if (viewportRef.current) {
-        const vpW = viewportRef.current.clientWidth - 80;
-        const vpH = viewportRef.current.clientHeight - 80;
-        if (vpW > 100 && vpH > 100 && (targetW > vpW || targetH > vpH)) {
-          const fitZoom = Math.min(1.0, Math.max(0.1, Math.min(vpW / targetW, vpH / targetH)));
-          const roundFit = Math.round(fitZoom * 100) / 100;
-          setZoomState(roundFit);
-          zoomRef.current = roundFit;
-          const newPanX = Math.round((viewportRef.current.clientWidth - targetW * roundFit) / 2);
-          const newPanY = Math.round((viewportRef.current.clientHeight - targetH * roundFit) / 2);
-          setPanState({ x: newPanX, y: newPanY });
-          panRef.current = { x: newPanX, y: newPanY };
-        } else {
-          const currentZ = zoomRef.current || 1.0;
-          const newPanX = Math.round((viewportRef.current.clientWidth - targetW * currentZ) / 2);
-          const newPanY = Math.round((viewportRef.current.clientHeight - targetH * currentZ) / 2);
-          setPanState({ x: newPanX, y: newPanY });
-          panRef.current = { x: newPanX, y: newPanY };
-        }
-      }
-    },
-    [recordHistory, viewportRef]
-  );
-
-  // Compute live canvas signature to track changes
-  const currentCanvasSignature = useMemo(() => {
-    return computeCanvasSignature(background, elements, exportZone, canvasWidth, canvasHeight);
-  }, [background, elements, exportZone, canvasWidth, canvasHeight]);
-
-  const isItemDirty = useCallback(
-    (itemId: string) => {
-      if (activeBundleItemId !== itemId) return false;
-      const savedSig = savedCanvasSignatures[itemId];
-      if (!savedSig) return false;
-      return currentCanvasSignature !== savedSig;
-    },
-    [activeBundleItemId, savedCanvasSignatures, currentCanvasSignature]
-  );
-
-  const markItemSaved = useCallback(
-    (itemId: string) => {
-      setSavedCanvasSignatures(prev => ({
-        ...prev,
-        [itemId]: currentCanvasSignature
-      }));
-    },
-    [currentCanvasSignature]
-  );
-
-  // Apply a BundleItem with cascade resolution
-  const applyBundleItem = useCallback(
-    (item: BundleItem) => {
-      if (!loadedBundle) return;
-      recordHistory();
-
-      const masterConfig = (loadedBundle.master?.config as BannerMasterConfig) || {};
-      let resolved: { background: BackgroundConfig; elements: CanvasElement[]; exportZone: ExportZone; canvasWidth: number; canvasHeight: number };
-
-      if (item.type === 'master') {
-        resolved = resolveComposition(
-          item.config as BannerMasterConfig,
-          undefined,
-          undefined,
-          loadedBundle.assets,
-          item.path
-        );
-      } else if (item.type === 'override') {
-        resolved = resolveComposition(
-          masterConfig,
-          item.config as BannerOverrideConfig,
-          undefined,
-          loadedBundle.assets,
-          item.path
-        );
-      } else {
-        // Variant: check if there's a matching override for this slug
-        const matchingOverride = loadedBundle.overrides[item.slug];
-        resolved = resolveComposition(
-          masterConfig,
-          matchingOverride?.config as BannerOverrideConfig | undefined,
-          item.config as BannerVariantConfig,
-          loadedBundle.assets,
-          item.path
-        );
-      }
-
-      applyCompositionDirectly(resolved, false);
-      setActiveBundleItemId(item.id);
-
-      // Record baseline signature so dirty detection starts clean
-      const initialSig = computeCanvasSignature(
-        resolved.background,
-        resolved.elements,
-        resolved.exportZone,
-        resolved.canvasWidth,
-        resolved.canvasHeight
-      );
-      setSavedCanvasSignatures(prev => ({
-        ...prev,
-        [item.id]: initialSig
-      }));
-
-      if (item.path) {
-        setSyncFilePath(item.path);
-      }
-      if (item.name) {
-        setProjectName(item.name);
-      }
-      lastSavedSignatureRef.current = initialSig;
-      setSyncStatus('synced');
-
-      showSnackbar(`Appliqué : ${item.name}`, 'auto_stories');
-    },
-    [loadedBundle, recordHistory, applyCompositionDirectly, setSyncFilePath, setProjectName, showSnackbar]
-  );
-
-  // Save current canvas state directly back to the YAML file on the filesystem
-  const saveBundleItemToDisk = useCallback(
-    async (item: BundleItem): Promise<boolean> => {
-      if (!loadedBundle) return false;
-
-      try {
-        let yamlContent = '';
-        let updatedConfig: any = null;
-
-        if (item.type === 'master') {
-          const masterConfig = serializeCanvasToMaster(
-            item.name || 'Master',
-            background,
-            elements,
-            exportZone,
-            canvasWidth,
-            canvasHeight
-          );
-          yamlContent = stringifyYaml(masterConfig);
-          updatedConfig = masterConfig;
-        } else if (item.type === 'override') {
-          const overrideConfig = serializeCanvasToOverride(
-            item,
-            background,
-            elements,
-            exportZone,
-            loadedBundle.master?.config as BannerMasterConfig | undefined
-          );
-          yamlContent = stringifyYaml(overrideConfig);
-          updatedConfig = overrideConfig;
-        } else {
-          // Variant
-          const variantConfig = serializeCanvasToVariant(
-            item,
-            elements,
-            loadedBundle.master?.config as BannerMasterConfig | undefined,
-            loadedBundle.overrides[item.slug]?.config as BannerOverrideConfig | undefined
-          );
-          yamlContent = stringifyYaml(variantConfig);
-          updatedConfig = variantConfig;
-        }
-
-        let dirHandle = loadedBundle.directoryHandle || bundleDirHandleRef.current;
-        if (!dirHandle) {
-          dirHandle = await getDirectoryHandleFromIdb();
-          if (dirHandle) {
-            bundleDirHandleRef.current = dirHandle;
-            loadedBundle.directoryHandle = dirHandle;
-          }
-        }
-
-        const hasFsSupport = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
-
-        // Prompt directory picker ONLY if no root handle was ever loaded or persisted
-        if (!dirHandle && hasFsSupport) {
-          try {
-            dirHandle = await (window as any).showDirectoryPicker({
-              mode: 'readwrite',
-              startIn: 'desktop'
-            });
-            if (dirHandle) {
-              bundleDirHandleRef.current = dirHandle;
-              loadedBundle.directoryHandle = dirHandle;
-              saveDirectoryHandleToIdb(dirHandle);
-            }
-          } catch (err: any) {
-            if (err.name === 'AbortError') return false;
-            console.warn('showDirectoryPicker failed:', err);
-          }
-        }
-
-        if (dirHandle) {
-          await verifyDirectoryPermission(dirHandle, true);
-          await writeTextToDirectory(dirHandle, item.path, yamlContent);
-          showSnackbar(`Enregistré dans : ${item.path}`, 'save');
-        } else {
-          downloadFile(item.path.split('/').pop() || 'template.yml', yamlContent, 'text/yaml');
-          showSnackbar(`Fichier téléchargé : ${item.path}`, 'download');
-        }
-
-        // Update in-memory item
-        const updatedItem: BundleItem = {
-          ...item,
-          rawContent: yamlContent,
-          config: updatedConfig
-        };
-
-        if (item.type === 'master') {
-          setLoadedBundle({
-            ...loadedBundle,
-            master: updatedItem
-          });
-        } else if (item.type === 'override') {
-          setLoadedBundle({
-            ...loadedBundle,
-            overrides: {
-              ...loadedBundle.overrides,
-              [item.slug]: updatedItem
-            }
-          });
-        } else {
-          setLoadedBundle({
-            ...loadedBundle,
-            variants: loadedBundle.variants.map(v => (v.id === item.id ? updatedItem : v))
-          });
-        }
-
-        markItemSaved(item.id);
-        return true;
-      } catch (err: any) {
-        console.error('Erreur lors de l\'enregistrement sur le disque :', err);
-        showSnackbar(`Erreur d'enregistrement : ${err.message}`, 'error');
-        return false;
-      }
-    },
-    [
-      loadedBundle,
-      background,
-      elements,
-      exportZone,
-      canvasWidth,
-      canvasHeight,
-      markItemSaved,
-      showSnackbar
-    ]
-  );
-
-  // Export current canvas state as a standalone YAML file
-  const exportCanvasAsTemplateYaml = useCallback(
-    (customName?: string) => {
-      const templateName = customName || projectName || loadedBundle?.master?.name || 'banner_template';
-      const masterConfig = serializeCanvasToMaster(templateName, background, elements, exportZone, canvasWidth, canvasHeight);
-      const yamlStr = stringifyYaml(masterConfig);
-      const filename = `${templateName.toLowerCase().replace(/[^a-z0-9]/gi, '_')}.yml`;
-      downloadFile(filename, yamlStr, 'text/yaml');
-      showSnackbar(`Template exporté : ${filename}`, 'download');
-    },
-    [background, elements, exportZone, canvasWidth, canvasHeight, projectName, loadedBundle, showSnackbar]
-  );
-
-  // Export current canvas state into a complete Bundle ZIP
-  const exportCanvasAsBundleZip = useCallback(async () => {
-    try {
-      const bundleName = loadedBundle?.name || projectName || 'marketing_bundle';
-      const currentMaster = serializeCanvasToMaster(
-        bundleName,
-        background,
-        elements,
-        exportZone,
-        canvasWidth,
-        canvasHeight
-      );
-
-      const bundleToExport: LoadedBundle = loadedBundle || {
-        name: bundleName,
-        master: {
-          id: 'master',
-          type: 'master',
-          path: 'master.yml',
-          slug: 'master',
-          name: currentMaster.name || 'Master',
-          rawContent: stringifyYaml(currentMaster),
-          config: currentMaster
-        },
-        overrides: {},
-        variants: [],
-        assets: {}
-      };
-
-      const zipBlob = await createBundleZip(bundleToExport, currentMaster);
-      const zipName = `${(bundleToExport.name || 'bundle').toLowerCase().replace(/[^a-z0-9]/gi, '_')}.zip`;
-      downloadBlob(zipName, zipBlob);
-      showSnackbar(`Bundle ZIP téléchargé : ${zipName}`, 'folder_zip');
-    } catch (err) {
-      console.error(err);
-      showSnackbar('Erreur lors de la création du bundle ZIP', 'error');
-    }
-  }, [loadedBundle, projectName, background, elements, exportZone, canvasWidth, canvasHeight, showSnackbar]);
-
-  // Connect local directory for synchronization
-  const selectSyncDirectory = useCallback(async (): Promise<boolean> => {
-    const hasFsSupport = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
-    if (!hasFsSupport) {
-      showSnackbar('Votre navigateur ne prend pas en charge le sélecteur de dossier natif', 'error');
-      return false;
-    }
-    try {
-      const handle = await (window as any).showDirectoryPicker({
-        mode: 'readwrite',
-        startIn: 'desktop'
+  const addShape = useCallback(
+    (shapeType: ShapeType = 'rounded-rect') => {
+      history.recordHistory();
+      setElements(prev => {
+        const shapeCount = prev.filter(e => e.type === 'shape').length + 1;
+        const offset = (prev.length * 15) % 200;
+        const newShape = createShapeElement(shapeType, shapeCount, offset);
+        setSelectedElementIds([newShape.id]);
+        return [...prev, newShape];
       });
-      if (handle) {
-        await verifyDirectoryPermission(handle, true);
-        syncDirHandleRef.current = handle;
-        setSyncDirectoryHandle(handle);
-        setSyncDirectoryName(handle.name);
-        if (!syncFilePath) {
-          const defaultPath = `${projectName.toLowerCase().replace(/[^a-z0-9_-]/g, '_') || 'banner_template'}.yml`;
-          setSyncFilePath(defaultPath);
-        }
-        showSnackbar(`Dossier de synchronisation connecté : ${handle.name}`, 'folder');
-        return true;
-      }
-    } catch (err: any) {
-      if (err.name === 'AbortError') return false;
-      console.warn('selectSyncDirectory error:', err);
-      showSnackbar(`Impossible d'accéder au dossier : ${err.message || ''}`, 'error');
-    }
-    return false;
-  }, [projectName, syncFilePath, setSyncDirectoryHandle, setSyncDirectoryName, setSyncFilePath, showSnackbar]);
+      setActivePanelState('shape');
+    },
+    [history]
+  );
 
-  // Connect single local file for synchronization
-  const selectSyncFile = useCallback(async (): Promise<boolean> => {
-    const hasFsSupport = typeof window !== 'undefined' && 'showOpenFilePicker' in window;
-    if (!hasFsSupport) {
-      showSnackbar('Votre navigateur ne prend pas en charge le sélecteur de fichier natif', 'error');
-      return false;
-    }
-    try {
-      const [handle] = await (window as any).showOpenFilePicker({
-        multiple: false,
-        types: [
-          {
-            description: 'Fichiers YAML / JSON de Template',
-            accept: {
-              'text/yaml': ['.yml', '.yaml'],
-              'application/json': ['.json']
-            }
-          }
-        ]
+  const addDevice = useCallback(
+    (deviceType: DeviceModelType = 'pixel-10') => {
+      history.recordHistory();
+      setElements(prev => {
+        const deviceCount = prev.filter(e => e.type === 'device').length + 1;
+        const offset = (prev.length * 15) % 200;
+        const newDevice = createDeviceElement(deviceType, deviceCount, offset);
+        setSelectedElementIds([newDevice.id]);
+        return [...prev, newDevice];
       });
-      if (handle) {
-        await verifyDirectoryPermission(handle, true);
-        syncFileHandleRef.current = handle;
-        setSyncFileHandle(handle);
-        setSyncFilePath(handle.name);
+      setActivePanelState('device');
+    },
+    [history]
+  );
 
-        const file = await handle.getFile();
-        const raw = await file.text();
-        const config = parseYaml<BannerMasterConfig>(raw);
-        const name = config.name || handle.name.replace(/\.(ya?ml|json)$/i, '');
-        setProjectName(name);
+  const updateElement = useCallback((id: string, updates: Partial<CanvasElement>) => {
+    setElements(prev => prev.map(el => (el.id === id ? ({ ...el, ...updates } as CanvasElement) : el)));
+  }, []);
 
-        showSnackbar(`Fichier connecté pour la synchro : ${handle.name}`, 'file_open');
-        return true;
-      }
-    } catch (err: any) {
-      if (err.name === 'AbortError') return false;
-      console.warn('selectSyncFile error:', err);
-      showSnackbar(`Impossible d'accéder au fichier : ${err.message || ''}`, 'error');
-    }
-    return false;
-  }, [setProjectName, setSyncFileHandle, setSyncFilePath, showSnackbar]);
-
-  // Unified save / sync to disk method
-  const syncToDisk = useCallback(async (): Promise<boolean> => {
-    setSyncStatus('syncing');
-
-    try {
-      let yamlContent = '';
-      let targetFilename = syncFilePath;
-
-      if (loadedBundle && activeBundleItemId) {
-        const item =
-          (loadedBundle.master?.id === activeBundleItemId ? loadedBundle.master : null) ||
-          loadedBundle.overrides[activeBundleItemId] ||
-          loadedBundle.variants.find(v => v.id === activeBundleItemId);
-
-        if (item) {
-          if (item.type === 'master') {
-            const masterConfig = serializeCanvasToMaster(
-              projectName || item.name || 'Master',
-              background,
-              elements,
-              exportZone,
-              canvasWidth,
-              canvasHeight
-            );
-            yamlContent = stringifyYaml(masterConfig);
-          } else if (item.type === 'override') {
-            const overrideConfig = serializeCanvasToOverride(
-              item,
-              background,
-              elements,
-              exportZone,
-              loadedBundle.master?.config as BannerMasterConfig | undefined
-            );
-            yamlContent = stringifyYaml(overrideConfig);
-          } else {
-            const variantConfig = serializeCanvasToVariant(
-              item,
-              elements,
-              loadedBundle.master?.config as BannerMasterConfig | undefined,
-              loadedBundle.overrides[item.slug]?.config as BannerOverrideConfig | undefined
-            );
-            yamlContent = stringifyYaml(variantConfig);
-          }
-          targetFilename = item.path;
-        }
-      }
-
-      if (!yamlContent) {
-        const masterConfig = serializeCanvasToMaster(
-          projectName || 'Projet sans nom',
-          background,
-          elements,
-          exportZone,
-          canvasWidth,
-          canvasHeight
-        );
-        yamlContent = stringifyYaml(masterConfig);
-        if (!targetFilename) {
-          const cleanName = projectName.toLowerCase().replace(/[^a-z0-9_-]/g, '_') || 'banner_template';
-          targetFilename = `${cleanName}.yml`;
-          setSyncFilePath(targetFilename);
-        }
-      }
-
-      let targetFileHandle = syncFileHandleRef.current || syncFileHandle;
-      let targetDirHandle =
-        syncDirHandleRef.current ||
-        syncDirectoryHandle ||
-        loadedBundle?.directoryHandle ||
-        bundleDirHandleRef.current;
-
-      const hasFsSupport = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
-
-      // If no directory or file handle connected, prompt user for directory
-      if (!targetDirHandle && !targetFileHandle && hasFsSupport) {
-        try {
-          targetDirHandle = await (window as any).showDirectoryPicker({
-            mode: 'readwrite',
-            startIn: 'desktop'
-          });
-          if (targetDirHandle) {
-            syncDirHandleRef.current = targetDirHandle;
-            setSyncDirectoryHandle(targetDirHandle);
-            setSyncDirectoryName(targetDirHandle.name);
-          }
-        } catch (err: any) {
-          if (err.name === 'AbortError') {
-            setSyncStatus('dirty');
-            return false;
-          }
-        }
-      }
-
-      if (targetFileHandle) {
-        await verifyDirectoryPermission(targetFileHandle, true);
-        const writable = await targetFileHandle.createWritable();
-        await writable.write(yamlContent);
-        await writable.close();
-        showSnackbar(`Synchronisé sur le disque : ${targetFileHandle.name}`, 'cloud_done');
-      } else if (targetDirHandle) {
-        await verifyDirectoryPermission(targetDirHandle, true);
-        await writeTextToDirectory(targetDirHandle, targetFilename || 'banner_template.yml', yamlContent);
-        showSnackbar(`Synchronisé dans ${targetDirHandle.name}/${targetFilename || 'banner_template.yml'}`, 'cloud_done');
-      } else {
-        downloadFile(targetFilename?.split('/').pop() || 'banner_template.yml', yamlContent, 'text/yaml');
-        showSnackbar(`Fichier téléchargé : ${targetFilename || 'banner_template.yml'}`, 'download');
-      }
-
-      const currentSig = computeCanvasSignature(
-        background,
-        elements,
-        exportZone,
-        canvasWidth,
-        canvasHeight
-      );
-      lastSavedSignatureRef.current = currentSig;
-      if (activeBundleItemId) {
-        markItemSaved(activeBundleItemId);
-      }
-      setLastSyncTime(new Date());
-      setSyncStatus('synced');
-      return true;
-    } catch (err: any) {
-      console.error('Erreur lors de la synchronisation disque :', err);
-      setSyncStatus('error');
-      showSnackbar(`Erreur de synchronisation : ${err.message || 'Échec'}`, 'error');
-      return false;
-    }
-  }, [
-    syncFilePath,
-    loadedBundle,
-    activeBundleItemId,
-    projectName,
-    background,
-    elements,
-    exportZone,
-    canvasWidth,
-    canvasHeight,
-    syncFileHandle,
-    syncDirectoryHandle,
-    setSyncDirectoryHandle,
-    setSyncDirectoryName,
-    setSyncFilePath,
-    markItemSaved,
-    showSnackbar
-  ]);
-
-  // Canvas change detection & debounced auto-sync
-  useEffect(() => {
-    const currentSig = computeCanvasSignature(
-      background,
-      elements,
-      exportZone,
-      canvasWidth,
-      canvasHeight
+  const updateElementCustomId = useCallback((id: string, customId: string) => {
+    setElements(prev =>
+      prev.map(el => (el.id === id ? ({ ...el, customId: customId.trim() } as CanvasElement) : el))
     );
+  }, []);
 
-    if (!lastSavedSignatureRef.current) {
-      lastSavedSignatureRef.current = currentSig;
+  const autoGenerateCustomIds = useCallback(() => {
+    history.recordHistory();
+    setElements(prev => {
+      let textIdx = 1;
+      let shapeIdx = 1;
+      let deviceIdx = 1;
+
+      return prev.map(el => {
+        if (el.customId && el.customId.trim().length > 0) return el;
+        let generated = '';
+        if (el.type === 'text') {
+          generated = textIdx === 1 ? 'title' : textIdx === 2 ? 'subtitle' : `text_${textIdx}`;
+          textIdx++;
+        } else if (el.type === 'device') {
+          generated = deviceIdx === 1 ? 'app_screen' : `device_${deviceIdx}`;
+          deviceIdx++;
+        } else {
+          generated = shapeIdx === 1 ? 'badge' : shapeIdx === 2 ? 'button' : `shape_${shapeIdx}`;
+          shapeIdx++;
+        }
+        return { ...el, customId: generated };
+      });
+    });
+    showSnackbar('IDs personnalisés générés', 'auto_fix_high');
+  }, [history, showSnackbar]);
+
+  const deleteElement = useCallback(
+    (id: string) => {
+      history.recordHistory();
+      setElements(prev => prev.filter(el => el.id !== id));
+      setSelectedElementIds(prev => prev.filter(itemId => itemId !== id));
+      setActivePanelState(null);
+    },
+    [history]
+  );
+
+  const deleteSelectedElements = useCallback(() => {
+    if (selectedElementIds.length === 0) return;
+    history.recordHistory();
+    setElements(prev => prev.filter(el => !selectedElementIds.includes(el.id)));
+    setSelectedElementIds([]);
+    setActivePanelState(null);
+    showSnackbar('Éléments supprimés', 'delete');
+  }, [selectedElementIds, history, showSnackbar]);
+
+  const selectElement = useCallback((id: string | null, multi = false) => {
+    if (id === null) {
+      setSelectedElementIds([]);
+      setActivePanelState(null);
       return;
     }
 
-    if (currentSig !== lastSavedSignatureRef.current) {
-      setSyncStatus('dirty');
-
-      const hasTarget = Boolean(
-        syncFileHandleRef.current ||
-        syncFileHandle ||
-        syncDirHandleRef.current ||
-        syncDirectoryHandle ||
-        loadedBundle?.directoryHandle ||
-        bundleDirHandleRef.current
-      );
-
-      if (isAutoSyncEnabled && hasTarget) {
-        if (autoSyncTimerRef.current) {
-          clearTimeout(autoSyncTimerRef.current);
+    if (multi) {
+      setSelectedElementIds(prev => {
+        const next = prev.includes(id) ? prev.filter(itemId => itemId !== id) : [...prev, id];
+        if (next.length > 1) {
+          setActivePanelState('align');
+        } else if (next.length === 1) {
+          const singleEl = elements.find(e => e.id === next[0]);
+          if (singleEl) {
+            setActivePanelState(singleEl.type as ActivePanel);
+          }
+        } else {
+          setActivePanelState(null);
         }
-        autoSyncTimerRef.current = setTimeout(() => {
-          syncToDisk();
-        }, 1500);
-      }
+        return next;
+      });
     } else {
-      setSyncStatus('synced');
-    }
-
-    return () => {
-      if (autoSyncTimerRef.current) {
-        clearTimeout(autoSyncTimerRef.current);
-      }
-    };
-  }, [
-    background,
-    elements,
-    exportZone,
-    canvasWidth,
-    canvasHeight,
-    isAutoSyncEnabled,
-    syncDirectoryHandle,
-    syncFileHandle,
-    loadedBundle,
-    syncToDisk
-  ]);
-
-
-  const selectedElementIdsRef = useRef<string[]>(selectedElementIds);
-  useEffect(() => {
-    selectedElementIdsRef.current = selectedElementIds;
-  }, [selectedElementIds]);
-
-  // Global keyboard shortcuts for Suppr / Del, Undo / Redo
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const activeEl = document.activeElement;
-      const isInput =
-        activeEl?.tagName === 'INPUT' ||
-        activeEl?.tagName === 'TEXTAREA' ||
-        activeEl?.getAttribute('contenteditable') === 'true' ||
-        activeEl?.classList.contains('editable-text-content');
-
-      if (isInput) return;
-
-      if (e.key === 'Escape' && editingImageElementId) {
-        e.preventDefault();
-        setEditingImageElementId(null);
-        return;
-      }
-
-      // Touche Suppr / Del / Backspace pour supprimer le(s) élément(s) sélectionné(s)
-      if (e.key === 'Delete' || e.key === 'Del' || e.key === 'Backspace') {
-        const currentIds = selectedElementIdsRef.current;
-        if (currentIds.length > 1) {
-          e.preventDefault();
-          deleteSelectedElements();
-          return;
-        } else if (currentIds.length === 1) {
-          e.preventDefault();
-          deleteElement(currentIds[0]);
-          showSnackbar('Élément supprimé', 'delete');
-          return;
+      setSelectedElementIds([id]);
+      setElements(currentElements => {
+        const el = currentElements.find(item => item.id === id);
+        if (el) {
+          setActivePanelState(el.type as ActivePanel);
         }
-      }
+        return currentElements;
+      });
+    }
+  }, [elements]);
 
-      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+  const setActivePanel = useCallback((panel: ActivePanel) => {
+    setActivePanelState(panel);
+    if (panel === 'bg' || panel === 'export') {
+      setSelectedElementIds([]);
+    }
+  }, []);
 
-      if (!cmdOrCtrl) return;
-
-      if (e.key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        undo();
-      } else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
-        e.preventDefault();
-        redo();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [deleteElement, deleteSelectedElements, undo, redo, showSnackbar]);
+  const clearAll = useCallback(() => {
+    history.recordHistory();
+    navigation.setCanvasWidth(800);
+    navigation.setCanvasHeight(600);
+    setElements([]);
+    setBackgroundState(initialBackground);
+    setSelectedElementIds([]);
+    setActivePanelState(null);
+    bundleManager.setActiveBundleItemId(null);
+    navigation.setExportZoneState(initialExportZone);
+    navigation.resetZoom();
+    try {
+      localStorage.removeItem('framemyapp_draft_project');
+    } catch {}
+    showSnackbar('Projet réinitialisé', 'delete_sweep');
+  }, [history, navigation, bundleManager, showSnackbar]);
 
   return (
     <EditorContext.Provider
       value={{
         state: {
-          canvasWidth,
-          canvasHeight,
+          canvasWidth: navigation.canvasWidth,
+          canvasHeight: navigation.canvasHeight,
           background,
           elements,
           selectedElementId,
           selectedElementIds,
           activePanel,
-          exportZone,
-          isDrawingExportMode,
+          exportZone: navigation.exportZone,
+          isDrawingExportMode: navigation.isDrawingExportMode,
           theme,
-          zoom,
-          pan,
-          canUndo,
-          canRedo
+          zoom: navigation.zoom,
+          pan: navigation.pan,
+          canUndo: history.canUndo,
+          canRedo: history.canRedo
         },
         snackbar,
         isConfirmModalOpen,
@@ -1903,7 +676,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         viewportRef,
         setBackground,
         applyBackgroundImage,
-        setCanvasDimensions,
+        setCanvasDimensions: navigation.setCanvasDimensions,
         addText,
         addShape,
         addDevice,
@@ -1914,55 +687,57 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setActivePanel,
         editingImageElementId,
         setEditingImageElementId,
-        updateExportZone,
-        setIsDrawingExportMode,
+        updateExportZone: navigation.updateExportZone,
+        setIsDrawingExportMode: navigation.setIsDrawingExportMode,
         showSnackbar,
-        resetZoom,
-        setZoom,
-        zoomIn,
-        zoomOut,
-        setPan,
+        resetZoom: navigation.resetZoom,
+        centerCanvas: navigation.centerCanvas,
+        setZoom: navigation.setZoom,
+        zoomIn: navigation.zoomIn,
+        zoomOut: navigation.zoomOut,
+        setPan: navigation.setPan,
         toggleTheme,
-        recordHistory,
-        undo,
-        redo,
+        recordHistory: history.recordHistory,
+        undo: history.undo,
+        redo: history.redo,
         clearAll,
-        bringForward,
-        sendBackward,
-        bringToFront,
-        sendToBack,
-        alignSelected,
-        distributeSelected,
-        loadedBundle,
-        setLoadedBundle,
-        activeBundleItemId,
-        applyBundleItem,
+        bringForward: hierarchy.bringForward,
+        sendBackward: hierarchy.sendBackward,
+        bringToFront: hierarchy.bringToFront,
+        sendToBack: hierarchy.sendToBack,
+        alignSelected: hierarchy.alignSelected,
+        alignElementToCanvas: hierarchy.alignElementToCanvas,
+        distributeSelected: hierarchy.distributeSelected,
+        loadedBundle: bundleManager.loadedBundle,
+        setLoadedBundle: bundleManager.setLoadedBundle,
+        activeBundleItemId: bundleManager.activeBundleItemId,
+        applyBundleItem: bundleManager.applyBundleItem,
         applyCompositionDirectly,
-        exportCanvasAsTemplateYaml,
-        exportCanvasAsBundleZip,
+        exportCanvasAsTemplateYaml: bundleManager.exportCanvasAsTemplateYaml,
+        exportCanvasAsBundleZip: bundleManager.exportCanvasAsBundleZip,
         updateElementCustomId,
         autoGenerateCustomIds,
-        isItemDirty,
-        markItemSaved,
-        saveBundleItemToDisk,
-        projectName,
-        setProjectName,
+        isItemDirty: bundleManager.isItemDirty,
+        markItemSaved: bundleManager.markItemSaved,
+        saveBundleItemToDisk: bundleManager.saveBundleItemToDisk,
+        projectName: diskSync.projectName,
+        setProjectName: diskSync.setProjectName,
         isSavePanelOpen,
         setIsSavePanelOpen,
-        syncStatus,
-        lastSyncTime,
-        isAutoSyncEnabled,
-        setIsAutoSyncEnabled,
-        syncDirectoryName,
-        setSyncDirectoryName,
-        syncFilePath,
-        setSyncFilePath,
-        syncDirectoryHandle,
-        setSyncDirectoryHandle,
-        syncFileHandle,
-        syncToDisk,
-        selectSyncDirectory,
-        selectSyncFile
+        syncStatus: diskSync.syncStatus,
+        lastSyncTime: diskSync.lastSyncTime,
+        isAutoSyncEnabled: diskSync.isAutoSyncEnabled,
+        setIsAutoSyncEnabled: diskSync.setIsAutoSyncEnabled,
+        syncDirectoryName: diskSync.syncDirectoryName,
+        setSyncDirectoryName: diskSync.setSyncDirectoryName,
+        syncFilePath: diskSync.syncFilePath,
+        setSyncFilePath: diskSync.setSyncFilePath,
+        syncDirectoryHandle: diskSync.syncDirectoryHandle,
+        setSyncDirectoryHandle: diskSync.setSyncDirectoryHandle,
+        syncFileHandle: diskSync.syncFileHandle,
+        syncToDisk: diskSync.syncToDisk,
+        selectSyncDirectory: diskSync.selectSyncDirectory,
+        selectSyncFile: diskSync.selectSyncFile
       }}
     >
       {children}
