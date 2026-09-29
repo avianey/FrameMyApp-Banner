@@ -4,6 +4,7 @@ import { TextElementModel } from '../../types';
 import { ColorAlphaPicker } from '../common/ColorAlphaPicker';
 import { LayerOrderControls } from './LayerOrderControls';
 import { SceneAlignmentControls } from './SceneAlignmentControls';
+import EffectsControls from './EffectsControls';
 
 const fonts = [
   'Roboto',
@@ -230,141 +231,15 @@ export const TextControls: React.FC<TextControlsProps> = ({ element }) => {
         </div>
       </div>
 
-      {/* Lueur (Glow) avec Alpha */}
-      <div className="space-y-3 bg-m3-sys-surfaceContainer rounded-2xl p-4 border border-m3-sys-outlineVariant/30">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium">Effet de Lueur (Glow)</span>
-          <input
-            type="checkbox"
-            checked={element.glow?.enable}
-            onChange={e =>
-              handleUpdate({
-                glow: { ...element.glow, enable: e.target.checked }
-              })
-            }
-            className="w-4 h-4 accent-m3-sys-primary cursor-pointer"
-          />
-        </div>
-        {element.glow?.enable && (
-          <div className="space-y-3 pt-2 border-t border-m3-sys-outlineVariant/20">
-            <ColorAlphaPicker
-              label="Couleur de lueur"
-              value={element.glow.color}
-              onChange={rgba =>
-                handleUpdate({
-                  glow: { ...element.glow, color: rgba }
-                })
-              }
-            />
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span>Rayon de lueur</span>
-                <span>{element.glow.blur}px</span>
-              </div>
-              <input
-                type="range"
-                min="2"
-                max="60"
-                step="1"
-                value={element.glow.blur}
-                onChange={e =>
-                  handleUpdate({
-                    glow: { ...element.glow, blur: parseInt(e.target.value, 10) }
-                  })
-                }
-                className="w-full accent-m3-sys-primary"
-              />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Ombre portée avec Alpha */}
-      <div className="space-y-3 bg-m3-sys-surfaceContainer rounded-2xl p-4 border border-m3-sys-outlineVariant/30">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium">Ombre portée</span>
-          <input
-            type="checkbox"
-            checked={element.shadow?.enable}
-            onChange={e =>
-              handleUpdate({
-                shadow: { ...element.shadow, enable: e.target.checked }
-              })
-            }
-            className="w-4 h-4 accent-m3-sys-primary cursor-pointer"
-          />
-        </div>
-        {element.shadow?.enable && (
-          <div className="space-y-3 pt-2 border-t border-m3-sys-outlineVariant/20">
-            <ColorAlphaPicker
-              label="Couleur d’ombre"
-              value={element.shadow.color}
-              onChange={rgba =>
-                handleUpdate({
-                  shadow: { ...element.shadow, color: rgba }
-                })
-              }
-            />
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span>Flou d’ombre</span>
-                <span>{element.shadow.blur}px</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="30"
-                step="1"
-                value={element.shadow.blur}
-                onChange={e =>
-                  handleUpdate({
-                    shadow: { ...element.shadow, blur: parseInt(e.target.value, 10) }
-                  })
-                }
-                className="w-full accent-m3-sys-primary"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[11px] text-m3-sys-onSurfaceVariant">
-                  Décalage X ({element.shadow.x}px)
-                </label>
-                <input
-                  type="range"
-                  min="-30"
-                  max="30"
-                  step="1"
-                  value={element.shadow.x}
-                  onChange={e =>
-                    handleUpdate({
-                      shadow: { ...element.shadow, x: parseInt(e.target.value, 10) }
-                    })
-                  }
-                  className="w-full accent-m3-sys-primary"
-                />
-              </div>
-              <div>
-                <label className="text-[11px] text-m3-sys-onSurfaceVariant">
-                  Décalage Y ({element.shadow.y}px)
-                </label>
-                <input
-                  type="range"
-                  min="-30"
-                  max="30"
-                  step="1"
-                  value={element.shadow.y}
-                  onChange={e =>
-                    handleUpdate({
-                      shadow: { ...element.shadow, y: parseInt(e.target.value, 10) }
-                    })
-                  }
-                  className="w-full accent-m3-sys-primary"
-                />
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Effets Visuels (Glow & Ombre Portée) */}
+      <EffectsControls
+        glow={element.glow}
+        shadow={element.shadow}
+        onChange={updates => handleUpdate(updates)}
+        maxBlurGlow={60}
+        maxBlurShadow={30}
+        maxOffset={30}
+      />
 
       {/* Bouton Supprimer */}
       <button

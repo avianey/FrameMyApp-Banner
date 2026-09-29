@@ -5,6 +5,8 @@ import { ShapeElement } from './ShapeElement';
 import { DeviceElement } from './DeviceElement';
 import { ExportOverlay } from './ExportOverlay';
 import { InPlaceImageCropper } from './InPlaceImageCropper';
+import { assetManager } from '../../utils/assetManager';
+import { resolveAsset } from '../../utils/templateEngine';
 
 export const Artboard: React.FC = () => {
   const {
@@ -18,7 +20,8 @@ export const Artboard: React.FC = () => {
     setBackground,
     editingImageElementId,
     setEditingImageElementId,
-    setActivePanel
+    setActivePanel,
+    loadedBundle
   } = useEditor();
 
   const {
@@ -32,6 +35,11 @@ export const Artboard: React.FC = () => {
     canvasWidth = 800,
     canvasHeight = 600
   } = state;
+
+  const displayBgUrl =
+    (background.imageUrl ? assetManager.getDisplayUrl(background.imageUrl) : undefined) ||
+    (background.imageUrl && loadedBundle?.assets ? resolveAsset(background.imageUrl, undefined, loadedBundle.assets) : undefined) ||
+    background.imageUrl;
 
   // Background style computation
   const getBackgroundStyle = (): React.CSSProperties => {
@@ -61,7 +69,7 @@ export const Artboard: React.FC = () => {
       }
 
       return {
-        backgroundImage: `url('${background.imageUrl}')`,
+        backgroundImage: `url('${displayBgUrl}')`,
         backgroundSize: bgSize,
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat'
@@ -165,7 +173,7 @@ export const Artboard: React.FC = () => {
             <InPlaceImageCropper
               containerWidth={canvasWidth}
               containerHeight={canvasHeight}
-              imageUrl={background.imageUrl}
+              imageUrl={displayBgUrl}
               imageFit={background.imageFit || 'cover'}
               imageScale={background.imageScale || 1.0}
               imageOffsetX={background.imageOffsetX || 0}

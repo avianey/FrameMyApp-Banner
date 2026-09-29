@@ -127,9 +127,6 @@ html, body, #root {
 /* Poignée de rotation */
 .handle-rotate-anchor {
   position: absolute;
-  top: -26px;
-  left: 50%;
-  transform: translateX(-50%);
   width: 22px;
   height: 22px;
   background: rgb(var(--m3-sys-primary));
@@ -151,12 +148,7 @@ html, body, #root {
 
 .handle-rotate-line {
   position: absolute;
-  top: -14px;
-  left: 50%;
-  width: 1.5px;
-  height: 14px;
   background: rgb(var(--m3-sys-primary));
-  transform: translateX(-50%);
   pointer-events: none;
   z-index: 44;
 }
@@ -164,8 +156,6 @@ html, body, #root {
 /* Poignée de déplacement pour les textes */
 .drag-pill-handle {
   position: absolute;
-  top: -26px;
-  left: 0px;
   background: rgb(var(--m3-sys-primary));
   color: #FFFFFF;
   border-radius: 6px;

@@ -124,3 +124,5 @@ export const ColorAlphaPicker: React.FC<ColorAlphaPickerProps> = ({ label, value
     </div>
   );
 };
+
+export default ColorAlphaPicker;

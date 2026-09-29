@@ -1,7 +1,10 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useEditor } from '../../context/EditorContext';
 import { BackgroundType } from '../../types';
 import { ColorAlphaPicker } from '../common/ColorAlphaPicker';
+import { ImageUploadField } from '../common/ImageUploadField';
+import { assetManager } from '../../utils/assetManager';
+import { resolveAsset } from '../../utils/templateEngine';
 
 interface CanvasPreset {
   id: string;
@@ -32,11 +35,11 @@ export const BackgroundControls: React.FC = () => {
     updateExportZone,
     showSnackbar,
     editingImageElementId,
-    setEditingImageElementId
+    setEditingImageElementId,
+    loadedBundle
   } = useEditor();
 
   const { background, canvasWidth = 800, canvasHeight = 600 } = state;
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // État local des chaînes pour la saisie libre sans forcer de clamp à chaque touche
   const [widthStr, setWidthStr] = useState<string>(String(canvasWidth));
@@ -99,19 +102,6 @@ export const BackgroundControls: React.FC = () => {
 
   const handleTypeChange = (type: BackgroundType) => {
     setBackground({ type });
-  };
-
-  const handleImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const reader = new FileReader();
-      reader.onload = ev => {
-        const result = ev.target?.result as string;
-        if (result) {
-          applyBackgroundImage(result);
-        }
-      };
-      reader.readAsDataURL(e.target.files[0]);
-    }
   };
 
   return (
@@ -314,87 +304,47 @@ export const BackgroundControls: React.FC = () => {
             )}
           </div>
 
-          <div
-            onClick={() => fileInputRef.current?.click()}
-            onDragOver={e => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-            onDrop={e => {
-              e.preventDefault();
-              e.stopPropagation();
-              const files = e.dataTransfer.files;
-              if (files && files[0] && files[0].type.startsWith('image/')) {
-                const reader = new FileReader();
-                reader.onload = ev => {
-                  const result = ev.target?.result as string;
-                  if (result) {
-                    applyBackgroundImage(result);
-                  }
-                };
-                reader.readAsDataURL(files[0]);
-              }
-            }}
-            className="border-2 border-dashed border-m3-sys-outlineVariant hover:border-m3-sys-primary rounded-xl p-5 text-center cursor-pointer transition-colors"
-          >
-            <span className="material-symbols-rounded text-3xl text-m3-sys-primary mb-1">
-              cloud_upload
-            </span>
-            <p className="text-xs text-m3-sys-onSurfaceVariant">Cliquez ou glissez une image ici</p>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleImageFile}
-              className="hidden"
-            />
-          </div>
+          {(() => {
+            const displayBgUrl =
+              (background.imageUrl ? assetManager.getDisplayUrl(background.imageUrl) : undefined) ||
+              (background.imageUrl && loadedBundle?.assets ? resolveAsset(background.imageUrl, undefined, loadedBundle.assets) : undefined) ||
+              background.imageUrl;
 
-          {background.imageUrl && (
-            <div className="space-y-3">
-              <div className="relative rounded-xl overflow-hidden h-32 border border-m3-sys-outlineVariant">
-                <img
-                  src={background.imageUrl}
-                  alt="Background"
-                  className={`w-full h-full ${background.imageFit === 'contain' ? 'object-contain bg-black/10' : 'object-cover'}`}
-                />
+            return (
+              <ImageUploadField
+                imageUrl={displayBgUrl}
+                onImageLoaded={(result, file) => applyBackgroundImage(result, file)}
+                onDelete={() => setBackground({ imageUrl: '', type: 'solid' })}
+                objectFit={background.imageFit === 'contain' ? 'contain' : 'cover'}
+              >
+            {/* Options de remplissage */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-m3-sys-onSurfaceVariant">
+                Mode d'ajustement
+              </label>
+              <div className="grid grid-cols-2 gap-1 bg-m3-sys-surfaceContainerHighest p-1 rounded-xl">
                 <button
-                  onClick={() => setBackground({ imageUrl: '', type: 'solid' })}
-                  title="Supprimer l'image"
-                  className="absolute top-2 right-2 w-8 h-8 bg-red-600 text-white rounded-full shadow hover:bg-red-700 active:scale-95 transition-all flex items-center justify-center cursor-pointer"
+                  onClick={() => setBackground({ imageFit: 'cover' })}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
+                    background.imageFit !== 'contain'
+                      ? 'bg-m3-sys-primary text-white shadow-sm font-bold'
+                      : 'text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainer'
+                  }`}
                 >
-                  <span className="material-symbols-rounded text-sm leading-none">delete</span>
+                  Remplir (100%)
+                </button>
+                <button
+                  onClick={() => setBackground({ imageFit: 'contain' })}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
+                    background.imageFit === 'contain'
+                      ? 'bg-m3-sys-primary text-white shadow-sm font-bold'
+                      : 'text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainer'
+                  }`}
+                >
+                  Ajuster (Contenir)
                 </button>
               </div>
-
-              {/* Options de remplissage */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-m3-sys-onSurfaceVariant">
-                  Mode d'ajustement
-                </label>
-                <div className="grid grid-cols-2 gap-1 bg-m3-sys-surfaceContainerHighest p-1 rounded-xl">
-                  <button
-                    onClick={() => setBackground({ imageFit: 'cover' })}
-                    className={`py-1.5 px-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                      background.imageFit !== 'contain'
-                        ? 'bg-m3-sys-primary text-white shadow-sm font-bold'
-                        : 'text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainer'
-                    }`}
-                  >
-                    Remplir (100%)
-                  </button>
-                  <button
-                    onClick={() => setBackground({ imageFit: 'contain' })}
-                    className={`py-1.5 px-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                      background.imageFit === 'contain'
-                        ? 'bg-m3-sys-primary text-white shadow-sm font-bold'
-                        : 'text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainer'
-                    }`}
-                  >
-                    Ajuster (Contenir)
-                  </button>
-                </div>
-              </div>
+            </div>
 
               {/* Bouton de recadrage interactif */}
               <div className="pt-1 space-y-2">
@@ -427,10 +377,11 @@ export const BackgroundControls: React.FC = () => {
                   Astuce : Double-cliquez directement sur la scène pour déplacer ou zoomer l'image.
                 </p>
               </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
+            </ImageUploadField>
+          );
+        })()}
+      </div>
+    )}
+  </div>
+);
 };

@@ -25,6 +25,7 @@ import {
   saveDirectoryHandleToIdb,
   getDirectoryHandleFromIdb
 } from '../utils/bundleIo';
+import { assetManager, convertUrlsToRelativeAssetPaths } from '../utils/assetManager';
 import { computeCanvasSignature } from './useDiskSync';
 
 interface UseBundleManagerOptions {
@@ -259,9 +260,14 @@ export function useBundleManager({
 
         if (dirHandle) {
           await verifyDirectoryPermission(dirHandle, true);
+          await assetManager.saveAllToDirectory(dirHandle);
+          const cleanConfig = convertUrlsToRelativeAssetPaths(updatedConfig);
+          yamlContent = stringifyYaml(cleanConfig);
           await writeTextToDirectory(dirHandle, item.path, yamlContent);
           showSnackbar(`Enregistré dans : ${item.path}`, 'save');
         } else {
+          const cleanConfig = convertUrlsToRelativeAssetPaths(updatedConfig);
+          yamlContent = stringifyYaml(cleanConfig);
           downloadFile(item.path.split('/').pop() || 'template.yml', yamlContent, 'text/yaml');
           showSnackbar(`Fichier téléchargé : ${item.path}`, 'download');
         }
@@ -315,14 +321,14 @@ export function useBundleManager({
   const exportCanvasAsTemplateYaml = useCallback(
     (customName?: string) => {
       const templateName = customName || projectName || loadedBundle?.master?.name || 'banner_template';
-      const masterConfig = serializeCanvasToMaster(
+      const masterConfig = convertUrlsToRelativeAssetPaths(serializeCanvasToMaster(
         templateName,
         background,
         elements,
         exportZone,
         canvasWidth,
         canvasHeight
-      );
+      ));
       const yamlStr = stringifyYaml(masterConfig);
       const filename = `${templateName.toLowerCase().replace(/[^a-z0-9]/gi, '_')}.yml`;
       downloadFile(filename, yamlStr, 'text/yaml');
@@ -334,14 +340,14 @@ export function useBundleManager({
   const exportCanvasAsBundleZip = useCallback(async () => {
     try {
       const bundleName = loadedBundle?.name || projectName || 'marketing_bundle';
-      const currentMaster = serializeCanvasToMaster(
+      const currentMaster = convertUrlsToRelativeAssetPaths(serializeCanvasToMaster(
         bundleName,
         background,
         elements,
         exportZone,
         canvasWidth,
         canvasHeight
-      );
+      ));
 
       const bundleToExport: LoadedBundle = loadedBundle || {
         name: bundleName,

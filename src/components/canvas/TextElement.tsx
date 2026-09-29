@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { TextElementModel } from '../../types';
 import { useEditor } from '../../context/EditorContext';
 import { SelectionHandles } from './SelectionHandles';
+import { getCombinedTextShadow } from '../../utils/effectsHelper';
 
 interface TextElementProps {
   element: TextElementModel;
@@ -30,13 +31,7 @@ export const TextElement: React.FC<TextElementProps> = ({
     }
   }, [element.text]);
 
-  const glowCss = element.glow?.enable
-    ? `${element.glow.x}px ${element.glow.y}px ${element.glow.blur}px ${element.glow.color}`
-    : '';
-  const shadowCss = element.shadow?.enable
-    ? `${element.shadow.x}px ${element.shadow.y}px ${element.shadow.blur}px ${element.shadow.color}`
-    : '';
-  const combinedShadow = [glowCss, shadowCss].filter(Boolean).join(', ');
+  const combinedShadow = getCombinedTextShadow(element.glow, element.shadow);
 
   const minHeightPx = (element.minLines || 1) * element.fontSize * (element.lineHeight || 1.2);
 
@@ -141,6 +136,11 @@ export const TextElement: React.FC<TextElementProps> = ({
         }}
         onInput={handleInput}
         onFocus={handleFocus}
+        onKeyDown={e => {
+          if (e.key === 'Escape') {
+            textInnerRef.current?.blur();
+          }
+        }}
       >
         {element.text}
       </div>
@@ -148,16 +148,34 @@ export const TextElement: React.FC<TextElementProps> = ({
       {isSelected && !isMultiSelected && (
         <SelectionHandles element={element} elementRef={nodeRef} />
       )}
-      {isSelected && isMultiSelected && (
-        <>
-          <div className="selection-ui-handle absolute -inset-1 border-2 border-dashed border-m3-sys-primary rounded-lg pointer-events-none z-30" />
-          {selectionIndex !== undefined && (
-            <div className="absolute -top-3 -left-3 z-40 bg-m3-sys-primary text-m3-sys-onPrimary text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow-sm pointer-events-none">
-              {selectionIndex}
-            </div>
-          )}
-        </>
-      )}
+      {isSelected && isMultiSelected && (() => {
+        const s = 1 / currentZoom;
+        const offset = 4 * s;
+        return (
+          <>
+            <div
+              className="selection-ui-handle absolute border-dashed border-m3-sys-primary rounded-lg pointer-events-none z-30"
+              style={{
+                inset: `${-offset}px`,
+                borderWidth: `${2 * s}px`,
+                borderRadius: `${8 * s}px`
+              }}
+            />
+            {selectionIndex !== undefined && (
+              <div
+                className="absolute z-40 bg-m3-sys-primary text-m3-sys-onPrimary text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow-sm pointer-events-none"
+                style={{
+                  top: `${-offset}px`,
+                  left: `${-offset}px`,
+                  transform: `translate(-50%, -50%) scale(${s})`
+                }}
+              >
+                {selectionIndex}
+              </div>
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 };

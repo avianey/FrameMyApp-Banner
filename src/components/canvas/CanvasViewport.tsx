@@ -287,38 +287,16 @@ export const CanvasViewport: React.FC = () => {
 
     const files = e.dataTransfer.files;
     if (files.length > 0 && files[0].type.startsWith('image/')) {
+      const file = files[0];
       const reader = new FileReader();
       reader.onload = event => {
         const result = event.target?.result as string;
         if (!result) return;
 
-        if (state.selectedElementId) {
-          const el = state.elements.find(item => item.id === state.selectedElementId);
-          if (el && el.type === 'shape') {
-            updateElement(el.id, { fillType: 'image', imageUrl: result });
-            showSnackbar('Image appliquée sur la forme', 'image');
-            return;
-          } else if (el && el.type === 'device') {
-            const img = new Image();
-            img.onload = () => {
-              const imgRatio = img.naturalWidth / img.naturalHeight;
-              const newTotalH = computeDeviceHeightFromWidth(el.width, imgRatio, el);
-              updateElement(el.id, {
-                screenImageUrl: result,
-                imageAspectRatio: imgRatio,
-                height: newTotalH
-              });
-              showSnackbar('Capture d’écran appliquée et ratio ajusté', 'smartphone');
-            };
-            img.src = result;
-            return;
-          }
-        }
-
-        applyBackgroundImage(result);
+        applyBackgroundImage(result, file);
         setActivePanel('bg');
       };
-      reader.readAsDataURL(files[0]);
+      reader.readAsDataURL(file);
     }
   };
 

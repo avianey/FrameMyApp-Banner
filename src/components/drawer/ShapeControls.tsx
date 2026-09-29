@@ -2,8 +2,11 @@ import React, { useRef } from 'react';
 import { useEditor } from '../../context/EditorContext';
 import { ShapeElementModel, ShapeType, FillType, GradientStop } from '../../types';
 import { ColorAlphaPicker } from '../common/ColorAlphaPicker';
+import { ImageUploadField } from '../common/ImageUploadField';
+import { assetManager } from '../../utils/assetManager';
 import { LayerOrderControls } from './LayerOrderControls';
 import { SceneAlignmentControls } from './SceneAlignmentControls';
+import EffectsControls from './EffectsControls';
 
 const shapesList: { id: ShapeType; label: string; icon: string }[] = [
   { id: 'rectangle', label: 'Rectangle', icon: 'rectangle' },
@@ -19,24 +22,19 @@ interface ShapeControlsProps {
 }
 
 export const ShapeControls: React.FC<ShapeControlsProps> = ({ element }) => {
-  const { updateElement, deleteElement, editingImageElementId, setEditingImageElementId } = useEditor();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const {
+    updateElement,
+    deleteElement,
+    editingImageElementId,
+    setEditingImageElementId,
+    showSnackbar,
+    recordHistory,
+    state,
+    loadedBundle
+  } = useEditor();
 
   const handleUpdate = (updates: Partial<ShapeElementModel>) => {
     updateElement(element.id, updates);
-  };
-
-  const handleImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const reader = new FileReader();
-      reader.onload = ev => {
-        const result = ev.target?.result as string;
-        if (result) {
-          handleUpdate({ imageUrl: result });
-        }
-      };
-      reader.readAsDataURL(e.target.files[0]);
-    }
   };
 
   return (
@@ -453,57 +451,91 @@ export const ShapeControls: React.FC<ShapeControlsProps> = ({ element }) => {
       })()}
 
       {element.fillType === 'image' && (
-        <div className="space-y-2 bg-m3-sys-surfaceContainer p-3 rounded-xl border border-m3-sys-outlineVariant/30 text-center">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleImageFile}
-            className="hidden"
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="w-full py-2 bg-m3-sys-surfaceContainerHighest rounded-lg text-xs font-medium hover:bg-m3-sys-outlineVariant/30 transition-colors"
-          >
-            Sélectionner une image
-          </button>
-          {element.imageUrl && (
-            <div className="space-y-2 mt-2">
-              <img
-                src={element.imageUrl}
-                alt="Shape texture"
-                className="w-full h-20 object-cover rounded-lg border border-m3-sys-outlineVariant/30"
-              />
+        <div className="space-y-3 bg-m3-sys-surfaceContainer p-3.5 rounded-2xl border border-m3-sys-outlineVariant/30">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-semibold text-m3-sys-onSurfaceVariant uppercase flex items-center space-x-1.5">
+              <span className="material-symbols-rounded text-sm text-m3-sys-primary">image</span>
+              <span>Texture de forme (Image)</span>
+            </label>
+          </div>
 
-              <button
-                onClick={() => setEditingImageElementId(editingImageElementId === element.id ? null : element.id)}
-                className={`w-full py-1.5 px-3 rounded-xl border flex items-center justify-center space-x-1.5 text-xs font-bold transition-all cursor-pointer shadow-sm ${
-                  editingImageElementId === element.id
-                    ? 'bg-indigo-500 text-white border-indigo-600'
-                    : 'bg-m3-sys-surfaceContainerHighest hover:bg-indigo-500/15 text-indigo-400 border-indigo-500/30'
-                }`}
+          {(() => {
+            const displayImageUrl =
+              (element.imageUrl ? assetManager.getDisplayUrl(element.imageUrl) : undefined) ||
+              (element.imageUrl && loadedBundle?.assets ? resolveAsset(element.imageUrl, undefined, loadedBundle.assets) : undefined) ||
+              element.imageUrl;
+
+            return (
+              <ImageUploadField
+                imageUrl={displayImageUrl}
+                onImageLoaded={(result, file) => {
+                  recordHistory();
+                  let finalUrl = result;
+                  if (file) {
+                    const { assetPath, displayUrl } = assetManager.registerAsset(file.name, file);
+                    assetManager.registerUrlMapping(result, assetPath);
+                    assetManager.registerUrlMapping(displayUrl, assetPath);
+                    finalUrl = displayUrl;
+
+                    const dirHandle = state.syncDirectoryHandle || loadedBundle?.directoryHandle;
+                    if (dirHandle) {
+                      assetManager.saveAllToDirectory(dirHandle).catch(e => console.warn(e));
+                    }
+                  }
+                  const img = new Image();
+                  img.onload = () => {
+                    handleUpdate({
+                      imageUrl: finalUrl,
+                      imageNaturalWidth: img.naturalWidth,
+                      imageNaturalHeight: img.naturalHeight
+                    });
+                    showSnackbar('Image appliquée sur la forme', 'image');
+                  };
+                  img.src = finalUrl;
+                }}
+                onDelete={() => {
+                  recordHistory();
+                  handleUpdate({ imageUrl: '', fillType: 'solid' });
+                  showSnackbar('Image supprimée de la forme', 'delete');
+                }}
+                placeholder="Cliquez ou glissez une texture ici"
+                previewHeight="h-28"
+                objectFit={element.imageFit === 'contain' ? 'contain' : 'cover'}
               >
-                <span className="material-symbols-rounded text-sm">crop</span>
-                <span>{editingImageElementId === element.id ? 'Terminer le recadrage' : 'Ajuster / Déplacer l\'image'}</span>
-              </button>
+                <div className="space-y-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setEditingImageElementId(editingImageElementId === element.id ? null : element.id)}
+                    className={`w-full py-1.5 px-3 rounded-xl border flex items-center justify-center space-x-1.5 text-xs font-bold transition-all cursor-pointer shadow-sm ${
+                      editingImageElementId === element.id
+                        ? 'bg-indigo-500 text-white border-indigo-600'
+                        : 'bg-m3-sys-surfaceContainerHighest hover:bg-indigo-500/15 text-indigo-400 border-indigo-500/30'
+                    }`}
+                  >
+                    <span className="material-symbols-rounded text-sm">crop</span>
+                    <span>{editingImageElementId === element.id ? 'Terminer le recadrage' : "Ajuster / Déplacer l'image"}</span>
+                  </button>
 
-              <div className="flex items-center justify-between text-[11px] px-1">
-                <span className="text-m3-sys-onSurfaceVariant">
-                  Zoom : {Math.round((element.imageScale || 1.0) * 100)}%
-                </span>
-                <button
-                  onClick={() => handleUpdate({ imageOffsetX: 0, imageOffsetY: 0, imageScale: 1.0 })}
-                  className="text-indigo-400 hover:underline cursor-pointer text-[10px]"
-                >
-                  Recentrer
-                </button>
-              </div>
+                  <div className="flex items-center justify-between text-[11px] px-1">
+                    <span className="text-m3-sys-onSurfaceVariant">
+                      Zoom : {Math.round((element.imageScale || 1.0) * 100)}%
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdate({ imageOffsetX: 0, imageOffsetY: 0, imageScale: 1.0 })}
+                      className="text-indigo-400 hover:underline cursor-pointer text-[10px]"
+                    >
+                      Recentrer
+                    </button>
+                  </div>
 
-              <p className="text-[10px] text-m3-sys-onSurfaceVariant/70 italic">
-                Astuce : Double-cliquez sur la forme sur le canevas pour déplacer ou zoomer l'image.
-              </p>
-            </div>
-          )}
+                  <p className="text-[10px] text-m3-sys-onSurfaceVariant/70 italic text-center">
+                    Astuce : Double-cliquez sur la forme sur le canevas pour déplacer ou zoomer l'image.
+                  </p>
+                </div>
+              </ImageUploadField>
+            );
+          })()}
         </div>
       )}
 
@@ -559,100 +591,17 @@ export const ShapeControls: React.FC<ShapeControlsProps> = ({ element }) => {
         )}
       </div>
 
-      {/* Ombre de la forme avec Alpha */}
-      <div className="space-y-3 bg-m3-sys-surfaceContainer rounded-2xl p-4 border border-m3-sys-outlineVariant/30">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium">Ombre de la forme</span>
-          <input
-            type="checkbox"
-            checked={element.shadow?.enable}
-            onChange={e =>
-              handleUpdate({
-                shadow: {
-                  ...(element.shadow || {
-                    blur: 14,
-                    x: 0,
-                    y: 4,
-                    color: 'rgba(0, 0, 0, 0.3)'
-                  }),
-                  enable: e.target.checked
-                }
-              })
-            }
-            className="w-4 h-4 accent-m3-sys-primary cursor-pointer"
-          />
-        </div>
-        {element.shadow?.enable && (
-          <div className="space-y-3 pt-2 border-t border-m3-sys-outlineVariant/20">
-            <ColorAlphaPicker
-              label="Couleur d’ombre"
-              value={element.shadow.color}
-              onChange={rgba =>
-                handleUpdate({
-                  shadow: { ...element.shadow, color: rgba }
-                })
-              }
-            />
-            <div>
-              <div className="flex justify-between text-xs font-medium mb-1">
-                <span>Rayon de flou</span>
-                <span>{element.shadow.blur}px</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="60"
-                step="1"
-                value={element.shadow.blur}
-                onChange={e =>
-                  handleUpdate({
-                    shadow: { ...element.shadow, blur: parseInt(e.target.value, 10) }
-                  })
-                }
-                className="w-full accent-m3-sys-primary"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[11px] text-m3-sys-onSurfaceVariant">
-                  Décalage X ({element.shadow.x}px)
-                </label>
-                <input
-                  type="range"
-                  min="-40"
-                  max="40"
-                  step="1"
-                  value={element.shadow.x}
-                  onChange={e =>
-                    handleUpdate({
-                      shadow: { ...element.shadow, x: parseInt(e.target.value, 10) }
-                    })
-                  }
-                  className="w-full accent-m3-sys-primary"
-                />
-              </div>
-              <div>
-                <label className="text-[11px] text-m3-sys-onSurfaceVariant">
-                  Décalage Y ({element.shadow.y}px)
-                </label>
-                <input
-                  type="range"
-                  min="-40"
-                  max="40"
-                  step="1"
-                  value={element.shadow.y}
-                  onChange={e =>
-                    handleUpdate({
-                      shadow: { ...element.shadow, y: parseInt(e.target.value, 10) }
-                    })
-                  }
-                  className="w-full accent-m3-sys-primary"
-                />
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Effets Visuels (Glow & Ombre Portée) */}
+      <EffectsControls
+        glow={element.glow}
+        shadow={element.shadow}
+        onChange={updates => handleUpdate(updates)}
+        titleGlow="Effet de lueur (Glow)"
+        titleShadow="Ombre de la forme"
+        maxBlurGlow={60}
+        maxBlurShadow={60}
+        maxOffset={40}
+      />
 
       {/* Opacité globale, Rotation & Arrondi */}
       <div className="space-y-3 bg-m3-sys-surfaceContainer rounded-2xl p-4 border border-m3-sys-outlineVariant/30">

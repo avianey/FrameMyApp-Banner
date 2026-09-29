@@ -2,8 +2,12 @@ import React, { useRef } from 'react';
 import { useEditor } from '../../context/EditorContext';
 import { DeviceElementModel, DeviceModelType } from '../../types';
 import { ColorAlphaPicker } from '../common/ColorAlphaPicker';
+import { ImageUploadField } from '../common/ImageUploadField';
+import { assetManager } from '../../utils/assetManager';
+import { resolveAsset } from '../../utils/templateEngine';
 import { LayerOrderControls } from './LayerOrderControls';
 import { SceneAlignmentControls } from './SceneAlignmentControls';
+import EffectsControls from './EffectsControls';
 import {
   getDeviceEffectiveDimensions,
   computeDeviceHeightFromWidth,
@@ -77,8 +81,7 @@ interface DeviceControlsProps {
 }
 
 export const DeviceControls: React.FC<DeviceControlsProps> = ({ element }) => {
-  const { updateElement, deleteElement, showSnackbar } = useEditor();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { updateElement, deleteElement, showSnackbar, recordHistory, state, loadedBundle } = useEditor();
 
   const baseW = element.deviceType === 'pixel-tab' ? 500 : 260;
   const effectiveDims = getDeviceEffectiveDimensions(element);
@@ -96,33 +99,34 @@ export const DeviceControls: React.FC<DeviceControlsProps> = ({ element }) => {
   };
 
   // Ajustement automatique du ratio de l'écran en fonction de l'image
-  const applyImageWithAspectRatio = (imageUrl: string) => {
+  const applyImageWithAspectRatio = (imageUrl: string, file?: File) => {
+    recordHistory();
+    let finalUrl = imageUrl;
+    if (file) {
+      const { assetPath, displayUrl } = assetManager.registerAsset(file.name, file);
+      assetManager.registerUrlMapping(imageUrl, assetPath);
+      assetManager.registerUrlMapping(displayUrl, assetPath);
+      finalUrl = displayUrl;
+
+      const dirHandle = state.syncDirectoryHandle || loadedBundle?.directoryHandle;
+      if (dirHandle) {
+        assetManager.saveAllToDirectory(dirHandle).catch(e => console.warn(e));
+      }
+    }
+
     const img = new Image();
     img.onload = () => {
       const imgRatio = img.naturalWidth / img.naturalHeight;
       const newTotalH = computeDeviceHeightFromWidth(element.width, imgRatio, element);
 
       handleUpdate({
-        screenImageUrl: imageUrl,
+        screenImageUrl: finalUrl,
         imageAspectRatio: imgRatio,
         height: newTotalH
       });
       showSnackbar('Dimensions adaptées au ratio de l’image', 'aspect_ratio');
     };
-    img.src = imageUrl;
-  };
-
-  const handleImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const reader = new FileReader();
-      reader.onload = ev => {
-        const result = ev.target?.result as string;
-        if (result) {
-          applyImageWithAspectRatio(result);
-        }
-      };
-      reader.readAsDataURL(e.target.files[0]);
-    }
+    img.src = finalUrl;
   };
 
   const handleFitToCurrentScreenImage = () => {
@@ -137,24 +141,34 @@ export const DeviceControls: React.FC<DeviceControlsProps> = ({ element }) => {
   };
 
   const handleSelectModel = (model: typeof deviceModels[0]) => {
+    recordHistory();
     const baseW = model.defaultWidth;
-    const baseH = model.defaultHeight;
     const radiusPercent = (model.borderRadius / baseW) * 100;
     const bodyPercent = (10 / baseW) * 100;
     const borderPercent = (4 / baseW) * 100;
 
-    let targetH = element.height;
-    if (element.screenImageUrl && element.imageAspectRatio) {
-      targetH = computeDeviceHeightFromWidth(element.width, element.imageAspectRatio, {
+    const currentW = element.width;
+    const currentH = element.height;
+    const centerX = element.x + currentW / 2;
+    const centerY = element.y + currentH / 2;
+
+    const targetW = currentW;
+    let targetH = currentH;
+
+    const hasImage = Boolean(element.screenImageUrl);
+    if (hasImage) {
+      const imgRatio = element.imageAspectRatio || (currentH > 0 && currentW > 0 ? currentW / currentH : 9 / 16);
+      targetH = computeDeviceHeightFromWidth(targetW, imgRatio, {
         ...element,
         deviceType: model.id,
         borderRadiusPercent: radiusPercent,
         bodyThicknessPercent: bodyPercent,
         screenBorderWidthPercent: borderPercent
       });
-    } else if (!element.screenImageUrl) {
-      targetH = baseH;
     }
+
+    const newX = Math.round(centerX - targetW / 2);
+    const newY = Math.round(centerY - targetH / 2);
 
     handleUpdate({
       deviceType: model.id,
@@ -165,7 +179,10 @@ export const DeviceControls: React.FC<DeviceControlsProps> = ({ element }) => {
       screenBorderWidthPercent: borderPercent,
       bodyColor: model.bodyColor,
       buttonColor: model.buttonColor,
-      ...(element.screenImageUrl ? { height: targetH } : { width: baseW, height: baseH })
+      x: newX,
+      y: newY,
+      width: targetW,
+      height: targetH
     });
     showSnackbar(`Modèle changé : ${model.label}`, 'devices');
   };
@@ -257,83 +274,65 @@ export const DeviceControls: React.FC<DeviceControlsProps> = ({ element }) => {
           </label>
         </div>
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          onChange={handleImageFile}
-          className="hidden"
-        />
+        {(() => {
+          const displayScreenUrl =
+            (element.screenImageUrl ? assetManager.getDisplayUrl(element.screenImageUrl) : undefined) ||
+            (element.screenImageUrl && loadedBundle?.assets ? resolveAsset(element.screenImageUrl, undefined, loadedBundle.assets) : undefined) ||
+            element.screenImageUrl;
 
-        {element.screenImageUrl ? (
-          <div className="space-y-3">
-            <div className="relative w-full h-28 rounded-xl overflow-hidden border border-m3-sys-outlineVariant/40 bg-black flex items-center justify-center">
-              <img
-                src={element.screenImageUrl}
-                alt="Aperçu capture"
-                className="w-full h-full object-contain"
-              />
-              <button
-                onClick={() => handleUpdate({ screenImageUrl: '' })}
-                title="Supprimer la capture"
-                className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/70 hover:bg-rose-600 text-white flex items-center justify-center transition-all cursor-pointer"
-              >
-                <span className="material-symbols-rounded text-sm">close</span>
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="py-2 px-3 rounded-xl bg-m3-sys-surfaceContainerHighest hover:bg-m3-sys-outlineVariant/30 text-xs font-medium transition-all text-center cursor-pointer flex items-center justify-center space-x-1"
-              >
-                <span className="material-symbols-rounded text-sm">upload</span>
-                <span>Remplacer</span>
-              </button>
-              <button
-                onClick={handleFitToCurrentScreenImage}
-                title="Ajuster automatiquement la hauteur du device pour respecter le ratio exact de la capture"
-                className="py-2 px-3 rounded-xl bg-m3-sys-primary/10 hover:bg-m3-sys-primary/20 text-m3-sys-primary text-xs font-bold transition-all text-center cursor-pointer flex items-center justify-center space-x-1"
-              >
-                <span className="material-symbols-rounded text-sm">aspect_ratio</span>
-                <span>Adapter ratio</span>
-              </button>
-            </div>
-
-            {/* Mode d'ajustement de l'image */}
-            <div className="space-y-1 pt-1">
-              <div className="flex justify-between text-[11px] font-medium text-m3-sys-onSurfaceVariant">
-                <span>Cadrage de l'image</span>
-              </div>
-              <div className="grid grid-cols-2 gap-1.5 p-1 bg-m3-sys-surfaceContainerHighest rounded-xl text-center">
-                {(['cover', 'contain'] as ('cover' | 'contain')[]).map(fit => (
-                  <button
-                    key={fit}
-                    onClick={() => handleUpdate({ screenFit: fit })}
-                    className={`py-1 text-xs font-medium rounded-lg cursor-pointer transition-all ${
-                      (element.screenFit || 'cover') === fit
-                        ? 'bg-m3-sys-primary text-white shadow-sm'
-                        : 'text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainer'
-                    }`}
-                  >
-                    {fit === 'cover' ? 'Remplir (Cover)' : 'Ajuster (Contain)'}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full py-4 border-2 border-dashed border-m3-sys-outlineVariant/60 hover:border-m3-sys-primary rounded-xl flex flex-col items-center justify-center space-y-1.5 text-m3-sys-onSurfaceVariant hover:text-m3-sys-primary hover:bg-m3-sys-primaryContainer/10 transition-all cursor-pointer"
+          return (
+            <ImageUploadField
+              imageUrl={displayScreenUrl}
+              onImageLoaded={(result, file) => applyImageWithAspectRatio(result, file)}
+              onDelete={() => {
+                recordHistory();
+                handleUpdate({ screenImageUrl: '' });
+                showSnackbar('Capture d’écran supprimée', 'delete');
+              }}
+              placeholder="Cliquez ou glissez une capture d'écran ici"
+              sublabel="Le ratio d'aspect s'adaptera automatiquement"
+              previewHeight="h-28"
+              objectFit={element.screenFit || 'contain'}
             >
-              <span className="material-symbols-rounded text-2xl">add_photo_alternate</span>
-              <span className="text-xs font-medium">Charger une capture d'écran</span>
-              <span className="text-[10px] text-m3-sys-outline">Le ratio d'aspect s'adaptera automatiquement</span>
-            </button>
-          </div>
-        )}
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleFitToCurrentScreenImage}
+                    title="Ajuster automatiquement la hauteur du device pour respecter le ratio exact de la capture"
+                    className="py-2 px-3 rounded-xl bg-m3-sys-primary/10 hover:bg-m3-sys-primary/20 text-m3-sys-primary text-xs font-bold transition-all text-center cursor-pointer flex items-center justify-center space-x-1"
+                  >
+                    <span className="material-symbols-rounded text-sm">aspect_ratio</span>
+                    <span>Adapter la hauteur au ratio de l'image</span>
+                  </button>
+                </div>
+
+                {/* Mode d'ajustement de l'image */}
+                <div className="space-y-1 pt-1">
+                  <div className="flex justify-between text-[11px] font-medium text-m3-sys-onSurfaceVariant">
+                    <span>Cadrage de l'image</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5 p-1 bg-m3-sys-surfaceContainerHighest rounded-xl text-center">
+                    {(['cover', 'contain'] as ('cover' | 'contain')[]).map(fit => (
+                      <button
+                        key={fit}
+                        type="button"
+                        onClick={() => handleUpdate({ screenFit: fit })}
+                        className={`py-1 text-xs font-medium rounded-lg cursor-pointer transition-all ${
+                          (element.screenFit || 'cover') === fit
+                            ? 'bg-m3-sys-primary text-white shadow-sm'
+                            : 'text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainer'
+                        }`}
+                      >
+                        {fit === 'cover' ? 'Remplir (Cover)' : 'Ajuster (Contain)'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </ImageUploadField>
+          );
+        })()}
       </div>
 
       {/* Couleur de la coque & Finition Métal Brossé */}
@@ -651,100 +650,17 @@ export const DeviceControls: React.FC<DeviceControlsProps> = ({ element }) => {
         )}
       </div>
 
-      {/* Ombre portée du Device */}
-      <div className="space-y-3 bg-m3-sys-surfaceContainer rounded-2xl p-4 border border-m3-sys-outlineVariant/30">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium">Ombre portée réaliste</span>
-          <input
-            type="checkbox"
-            checked={element.shadow?.enable}
-            onChange={e =>
-              handleUpdate({
-                shadow: {
-                  ...(element.shadow || {
-                    blur: 20,
-                    x: 0,
-                    y: 10,
-                    color: 'rgba(0, 0, 0, 0.35)'
-                  }),
-                  enable: e.target.checked
-                }
-              })
-            }
-            className="w-4 h-4 accent-m3-sys-primary cursor-pointer"
-          />
-        </div>
-        {element.shadow?.enable && (
-          <div className="space-y-3 pt-2 border-t border-m3-sys-outlineVariant/20">
-            <ColorAlphaPicker
-              label="Couleur d'ombre"
-              value={element.shadow.color}
-              onChange={rgba =>
-                handleUpdate({
-                  shadow: { ...element.shadow, color: rgba }
-                })
-              }
-            />
-            <div>
-              <div className="flex justify-between text-xs font-medium mb-1">
-                <span>Rayon de flou</span>
-                <span>{element.shadow.blur}px</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="80"
-                step="1"
-                value={element.shadow.blur}
-                onChange={e =>
-                  handleUpdate({
-                    shadow: { ...element.shadow, blur: parseInt(e.target.value, 10) }
-                  })
-                }
-                className="w-full accent-m3-sys-primary"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[11px] text-m3-sys-onSurfaceVariant">
-                  Décalage X ({element.shadow.x}px)
-                </label>
-                <input
-                  type="range"
-                  min="-60"
-                  max="60"
-                  step="1"
-                  value={element.shadow.x}
-                  onChange={e =>
-                    handleUpdate({
-                      shadow: { ...element.shadow, x: parseInt(e.target.value, 10) }
-                    })
-                  }
-                  className="w-full accent-m3-sys-primary"
-                />
-              </div>
-              <div>
-                <label className="text-[11px] text-m3-sys-onSurfaceVariant">
-                  Décalage Y ({element.shadow.y}px)
-                </label>
-                <input
-                  type="range"
-                  min="-60"
-                  max="60"
-                  step="1"
-                  value={element.shadow.y}
-                  onChange={e =>
-                    handleUpdate({
-                      shadow: { ...element.shadow, y: parseInt(e.target.value, 10) }
-                    })
-                  }
-                  className="w-full accent-m3-sys-primary"
-                />
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Effets Visuels (Glow & Ombre Portée Réaliste) */}
+      <EffectsControls
+        glow={element.glow}
+        shadow={element.shadow}
+        onChange={updates => handleUpdate(updates)}
+        titleGlow="Effet de lueur (Glow)"
+        titleShadow="Ombre portée réaliste"
+        maxBlurGlow={80}
+        maxBlurShadow={80}
+        maxOffset={60}
+      />
 
       {/* Dimensions manuelles */}
       <div className="bg-m3-sys-surfaceContainer rounded-2xl p-4 border border-m3-sys-outlineVariant/30 space-y-2">

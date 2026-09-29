@@ -1,8 +1,11 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { DeviceElementModel } from '../../types';
 import { useEditor } from '../../context/EditorContext';
 import { SelectionHandles } from './SelectionHandles';
-import { getDeviceEffectiveDimensions } from '../../utils/deviceHelper';
+import { getDeviceEffectiveDimensions, computeDeviceHeightFromWidth } from '../../utils/deviceHelper';
+import { assetManager } from '../../utils/assetManager';
+import { resolveAsset } from '../../utils/templateEngine';
+import { getCombinedBoxShadow } from '../../utils/effectsHelper';
 
 interface DeviceElementProps {
   element: DeviceElementModel;
@@ -73,9 +76,79 @@ export const DeviceElement: React.FC<DeviceElementProps> = ({
   selectionIndex,
   isMultiSelected
 }) => {
-  const { selectElement, updateElement, state, recordHistory } = useEditor();
+  const { selectElement, updateElement, state, recordHistory, showSnackbar, setActivePanel, loadedBundle } = useEditor();
   const nodeRef = useRef<HTMLDivElement>(null);
   const currentZoom = state.zoom || 1;
+  const [isDropTarget, setIsDropTarget] = useState(false);
+  const dragCounterRef = useRef(0);
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current += 1;
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDropTarget(true);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!isDropTarget) setIsDropTarget(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDropTarget(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDropTarget(false);
+
+    const files = e.dataTransfer.files;
+    if (files && files[0] && files[0].type.startsWith('image/')) {
+      recordHistory();
+      const file = files[0];
+      const { assetPath, displayUrl } = assetManager.registerAsset(file.name, file);
+
+      const dirHandle = state.syncDirectoryHandle || loadedBundle?.directoryHandle;
+      if (dirHandle) {
+        assetManager.saveAllToDirectory(dirHandle).catch(err => console.warn(err));
+      }
+
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const result = ev.target?.result as string;
+        if (!result) return;
+        assetManager.registerUrlMapping(result, assetPath);
+        assetManager.registerUrlMapping(displayUrl, assetPath);
+        const img = new Image();
+        img.onload = () => {
+          const imgRatio = img.naturalWidth / img.naturalHeight;
+          const newTotalH = computeDeviceHeightFromWidth(element.width, imgRatio, element);
+          updateElement(element.id, {
+            screenImageUrl: displayUrl,
+            imageAspectRatio: imgRatio,
+            height: newTotalH
+          });
+          selectElement(element.id);
+          setActivePanel('device');
+          showSnackbar('Capture d’écran enregistrée et appliquée', 'smartphone');
+        };
+        img.src = displayUrl;
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handlePointerDown = (e: React.PointerEvent) => {
     const target = e.target as HTMLElement;
@@ -140,10 +213,8 @@ export const DeviceElement: React.FC<DeviceElementProps> = ({
     scale
   } = getDeviceEffectiveDimensions(element);
 
-  // Ombre portée extérieure uniquement (sans fausse double bordure)
-  const dropShadowCss = element.shadow?.enable
-    ? `${element.shadow.x}px ${element.shadow.y}px ${element.shadow.blur}px ${element.shadow.color}`
-    : 'none';
+  // Effets d'ombre portée extérieure et de lueur (glow)
+  const chassisBoxShadow = getCombinedBoxShadow(element.glow, element.shadow);
 
   // Texture métal brossé réaliste (traits verticaux en dégradé multi-points)
   const isBrushedMetal = element.brushedMetal ?? true;
@@ -169,6 +240,11 @@ export const DeviceElement: React.FC<DeviceElementProps> = ({
   const flareSpread = element.flareSpread ?? 50;
   const screenBorderColor = element.screenBorderColor || '#000000';
 
+  const displayScreenUrl =
+    (element.screenImageUrl ? assetManager.getDisplayUrl(element.screenImageUrl) : undefined) ||
+    (element.screenImageUrl && loadedBundle?.assets ? resolveAsset(element.screenImageUrl, undefined, loadedBundle.assets) : undefined) ||
+    element.screenImageUrl;
+
   return (
     <div
       ref={nodeRef}
@@ -182,6 +258,10 @@ export const DeviceElement: React.FC<DeviceElementProps> = ({
         transform: `rotate(${element.rotation || 0}deg)`
       }}
       onPointerDown={handlePointerDown}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
       {/* Conteneur global du device avec ses boutons physiques */}
       <div className="relative w-full h-full cursor-move">
@@ -355,7 +435,7 @@ export const DeviceElement: React.FC<DeviceElementProps> = ({
             backgroundColor: element.bodyColor || '#1e2022',
             borderRadius: `${borderRadius}px`,
             padding: `${bodyThickness}px`,
-            boxShadow: dropShadowCss,
+            boxShadow: chassisBoxShadow,
             boxSizing: 'border-box'
           }}
         >
@@ -404,7 +484,7 @@ export const DeviceElement: React.FC<DeviceElementProps> = ({
               {/* Image de l'écran si présente */}
               {element.screenImageUrl ? (
                 <img
-                  src={element.screenImageUrl}
+                  src={displayScreenUrl}
                   alt="Capture d'écran"
                   className="w-full h-full pointer-events-none"
                   style={{
@@ -524,20 +604,55 @@ export const DeviceElement: React.FC<DeviceElementProps> = ({
         </div>
       </div>
 
+      {/* Feedback visuel lors du survol par un fichier glissé */}
+      {isDropTarget && (
+        <div
+          className="absolute -inset-2 rounded-[inherit] border-4 border-dashed border-m3-sys-primary bg-m3-sys-primary/25 backdrop-blur-[2px] z-50 flex flex-col items-center justify-center p-3 text-center pointer-events-none shadow-2xl animate-pulse"
+          style={{
+            borderRadius: `${borderRadius + 8}px`
+          }}
+        >
+          <span className="material-symbols-rounded text-4xl text-white mb-1 drop-shadow">
+            add_photo_alternate
+          </span>
+          <span className="text-xs font-bold text-white bg-black/75 px-3 py-1 rounded-full shadow-lg">
+            Déposer la capture d'écran
+          </span>
+        </div>
+      )}
+
       {/* Poignées de redimensionnement et rotation */}
       {isSelected && !isMultiSelected && (
         <SelectionHandles element={element} elementRef={nodeRef} />
       )}
-      {isSelected && isMultiSelected && (
-        <>
-          <div className="selection-ui-handle absolute -inset-1 border-2 border-dashed border-m3-sys-primary rounded-lg pointer-events-none z-30" />
-          {selectionIndex !== undefined && (
-            <div className="absolute -top-3 -left-3 z-40 bg-m3-sys-primary text-m3-sys-onPrimary text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow-sm pointer-events-none">
-              {selectionIndex}
-            </div>
-          )}
-        </>
-      )}
+      {isSelected && isMultiSelected && (() => {
+        const s = 1 / currentZoom;
+        const offset = 4 * s;
+        return (
+          <>
+            <div
+              className="selection-ui-handle absolute border-dashed border-m3-sys-primary rounded-lg pointer-events-none z-30"
+              style={{
+                inset: `${-offset}px`,
+                borderWidth: `${2 * s}px`,
+                borderRadius: `${8 * s}px`
+              }}
+            />
+            {selectionIndex !== undefined && (
+              <div
+                className="absolute z-40 bg-m3-sys-primary text-m3-sys-onPrimary text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow-sm pointer-events-none"
+                style={{
+                  top: `${-offset}px`,
+                  left: `${-offset}px`,
+                  transform: `translate(-50%, -50%) scale(${s})`
+                }}
+              >
+                {selectionIndex}
+              </div>
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 };

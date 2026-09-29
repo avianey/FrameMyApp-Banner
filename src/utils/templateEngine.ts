@@ -49,10 +49,26 @@ export function resolveAsset(
   if (!assetPath) return assetPath;
   if (
     assetPath.startsWith('data:') ||
-    assetPath.startsWith('blob:') ||
     assetPath.startsWith('http://') ||
     assetPath.startsWith('https://')
   ) {
+    return assetPath;
+  }
+
+  // If it's a blob: URL, check if it's already an active URL in assetsMap values
+  if (assetPath.startsWith('blob:')) {
+    const isLive = Object.values(assetsMap).includes(assetPath);
+    if (isLive) return assetPath;
+
+    // A blob: URL from YAML is dead across sessions.
+    // Recover by finding an appropriate candidate in assetsMap (e.g. background/bg)
+    const assetKeys = Object.keys(assetsMap);
+    if (assetKeys.length > 0) {
+      const bgMatch = assetKeys.find(k => /background|bg|cover/i.test(k));
+      if (bgMatch) return assetsMap[bgMatch];
+      const anyImg = assetKeys.find(k => /\.(png|jpe?g|webp|svg)$/i.test(k));
+      if (anyImg) return assetsMap[anyImg];
+    }
     return assetPath;
   }
 
@@ -268,6 +284,21 @@ export function resolveComposition(
       if (target && target.type === 'text') {
         (target as TextElementModel).text = String(textVal);
       }
+    }
+  }
+
+  // 1.5 Resolve assets in master (background and elements)
+  if (composition.background.imageUrl) {
+    const resolved = resolveAsset(composition.background.imageUrl, variantPath, assetsMap);
+    if (resolved) composition.background.imageUrl = resolved;
+  }
+  for (const el of composition.elements) {
+    if (el.type === 'shape' && (el as ShapeElementModel).imageUrl) {
+      const resolved = resolveAsset((el as ShapeElementModel).imageUrl, variantPath, assetsMap);
+      if (resolved) (el as ShapeElementModel).imageUrl = resolved;
+    } else if (el.type === 'device' && (el as DeviceElementModel).screenImageUrl) {
+      const resolved = resolveAsset((el as DeviceElementModel).screenImageUrl, variantPath, assetsMap);
+      if (resolved) (el as DeviceElementModel).screenImageUrl = resolved;
     }
   }
 

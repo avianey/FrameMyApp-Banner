@@ -19,6 +19,7 @@ interface UseCanvasHistoryOptions {
   editingImageElementId?: string | 'background' | null;
   onApplySnapshot: (snapshot: HistorySnapshot) => void;
   onDeleteSelected?: () => void;
+  onMoveSelected?: (dx: number, dy: number, isRepeat: boolean) => void;
   onExitImageEditing?: () => void;
   showSnackbar: (message: string, icon?: string) => void;
 }
@@ -33,6 +34,7 @@ export function useCanvasHistory({
   editingImageElementId,
   onApplySnapshot,
   onDeleteSelected,
+  onMoveSelected,
   onExitImageEditing,
   showSnackbar
 }: UseCanvasHistoryOptions) {
@@ -109,11 +111,26 @@ export function useCanvasHistory({
     updateHistoryFlags();
   }, [updateHistoryFlags]);
 
-  // Global keyboard shortcuts (Undo / Redo, Delete, Escape)
+  // Global keyboard shortcuts (Undo / Redo, Delete, Nudge with arrow keys, Escape)
   const selectedElementIdsRef = useRef<string[]>(selectedElementIds);
   useEffect(() => {
     selectedElementIdsRef.current = selectedElementIds;
   }, [selectedElementIds]);
+
+  const onMoveSelectedRef = useRef(onMoveSelected);
+  useEffect(() => {
+    onMoveSelectedRef.current = onMoveSelected;
+  }, [onMoveSelected]);
+
+  const onDeleteSelectedRef = useRef(onDeleteSelected);
+  useEffect(() => {
+    onDeleteSelectedRef.current = onDeleteSelected;
+  }, [onDeleteSelected]);
+
+  const onExitImageEditingRef = useRef(onExitImageEditing);
+  useEffect(() => {
+    onExitImageEditingRef.current = onExitImageEditing;
+  }, [onExitImageEditing]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -121,21 +138,43 @@ export function useCanvasHistory({
       const isInput =
         activeEl?.tagName === 'INPUT' ||
         activeEl?.tagName === 'TEXTAREA' ||
+        activeEl?.tagName === 'SELECT' ||
         activeEl?.getAttribute('contenteditable') === 'true' ||
         activeEl?.classList.contains('editable-text-content');
 
       if (isInput) return;
 
-      if (e.key === 'Escape' && editingImageElementId) {
-        e.preventDefault();
-        onExitImageEditing?.();
+      const isInModal = Boolean(activeEl?.closest('[role="dialog"], [aria-modal="true"]'));
+      if (isInModal) return;
+
+      if (editingImageElementId) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          onExitImageEditingRef.current?.();
+        }
         return;
       }
 
       if (e.key === 'Delete' || e.key === 'Del' || e.key === 'Backspace') {
-        if (selectedElementIdsRef.current.length > 0 && onDeleteSelected) {
+        if (selectedElementIdsRef.current.length > 0 && onDeleteSelectedRef.current) {
           e.preventDefault();
-          onDeleteSelected();
+          onDeleteSelectedRef.current();
+          return;
+        }
+      }
+
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        if (selectedElementIdsRef.current.length > 0 && onMoveSelectedRef.current) {
+          e.preventDefault();
+          const step = e.shiftKey ? 10 : 1;
+          let dx = 0;
+          let dy = 0;
+          if (e.key === 'ArrowUp') dy = -step;
+          else if (e.key === 'ArrowDown') dy = step;
+          else if (e.key === 'ArrowLeft') dx = -step;
+          else if (e.key === 'ArrowRight') dx = step;
+
+          onMoveSelectedRef.current(dx, dy, e.repeat);
           return;
         }
       }
@@ -156,7 +195,7 @@ export function useCanvasHistory({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, onDeleteSelected, onExitImageEditing, editingImageElementId]);
+  }, [undo, redo, editingImageElementId]);
 
   return {
     canUndo,

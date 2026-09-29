@@ -7,6 +7,7 @@ import {
   BannerVariantConfig
 } from '../types';
 import { parseYaml, stringifyYaml } from './yamlHelper';
+import { assetManager } from './assetManager';
 
 function getFileExtension(filename: string): string {
   return filename.split('.').pop()?.toLowerCase() || '';
@@ -77,10 +78,16 @@ export async function buildBundleFromEntries(
         const blob = await entry.getBlob();
         const objectUrl = URL.createObjectURL(blob);
         assets[p] = objectUrl;
+        const cleanPath = p.startsWith('assets/') ? p : `assets/${p}`;
         const filename = p.split('/').pop();
+
+        assets[cleanPath] = objectUrl;
         if (filename) {
           assets[filename] = objectUrl;
+          assets[`assets/${filename}`] = objectUrl;
+          assetManager.registerExistingAsset(`assets/${filename}`, blob, objectUrl);
         }
+        assetManager.registerExistingAsset(cleanPath, blob, objectUrl);
       }
       continue;
     }
@@ -278,20 +285,26 @@ export async function createBundleZip(
   }
 
   // 4. assets/
-  if (Object.keys(bundle.assets).length > 0) {
-    const assetsFolder = root.folder('assets');
-    if (assetsFolder) {
+  const assetsFolder = root.folder('assets');
+  if (assetsFolder) {
+    if (bundle.assets && Object.keys(bundle.assets).length > 0) {
       for (const [assetPath, assetUrl] of Object.entries(bundle.assets)) {
-        // Only save relative filenames in assets/
-        if (!assetPath.includes('/')) {
-          try {
-            const resp = await fetch(assetUrl);
-            const blob = await resp.blob();
-            assetsFolder.file(assetPath, blob);
-          } catch (e) {
-            console.warn('Could not fetch asset blob for zip:', assetPath, e);
-          }
+        const cleanName = assetPath.replace(/^assets\//, '');
+        try {
+          const resp = await fetch(assetUrl);
+          const blob = await resp.blob();
+          assetsFolder.file(cleanName, blob);
+        } catch (e) {
+          console.warn('Could not fetch asset blob for zip:', assetPath, e);
         }
+      }
+    }
+
+    const allAssets = assetManager.getAllAssets();
+    for (const [assetKey, entry] of allAssets.entries()) {
+      if (assetKey.startsWith('assets/')) {
+        const cleanName = assetKey.replace(/^assets\//, '');
+        assetsFolder.file(cleanName, entry.blob);
       }
     }
   }
@@ -348,6 +361,29 @@ export async function writeTextToDirectory(
   const fileHandle = await currentDir.getFileHandle(filename, { create: true });
   const writable = await fileHandle.createWritable();
   await writable.write(content);
+  await writable.close();
+}
+
+/**
+ * Recursively writes a binary Blob/File to a file inside a FileSystemDirectoryHandle.
+ */
+export async function writeBlobToDirectory(
+  rootDirHandle: any,
+  relativePath: string,
+  blobOrFile: Blob | File
+): Promise<void> {
+  const parts = relativePath.split('/').filter(Boolean);
+  const filename = parts.pop();
+  if (!filename) return;
+
+  let currentDir = rootDirHandle;
+  for (const part of parts) {
+    currentDir = await currentDir.getDirectoryHandle(part, { create: true });
+  }
+
+  const fileHandle = await currentDir.getFileHandle(filename, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(blobOrFile);
   await writable.close();
 }
 

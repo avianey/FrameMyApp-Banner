@@ -1,8 +1,11 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { ShapeElementModel } from '../../types';
 import { useEditor } from '../../context/EditorContext';
 import { SelectionHandles } from './SelectionHandles';
 import { InPlaceImageCropper } from './InPlaceImageCropper';
+import { assetManager } from '../../utils/assetManager';
+import { resolveAsset } from '../../utils/templateEngine';
+import { getCombinedBoxShadow, getCombinedDropShadowFilter } from '../../utils/effectsHelper';
 
 interface ShapeElementProps {
   element: ShapeElementModel;
@@ -17,9 +20,88 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
   selectionIndex,
   isMultiSelected
 }) => {
-  const { selectElement, updateElement, state, recordHistory, editingImageElementId, setEditingImageElementId, setActivePanel } = useEditor();
+  const {
+    selectElement,
+    updateElement,
+    state,
+    recordHistory,
+    editingImageElementId,
+    setEditingImageElementId,
+    setActivePanel,
+    showSnackbar,
+    loadedBundle
+  } = useEditor();
   const nodeRef = useRef<HTMLDivElement>(null);
   const currentZoom = state.zoom || 1;
+  const [isDropTarget, setIsDropTarget] = useState(false);
+  const dragCounterRef = useRef(0);
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current += 1;
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDropTarget(true);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!isDropTarget) setIsDropTarget(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDropTarget(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDropTarget(false);
+
+    const files = e.dataTransfer.files;
+    if (files && files[0] && files[0].type.startsWith('image/')) {
+      recordHistory();
+      const file = files[0];
+      const { assetPath, displayUrl } = assetManager.registerAsset(file.name, file);
+
+      const dirHandle = state.syncDirectoryHandle || loadedBundle?.directoryHandle;
+      if (dirHandle) {
+        assetManager.saveAllToDirectory(dirHandle).catch(err => console.warn(err));
+      }
+
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const result = ev.target?.result as string;
+        if (!result) return;
+        assetManager.registerUrlMapping(result, assetPath);
+        assetManager.registerUrlMapping(displayUrl, assetPath);
+        const img = new Image();
+        img.onload = () => {
+          updateElement(element.id, {
+            fillType: 'image',
+            imageUrl: displayUrl,
+            imageNaturalWidth: img.naturalWidth,
+            imageNaturalHeight: img.naturalHeight
+          });
+          selectElement(element.id);
+          setActivePanel('shape');
+          showSnackbar('Texture enregistrée et appliquée sur la forme', 'image');
+        };
+        img.src = displayUrl;
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handlePointerDown = (e: React.PointerEvent) => {
     // Si on est en mode édition de l'image de cette forme, laisser le cropper gérer l'image
@@ -119,14 +201,16 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
     shapeStyle.border = 'none';
   }
 
-  // Shadow
-  if (element.shadow?.enable) {
-    shapeStyle.boxShadow = `${element.shadow.x}px ${element.shadow.y}px ${element.shadow.blur}px ${element.shadow.color}`;
-  } else {
+  // Shape geometry clip path / border radius
+  const isClippedShape = element.shapeType === 'star' || element.shapeType === 'hexagon';
+
+  // Effects (Glow + Shadow)
+  if (isClippedShape) {
     shapeStyle.boxShadow = 'none';
+  } else {
+    shapeStyle.boxShadow = getCombinedBoxShadow(element.glow, element.shadow);
   }
 
-  // Shape geometry clip path / border radius
   if (element.shapeType === 'rectangle') {
     shapeStyle.borderRadius = '0px';
     shapeStyle.clipPath = 'none';
@@ -155,6 +239,11 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
     }
   };
 
+  const displayImageUrl =
+    (element.imageUrl ? assetManager.getDisplayUrl(element.imageUrl) : undefined) ||
+    (element.imageUrl && loadedBundle?.assets ? resolveAsset(element.imageUrl, undefined, loadedBundle.assets) : undefined) ||
+    element.imageUrl;
+
   return (
     <div
       ref={nodeRef}
@@ -165,10 +254,15 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
         top: `${element.y}px`,
         width: `${element.width}px`,
         height: `${element.height}px`,
-        transform: `rotate(${element.rotation || 0}deg)`
+        transform: `rotate(${element.rotation || 0}deg)`,
+        filter: isClippedShape ? getCombinedDropShadowFilter(element.glow, element.shadow) : undefined
       }}
       onPointerDown={handlePointerDown}
       onDoubleClick={handleDoubleClick}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
       <div
         className={`shape-render-content w-full h-full relative overflow-hidden ${
@@ -180,7 +274,7 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
           <InPlaceImageCropper
             containerWidth={element.width}
             containerHeight={element.height}
-            imageUrl={element.imageUrl}
+            imageUrl={displayImageUrl}
             imageFit={element.imageFit || 'cover'}
             imageScale={element.imageScale || 1.0}
             imageOffsetX={element.imageOffsetX || 0}
@@ -198,19 +292,55 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
         )}
       </div>
 
+      {/* Feedback visuel lors du survol par un fichier glissé */}
+      {isDropTarget && (
+        <div
+          className="absolute -inset-2 rounded-[inherit] border-4 border-dashed border-m3-sys-primary bg-m3-sys-primary/25 backdrop-blur-[2px] z-50 flex flex-col items-center justify-center p-3 text-center pointer-events-none shadow-2xl animate-pulse"
+          style={{
+            borderRadius: shapeStyle.borderRadius,
+            clipPath: shapeStyle.clipPath
+          }}
+        >
+          <span className="material-symbols-rounded text-4xl text-white mb-1 drop-shadow">
+            image
+          </span>
+          <span className="text-xs font-bold text-white bg-black/75 px-3 py-1 rounded-full shadow-lg">
+            Déposer la texture
+          </span>
+        </div>
+      )}
+
       {isSelected && !isMultiSelected && editingImageElementId !== element.id && (
         <SelectionHandles element={element} elementRef={nodeRef} />
       )}
-      {isSelected && isMultiSelected && (
-        <>
-          <div className="selection-ui-handle absolute -inset-1 border-2 border-dashed border-m3-sys-primary rounded-lg pointer-events-none z-30" />
-          {selectionIndex !== undefined && (
-            <div className="absolute -top-3 -left-3 z-40 bg-m3-sys-primary text-m3-sys-onPrimary text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow-sm pointer-events-none">
-              {selectionIndex}
-            </div>
-          )}
-        </>
-      )}
+      {isSelected && isMultiSelected && (() => {
+        const s = 1 / currentZoom;
+        const offset = 4 * s;
+        return (
+          <>
+            <div
+              className="selection-ui-handle absolute border-dashed border-m3-sys-primary rounded-lg pointer-events-none z-30"
+              style={{
+                inset: `${-offset}px`,
+                borderWidth: `${2 * s}px`,
+                borderRadius: `${8 * s}px`
+              }}
+            />
+            {selectionIndex !== undefined && (
+              <div
+                className="absolute z-40 bg-m3-sys-primary text-m3-sys-onPrimary text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow-sm pointer-events-none"
+                style={{
+                  top: `${-offset}px`,
+                  left: `${-offset}px`,
+                  transform: `translate(-50%, -50%) scale(${s})`
+                }}
+              >
+                {selectionIndex}
+              </div>
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 };

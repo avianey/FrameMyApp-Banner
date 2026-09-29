@@ -69,10 +69,11 @@ FrameMy.App Studio adopte les principes de design **Material 3 (M3)** avec suppo
   - L'ordre de sélection est mémorisé et affiché via un badge numérique (1, 2, 3...) dans le coin de chaque élément.
   - La sélection de plusieurs éléments ouvre instantanément le **volet d'Alignement & Distribution**.
   - **Déplacement groupé** : Glissez n'importe quel élément de la multi-sélection pour déplacer l'ensemble des éléments sélectionnés de concert avec le même vecteur de déplacement.
-- **Déplacement individuel** :
+- **Déplacement individuel & groupé** :
   - Pour les formes : glissez-déposez directement la forme avec le bouton gauche de la souris.
   - Pour les textes : utilisez la poignée supérieure dédiée (*« drag-pill »*) portant l'icône de déplacement afin de ne pas interférer avec l'édition du texte.
-  - Déplacement au clavier : touches fléchées pour déplacer d'un pixel (ou `Shift + Flèches` pour des incréments de 10 pixels).
+  - Pour les appareils (mockups) : glissez-déposez directement l'appareil avec le bouton gauche de la souris.
+  - **Déplacement de précision au clavier (touches fléchées)** : lorsqu'un ou plusieurs éléments sont sélectionnés (texte, forme ou appareil), utilisez les flèches directionnelles (`←`, `→`, `↑`, `↓`) pour les déplacer de **1 px** par impulsion (ou en continu). Utilisez la combinaison `Shift + Flèches directionnelles` pour les déplacer par pas de **10 px**. L'historique d'annulation (`Ctrl + Z`) regroupe les déplacements continus pour une annulation propre en un seul cran.
 
 ### 2.2 Hiérarchie & Ordre des Calques (Z-Index)
 Lorsqu'un élément est sélectionné seul, son panneau de propriétés (Texte, Forme ou Appareil) intègre la section **Hiérarchie & Calques** :
@@ -116,25 +117,33 @@ Accessible automatiquement lors de la sélection de 2 éléments ou plus via `Ct
   - *Espacement fixe personnalisé* : Option permettant de définir un espacement précis en pixels (curseur ou saisie numérique).
 - **Suppression groupée** : Permet de supprimer d'un coup tous les éléments de la multi-sélection (via le bouton dédié ou la touche `Suppr`).
 
-### 2.5 Redimensionnement & Rotation
-- **Redimensionnement depuis l'ancre** :
-  - La poignée circulaire inférieure droite permet d'ajuster visuellement la taille de l'élément sélectionné (formes, textes, devices).
-  - **Glisser simple** : redimensionnement libre en largeur et en hauteur.
-  - **`Ctrl` + Glisser** (ou `Cmd` + Glisser) : conserve strictement le ratio d'aspect (proportions verrouillées, coin opposé ancré).
-  - **`Ctrl` + `Shift` + Glisser** (ou `Cmd` + `Shift` + Glisser) : conserve le ratio d'aspect **et** ancre le centre de l'élément (le centre géométrique reste exactement au même endroit).
-- **Rotation** :
+### 2.5 Redimensionnement, Rotation & Contrôles Indépendants du Zoom
+- **Redimensionnement à 8 poignées (4 coins + 4 côtés)** :
+  - L'élément sélectionné (texte, forme ou appareil) présente 8 poignées circulaires interactives parfaitement centrées sur les 4 angles (`NW`, `NE`, `SE`, `SW`) et sur les milieux des 4 segments (`N`, `E`, `S`, `W`) de la boîte de sélection.
+  - Le curseur de redimensionnement s'oriente dynamiquement selon l'angle de rotation de l'élément pour une manipulation intuitive sous tous les angles.
+  - **Glisser simple** : redimensionnement libre depuis le coin ou le bord opposé (qui reste ancré comme point fixe).
+  - **`Ctrl` + Glisser** (ou `Cmd` + Glisser) : conserve strictement le ratio d'aspect initial (proportions verrouillées).
+  - **`Shift` + Glisser** : redimensionnement symétrique ancré au centre (le centre géométrique de l'élément reste invariant).
+  - **`Ctrl` + `Shift` + Glisser** (ou `Cmd` + `Shift` + Glisser) : conserve le ratio d'aspect **et** ancre le centre géométrique de l'élément.
+  - *Cas particulier des appareils avec capture d'écran* : le ratio d'aspect est automatiquement verrouillé sur le ratio exact de la capture pour garantir une fidélité parfaite sans déformation.
+- **Taille Fixe et Épaisseur Indépendantes du Zoom de la Scène** :
+  - Quel que soit le facteur de zoom (de 20% à 350%), tous les contrôles d'interaction (poignées circulaires de 13 px, ancre de rotation de 22 px, tige verticale, rectangle « Déplacer » des blocs de texte, badges numériques et cadre de sélection de 2 px) conservent une **taille et une netteté visuelle strictement constantes à l'écran**, évitant qu'ils ne deviennent microscopiques en dézoomant ou géants en zoomant.
+- **Rotation & Espacement Visuel Confortable** :
   - Une poignée circulaire supérieure reliée par une tige permet d'effectuer une rotation libre à 360°.
+  - L'ancre de rotation est espacée d'une distance de sécurité généreuse au-dessus du bord supérieur et de l'ancre `N` pour éviter tout chevauchement ou confusion lors de la manipulation.
   - Glissez la poignée circulaire pour pivoter l'élément. L'angle exact en degrés est calculé et mémorisé.
 
 ### 2.6 Édition de Texte en Ligne
 - Cliquez directement sur un bloc de texte pour éditer son contenu sur place.
 - La modification est immédiatement synchronisée avec le store de l'application et conservée dans l'historique d'annulation.
 
-### 2.7 Drag & Drop d'Images Externes & Adaptation de la Composition
-- Vous pouvez glisser-déposer une image (`.png`, `.jpg`, `.webp`, `.svg`) depuis votre gestionnaire de fichiers :
-  - **Sur un appareil (Device)** : l'image devient la capture d'écran du mockup et la hauteur de l'appareil s'adapte automatiquement au ratio d'aspect exact de l'image (sans rognage ni déformation).
-  - **Sur une forme** : l'image devient la texture de remplissage de cette forme.
+### 2.7 Drag & Drop d'Images Externes & Feedback Visuel
+- Vous pouvez glisser-déposer une image (`.png`, `.jpg`, `.webp`, `.svg`) directement depuis votre gestionnaire de fichiers :
+  - **Directement sur un appareil (Device survolé au premier plan)** : un halo visuel dynamique et un badge contextuel *« Déposer la capture d'écran »* s'affichent au survol. Au lâcher, l'image devient la capture d'écran du mockup, l'élément est sélectionné et sa hauteur s'adapte automatiquement au ratio d'aspect exact de l'image (sans déformation).
+  - **Directement sur une forme (Shape survolée au premier plan)** : un halo visuel et un badge *« Déposer la texture »* apparaissent. Au lâcher, l'image devient la texture de remplissage de cette forme et le volet de propriétés s'ouvre automatiquement.
   - **Sur le fond du canevas** : l'image est automatiquement définie comme arrière-plan. La **composition adopte instantanément les dimensions réelles** de l'image (`naturalWidth` × `naturalHeight`) et la **zone de cadrage/crop est initialisée sur ces mêmes dimensions**. L'utilisateur reste ensuite entièrement libre de déplacer, redimensionner ou modifier la zone de cadrage à sa guise.
+- **Uniformisation des Volets Latéraux (Arrière-plan, Appareil, Formes)** :
+  - Tous les sélecteurs d'images partagent un composant standardisé : un champ pointillé cliquable et droppable avec icône `cloud_upload`, basculant automatiquement vers un aperçu élégant dès le chargement de l'image, équipé d'un bouton de suppression rapide en coin supérieur droit et acceptant le glisser-déposer pour un remplacement instantané.
 
 ---
 
@@ -236,8 +245,9 @@ Lorsqu'une forme est sélectionnée, le panneau **ShapeControls** offre :
   - Épaisseur de bordure (0 à 20 px).
   - Couleur de bordure (avec alpha).
   - Style de bordure : Plein (`solid`), Tirets (`dashed`), Pointillés (`dotted`).
-- **Ombre Portée** :
-  - Couleur, flou, décalage X et décalage Y.
+- **Effets Visuels Mutualisés (`glow` & `shadow`)** :
+  - *Effet de Lueur (Glow)* : activation, couleur avec canal Alpha, rayon de lueur, décalages X et Y (supporté sur toutes les géométries, y compris les formes découpées `clip-path` comme l'étoile et l'hexagone).
+  - *Ombre Portée (Shadow)* : activation, couleur d’ombre avec canal Alpha, rayon de flou, décalages horizontaux (X) et verticaux (Y).
 - **Ordre d'empilement (Z-Index)** :
   - Passer au premier plan, monter d'un niveau, descendre d'un niveau, passer à l'arrière-plan.
 
@@ -249,6 +259,7 @@ FrameMy.App Studio intègre un type d'élément dédié aux mockups de terminaux
   - **iPhone Pro Max** : Modèle Apple avec Dynamic Island interactive (double capteur FaceID et optique), coins arrondis à 44 px, boutons Action et Volume à gauche, bouton latéral Power à droite.
   - **Samsung Galaxy** : Écran Infinity avec discret poinçon central, bordures d'écran ultra-fines (8 px), coins à 22 px et boutons latéraux droits.
   - **Pixel Tab** : Tablette Google format 16:10 paysage avec bordures symétriques larges de préhension (16 px), caméra discrète sur la lunette supérieure et boutons sur la tranche supérieure.
+  - **Changement de modèle sans rupture** : Lors du passage d'un modèle à un autre (ex: Pixel vers iPhone), les attributs de taille (largeur et hauteur) et la **position du centre géométrique sur la scène sont rigoureusement préservés**. Si une capture d'écran est présente, la hauteur est ajustée automatiquement pour respecter l'exact ratio de l'image selon la géométrie du nouveau châssis, tout en conservant le centre fixe sur le canevas.
 
 - **Skin CSS Réaliste Haut de Gamme & Dimensions Proportionnelles** :
   - **Châssis & Biseau Métallique** : Rendu multi-couches en pur CSS combinant biseau de lumière interne (`inset 0 0 0 1px rgba(255,255,255,0.2)`), contour sombre d'ajustage et ombre portée extérieure.
@@ -276,7 +287,9 @@ FrameMy.App Studio intègre un type d'élément dédié aux mockups de terminaux
   - **Caméra Frontale / Notch** : Interrupteur de visibilité (`showCamera`) pour afficher ou masquer la Dynamic Island ou le punch hole noir épuré.
   - **Bordures de l'Écran (`screenPadding`, `screenBorderColor`)** : Réglage indépendant de la couleur et de l'épaisseur du bezel d'écran.
   - **Arrondi du Boîtier (`borderRadius`)** : Curseur de rayon de courbure (0 à 60 px).
-  - **Ombre Portée Réaliste (`shadow`)** : Couleur avec canal Alpha, rayon de flou, décalages horizontaux (X) et verticaux (Y).
+  - **Effets Visuels Mutualisés (`glow` & `shadow`)** :
+    - *Effet de Lueur (Glow)* : halo lumineux néon/ambient autour du châssis (couleur avec Alpha, rayon de flou, décalages).
+    - *Ombre Portée Réaliste (`shadow`)* : couleur avec canal Alpha, rayon de flou, décalages horizontaux (X) et verticaux (Y).
   - **Manipulation & Hiérarchie** : Déplacement à la souris, redimensionnement via poignées de coin, rotation (-180° à +180°), ordre des calques (Z-Index) et sélection multiple avec alignement automatique.
   - **Templates YAML & Identifiant Personnalisé (`customId`)** : Remplacement automatique de la capture d'écran selon les variantes linguistiques via `images.<customId>: "assets/screen_fr.png"` et surcharge des finitions matérielles via `elements.<customId>`.
 
@@ -322,16 +335,17 @@ Des presets prédéfinis permettent d'appliquer instantanément les standards gr
 | `Ctrl + Y` / `Cmd + Shift + Z` | Rétablir la dernière action annulée |
 | `Suppr` / `Delete` / `Backspace` | Supprimer l'élément sélectionné ou l'ensemble des éléments multi-sélectionnés |
 | `Échap` / `Escape` | Fermer la modale active ou fermer la documentation |
-| `Flèches directionnelles` | Déplacer l'élément sélectionné de 1 pixel |
-| `Shift + Flèches directionnelles` | Déplacer l'élément sélectionné de 10 pixels |
+| `Flèches directionnelles` (`←`, `→`, `↑`, `↓`) | Déplacer le ou les élément(s) sélectionné(s) (texte, forme, appareil) de 1 pixel |
+| `Shift + Flèches directionnelles` | Déplacer le ou les élément(s) sélectionné(s) (texte, forme, appareil) de 10 pixels |
 | `Molette de la souris` (sur le canevas) | Zoomer et dézoomer interactivement (20% à 350%) en conservant le point sous le curseur comme point fixe (style Inkscape) |
 | `Loupes de zoom / boutons +/-` | Zoomer et dézoomer centré sur le milieu de la composition |
 | `Glisser sur l'arrière-plan / Clic molette / Espace + Glisser` | Panoramique interactif (glisser-déplacer la scène et le canevas) |
 | `Double-clic sur l'arrière-plan ou une forme avec image` | Activer le mode d'ajustement in-place (déplacer, zoomer l'image avec retour élastique) |
 | `Échap / Clic Terminer` | Valider et quitter le mode d'ajustement d'image |
-| `Glisser l'ancre de redimensionnement` | Redimensionner librement largeur et hauteur |
-| `Ctrl + Glisser l'ancre` / `Cmd + Glisser` | Conserver le ratio d'aspect de l'élément |
-| `Ctrl + Shift + Glisser l'ancre` / `Cmd + Shift + Glisser` | Conserver le ratio d'aspect et ancrer le centre de l'élément (centre fixe) |
+| `Glisser une poignée de redimensionnement (4 coins ou 4 côtés)` | Redimensionner librement largeur et/ou hauteur depuis le coin ou côté opposé |
+| `Ctrl + Glisser une poignée` / `Cmd + Glisser` | Conserver le ratio d'aspect de l'élément |
+| `Shift + Glisser une poignée` | Conserver et ancrer le centre de l'élément (expansion symétrique) |
+| `Ctrl + Shift + Glisser une poignée` / `Cmd + Shift + Glisser` | Conserver le ratio d'aspect **et** ancrer le centre de l'élément |
 | `Glisser-déposer de fichier` | Assigner une image de fond ou une texture de forme |
 
 ---
@@ -346,8 +360,9 @@ Accessible depuis l'icône de disquette (`save`) dans l'en-tête :
 - **Sélection du Répertoire ou Fichier de Synchronisation** :
   - **Choisir un dossier local** : Connecte un répertoire sur votre disque via le sélecteur natif du navigateur. Tous les changements sur le canevas peuvent être écrits directement dans ce dossier (`master.yml` ou `${nom}.yml`).
   - **Choisir un fichier YAML existant** : Ouvre un fichier template individuel et initialise la synchronisation directe vers ce fichier.
-- **Sauvegarde Automatique sur le Disque** :
+- **Sauvegarde Automatique sur le Disque & Gestion des Assets (`assets/`)** :
   - Un commutateur permet d'activer la synchronisation automatique en continu. Dès qu'une modification survient sur le canevas (déplacement d'un texte, changement de couleur, redimensionnement d'une forme), l'écriture est déclenchée sur votre disque avec temporisation debounced.
+  - **Stockage Physique des Images & Chemins Relatifs** : Lorsqu'un dossier local est connecté, les images ajoutées (captures d'écran de devices, textures de formes, fond) sont automatiquement écrites sous forme de fichiers réels dans le sous-dossier `assets/` du projet (ex: `assets/screenshot.png`). Les fichiers YAML (`master.yml`, overrides, variants) enregistrent uniquement le chemin relatif propre (`imageUrl: "assets/screenshot.png"`), éliminant tout Base64 lourd des fichiers YAML.
 - **Synchronisation Manuelle** :
   - Un bouton d'enregistrement immédiat permet de forcer l'écriture immédiate sur le disque et indique l'heure de la dernière écriture réussie.
 
@@ -505,10 +520,16 @@ images:
 
 ## 12. Gestion des Assets Graphiques & Résolution
 
-Lorsque vous utilisez des images relatives dans vos fichiers YAML (`images: { background: "mon_fond.jpg" }`) :
-- Le moteur cherche d'abord dans le dossier spécifique de la langue : `assets/<lang>/mon_fond.jpg`.
-- S'il n'y figure pas, il remonte à la racine partagée des ressources : `assets/mon_fond.jpg`.
-- Cette règle permet de partager un logo global tout en ayant des captures d'écran traduites selon la langue.
+- **Extraction & Stockage Automatique sur Disque (`assets/`)** :
+  - Dès qu'un dossier de projet est connecté via la *File System Access API*, chaque image chargée ou glissée sur un élément ou sur la scène est enregistrée directement en tant que fichier physique dans le sous-répertoire `assets/` du projet (avec nom normalisé, ex: `assets/screen_device_1.png` ou `assets/background.png`).
+  - Dans les fichiers YAML (`master.yml`, overrides, déclinaisons), les images sont sérialisées sous forme de **chemins relatifs propres** (`assets/nom_image.png`), bannissant tout Base64 volumineux du code source YAML.
+  - En mémoire vive, des URLs optimisées (`URL.createObjectURL(blob)`) assurent un affichage instantané et fluide dans le canevas sans perte de performance.
+  - Lors de l'export en **Bundle ZIP**, tous les assets du projet sont automatiquement rassemblés et intégrés physiquement dans le dossier `assets/` de l'archive.
+- **Résolution en Cascade des Assets** :
+  - Lorsque vous utilisez des images relatives dans vos fichiers YAML (`images: { background: "mon_fond.jpg" }`) :
+  - Le moteur cherche d'abord dans le dossier spécifique de la langue : `assets/<lang>/mon_fond.jpg`.
+  - S'il n'y figure pas, il remonte à la racine partagée des ressources : `assets/mon_fond.jpg`.
+  - Cette règle permet de partager un logo global tout en ayant des captures d'écran traduites selon la langue.
 
 ---
 

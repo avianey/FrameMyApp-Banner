@@ -59,6 +59,13 @@ export function createShapeElement(shapeType: ShapeType = 'rounded-rect', count:
       width: 2,
       color: 'rgba(255, 255, 255, 1)'
     },
+    glow: {
+      enable: false,
+      color: 'rgba(56, 189, 248, 0.75)',
+      blur: 16,
+      x: 0,
+      y: 0
+    },
     shadow: {
       enable: true,
       color: 'rgba(0, 0, 0, 0.25)',
@@ -133,6 +140,13 @@ export function createDeviceElement(deviceType: DeviceModelType = 'pixel-10', co
     flareSpread: 50,
     screenPadding: 4,
     borderRadius,
+    glow: {
+      enable: false,
+      color: 'rgba(56, 189, 248, 0.75)',
+      blur: 20,
+      x: 0,
+      y: 0
+    },
     shadow: {
       enable: true,
       color: 'rgba(0, 0, 0, 0.35)',

@@ -14,7 +14,8 @@ import {
 import {
   serializeCanvasToMaster,
   serializeCanvasToOverride,
-  serializeCanvasToVariant
+  serializeCanvasToVariant,
+  resolveComposition
 } from '../utils/templateEngine';
 import { stringifyYaml, parseYaml } from '../utils/yamlHelper';
 import {
@@ -25,6 +26,7 @@ import {
   getDirectoryHandleFromIdb,
   readDirectoryBundle
 } from '../utils/bundleIo';
+import { assetManager, convertUrlsToRelativeAssetPaths } from '../utils/assetManager';
 
 export function slugifyFilename(name: string): string {
   return (
@@ -48,7 +50,10 @@ export function computeCanvasSignature(
 ): string {
   return JSON.stringify({
     name: name || 'Projet sans nom',
-    bg,
+    bg: {
+      ...bg,
+      imageUrl: assetManager.getAssetPathFromUrl(bg.imageUrl) || bg.imageUrl
+    },
     els: els.map(e => {
       if (e.type === 'text') {
         const t = e as TextElementModel;
@@ -90,7 +95,7 @@ export function computeCanvasSignature(
           screenBorderColor: d.screenBorderColor,
           screenBorderWidth: d.screenBorderWidth,
           screenBorderWidthPercent: d.screenBorderWidthPercent,
-          screenImageUrl: d.screenImageUrl,
+          screenImageUrl: assetManager.getAssetPathFromUrl(d.screenImageUrl) || d.screenImageUrl,
           imageAspectRatio: d.imageAspectRatio,
           screenColor: d.screenColor,
           screenFit: d.screenFit,
@@ -123,7 +128,7 @@ export function computeCanvasSignature(
           shapeType: s.shapeType,
           fillType: s.fillType,
           solidColor: s.solidColor,
-          imageUrl: s.imageUrl,
+          imageUrl: assetManager.getAssetPathFromUrl(s.imageUrl) || s.imageUrl,
           imageFit: s.imageFit,
           imageOffsetX: s.imageOffsetX,
           imageOffsetY: s.imageOffsetY,
@@ -328,20 +333,28 @@ export function useDiskSync({
           if (hasPerm) {
             const file = await fileHandle.getFile();
             const text = await file.text();
-            loadedConfig = parseYaml<BannerMasterConfig>(text);
-            loadedName = loadedConfig.name || fileHandle.name.replace(/\.(ya?ml|json)$/i, '');
+            const rawConfig = parseYaml<BannerMasterConfig>(text);
+            loadedConfig = resolveComposition(rawConfig, undefined, undefined, {}, fileHandle.name);
+            loadedName = rawConfig.name || fileHandle.name.replace(/\.(ya?ml|json)$/i, '');
           }
         } else if (dirHandle) {
           const hasPerm = await verifyDirectoryPermission(dirHandle, false);
           if (hasPerm) {
+            let bundle: any = null;
             try {
-              const bundle = await readDirectoryBundle(dirHandle);
+              bundle = await readDirectoryBundle(dirHandle);
               if (bundle && bundle.master) {
                 if (!isCancelled) {
                   setLoadedBundleState(bundle);
                   const masterConfig = bundle.master.config as BannerMasterConfig;
                   if (masterConfig) {
-                    loadedConfig = masterConfig;
+                    loadedConfig = resolveComposition(
+                      masterConfig,
+                      undefined,
+                      undefined,
+                      bundle.assets,
+                      bundle.master.path
+                    );
                     loadedName = bundle.master.name || bundle.name;
                   }
                 }
@@ -356,8 +369,15 @@ export function useDiskSync({
                 const fHandle = await dirHandle.getFileHandle(targetFile);
                 const file = await fHandle.getFile();
                 const text = await file.text();
-                loadedConfig = parseYaml<BannerMasterConfig>(text);
-                loadedName = loadedConfig.name || targetFile.replace(/\.(ya?ml|json)$/i, '');
+                const rawConfig = parseYaml<BannerMasterConfig>(text);
+                loadedConfig = resolveComposition(
+                  rawConfig,
+                  undefined,
+                  undefined,
+                  bundle?.assets || {},
+                  targetFile
+                );
+                loadedName = rawConfig.name || targetFile.replace(/\.(ya?ml|json)$/i, '');
               } catch (e) {
                 console.warn(`Fichier ${targetFile} non encore présent sur disque:`, e);
               }
@@ -516,30 +536,39 @@ export function useDiskSync({
 
         if (item) {
           if (item.type === 'master') {
-            const masterConfig = serializeCanvasToMaster(
-              projectName || item.name || 'Master',
-              background,
-              elements,
-              exportZone,
-              canvasWidth,
-              canvasHeight
+            const masterConfig = convertUrlsToRelativeAssetPaths(
+              serializeCanvasToMaster(
+                projectName || item.name || 'Master',
+                background,
+                elements,
+                exportZone,
+                canvasWidth,
+                canvasHeight
+              ),
+              loadedBundle?.assets
             );
             yamlContent = stringifyYaml(masterConfig);
           } else if (item.type === 'override') {
-            const overrideConfig = serializeCanvasToOverride(
-              item,
-              background,
-              elements,
-              exportZone,
-              loadedBundle.master?.config as BannerMasterConfig | undefined
+            const overrideConfig = convertUrlsToRelativeAssetPaths(
+              serializeCanvasToOverride(
+                item,
+                background,
+                elements,
+                exportZone,
+                loadedBundle.master?.config as BannerMasterConfig | undefined
+              ),
+              loadedBundle?.assets
             );
             yamlContent = stringifyYaml(overrideConfig);
           } else {
-            const variantConfig = serializeCanvasToVariant(
-              item,
-              elements,
-              loadedBundle.master?.config as BannerMasterConfig | undefined,
-              loadedBundle.overrides[item.slug]?.config as BannerOverrideConfig | undefined
+            const variantConfig = convertUrlsToRelativeAssetPaths(
+              serializeCanvasToVariant(
+                item,
+                elements,
+                loadedBundle.master?.config as BannerMasterConfig | undefined,
+                loadedBundle.overrides[item.slug]?.config as BannerOverrideConfig | undefined
+              ),
+              loadedBundle?.assets
             );
             yamlContent = stringifyYaml(variantConfig);
           }
@@ -548,13 +577,16 @@ export function useDiskSync({
       }
 
       if (!yamlContent) {
-        const masterConfig = serializeCanvasToMaster(
-          projectName || 'Projet sans nom',
-          background,
-          elements,
-          exportZone,
-          canvasWidth,
-          canvasHeight
+        const masterConfig = convertUrlsToRelativeAssetPaths(
+          serializeCanvasToMaster(
+            projectName || 'Projet sans nom',
+            background,
+            elements,
+            exportZone,
+            canvasWidth,
+            canvasHeight
+          ),
+          loadedBundle?.assets
         );
         yamlContent = stringifyYaml(masterConfig);
         if (!targetFilename) {
@@ -588,6 +620,11 @@ export function useDiskSync({
             return false;
           }
         }
+      }
+
+      if (targetDirHandle) {
+        await verifyDirectoryPermission(targetDirHandle, true);
+        await assetManager.saveAllToDirectory(targetDirHandle);
       }
 
       if (targetFileHandle) {

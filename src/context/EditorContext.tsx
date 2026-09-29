@@ -21,6 +21,7 @@ import { useViewportNavigation } from '../hooks/useViewportNavigation';
 import { useElementHierarchy } from '../hooks/useElementHierarchy';
 import { useDiskSync, slugifyFilename, computeCanvasSignature } from '../hooks/useDiskSync';
 import { useBundleManager } from '../hooks/useBundleManager';
+import { assetManager } from '../utils/assetManager';
 
 export { slugifyFilename, computeCanvasSignature };
 export type { HistorySnapshot };
@@ -73,7 +74,7 @@ export interface EditorContextType {
 
   // Background & Elements actions
   setBackground: (updates: Partial<BackgroundConfig>) => void;
-  applyBackgroundImage: (imageUrl: string) => void;
+  applyBackgroundImage: (imageUrl: string, file?: File) => void;
   setCanvasDimensions: (width: number, height: number) => void;
   addText: () => void;
   addShape: (shapeType?: ShapeType) => void;
@@ -81,6 +82,7 @@ export interface EditorContextType {
   updateElement: (id: string, updates: Partial<CanvasElement>) => void;
   deleteElement: (id: string) => void;
   deleteSelectedElements: () => void;
+  moveSelectedElements: (dx: number, dy: number, isRepeat?: boolean) => void;
   selectElement: (id: string | null, multi?: boolean) => void;
   setActivePanel: (panel: ActivePanel) => void;
   editingImageElementId: string | 'background' | null;
@@ -196,6 +198,13 @@ const initialElements: CanvasElement[] = [
       enable: true,
       width: 2,
       color: 'rgba(255, 255, 255, 0.4)'
+    },
+    glow: {
+      enable: false,
+      color: 'rgba(56, 189, 248, 0.75)',
+      blur: 16,
+      x: 0,
+      y: 0
     },
     shadow: {
       enable: true,
@@ -340,6 +349,33 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     showSnackbar
   });
 
+  // Synchronized ref for selectedElementIds
+  const selectedElementIdsRef = useRef<string[]>(selectedElementIds);
+  useEffect(() => {
+    selectedElementIdsRef.current = selectedElementIds;
+  }, [selectedElementIds]);
+
+  const moveSelectedElements = useCallback(
+    (dx: number, dy: number, isRepeat: boolean = false) => {
+      const currentIds = selectedElementIdsRef.current;
+      if (currentIds.length === 0 || (dx === 0 && dy === 0)) return;
+      if (!isRepeat) {
+        recordHistoryRef.current();
+      }
+      setElements(prev =>
+        prev.map(el => {
+          if (!currentIds.includes(el.id)) return el;
+          return {
+            ...el,
+            x: Math.round(el.x + dx),
+            y: Math.round(el.y + dy)
+          };
+        })
+      );
+    },
+    []
+  );
+
   // Hook 3: Canvas History (Undo / Redo & Shortcuts)
   const history = useCanvasHistory({
     canvasWidth: navigation.canvasWidth,
@@ -366,6 +402,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         showSnackbar('Élément(s) supprimé(s)', 'delete');
       }
     },
+    onMoveSelected: moveSelectedElements,
     onExitImageEditing: () => setEditingImageElementId(null),
     showSnackbar
   });
@@ -455,7 +492,20 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 
   const applyBackgroundImage = useCallback(
-    (imageUrl: string) => {
+    (imageUrl: string, file?: File) => {
+      let finalUrl = imageUrl;
+      if (file) {
+        const { assetPath, displayUrl } = assetManager.registerAsset(file.name, file);
+        assetManager.registerUrlMapping(imageUrl, assetPath);
+        assetManager.registerUrlMapping(displayUrl, assetPath);
+        finalUrl = displayUrl;
+
+        const dirHandle = diskSync.syncDirectoryHandle || bundleManager.loadedBundle?.directoryHandle;
+        if (dirHandle) {
+          assetManager.saveAllToDirectory(dirHandle).catch(e => console.warn(e));
+        }
+      }
+
       const img = new Image();
       img.onload = () => {
         const naturalWidth = img.naturalWidth || 800;
@@ -465,7 +515,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setBackgroundState(prev => ({
           ...prev,
           type: 'image',
-          imageUrl,
+          imageUrl: finalUrl,
           imageFit: prev.imageFit || 'cover',
           imageOffsetX: 0,
           imageOffsetY: 0,
@@ -478,12 +528,12 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       };
       img.onerror = () => {
         history.recordHistory();
-        setBackgroundState(prev => ({ ...prev, type: 'image', imageUrl }));
+        setBackgroundState(prev => ({ ...prev, type: 'image', imageUrl: finalUrl }));
         showSnackbar('Image de fond appliquée', 'image');
       };
-      img.src = imageUrl;
+      img.src = finalUrl;
     },
-    [history, showSnackbar]
+    [history, showSnackbar, diskSync.syncDirectoryHandle, bundleManager.loadedBundle?.directoryHandle]
   );
 
   const addText = useCallback(() => {
@@ -683,6 +733,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         updateElement,
         deleteElement,
         deleteSelectedElements,
+        moveSelectedElements,
         selectElement,
         setActivePanel,
         editingImageElementId,

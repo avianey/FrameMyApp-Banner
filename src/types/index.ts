@@ -66,7 +66,20 @@ export interface BaseElement {
   rotation: number;
 }
 
-export interface TextElementModel extends BaseElement {
+export interface GlowableElement {
+  glow?: GlowConfig;
+}
+
+export interface ShadowableElement {
+  shadow: ShadowConfig;
+}
+
+export interface VisualEffectsElement extends BaseElement, GlowableElement, ShadowableElement {
+  glow?: GlowConfig;
+  shadow: ShadowConfig;
+}
+
+export interface TextElementModel extends VisualEffectsElement {
   type: 'text';
   text: string;
   fontFamily: string;
@@ -76,11 +89,9 @@ export interface TextElementModel extends BaseElement {
   letterSpacing: number;
   lineHeight: number;
   minLines: number;
-  glow: GlowConfig;
-  shadow: ShadowConfig;
 }
 
-export interface ShapeElementModel extends BaseElement {
+export interface ShapeElementModel extends VisualEffectsElement {
   type: 'shape';
   shapeType: ShapeType;
   fillType: FillType;
@@ -102,12 +113,11 @@ export interface ShapeElementModel extends BaseElement {
   opacity: number;
   borderRadius: number;
   stroke: StrokeConfig;
-  shadow: ShadowConfig;
 }
 
 export type DeviceModelType = 'pixel-10' | 'iphone-pro-max' | 'samsung-galaxy' | 'pixel-tab';
 
-export interface DeviceElementModel extends BaseElement {
+export interface DeviceElementModel extends VisualEffectsElement {
   type: 'device';
   deviceType: DeviceModelType;
   bodyColor: string;
@@ -134,7 +144,6 @@ export interface DeviceElementModel extends BaseElement {
   screenPadding: number;
   borderRadius: number;
   borderRadiusPercent?: number;
-  shadow: ShadowConfig;
 }
 
 export type CanvasElement = TextElementModel | ShapeElementModel | DeviceElementModel;
