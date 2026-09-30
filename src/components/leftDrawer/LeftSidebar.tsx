@@ -51,11 +51,7 @@ export const LeftSidebar: React.FC = () => {
     saveBundleItemToDisk(loadedBundle.master);
   };
 
-  // Handle single template or zip file import
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const processImportedFile = async (file: File, fileHandle?: any) => {
     try {
       const ext = file.name.split('.').pop()?.toLowerCase();
       if (ext === 'zip') {
@@ -83,8 +79,7 @@ export const LeftSidebar: React.FC = () => {
 
         const detectedAssets = extractAssetsFromConfig(config);
         if (detectedAssets.length > 0 && hasFsSupport) {
-          requestYamlAssetsPermission(item, file.name, detectedAssets);
-          if (e.target) e.target.value = '';
+          requestYamlAssetsPermission(item, file.name, detectedAssets, fileHandle);
           return;
         }
 
@@ -104,8 +99,45 @@ export const LeftSidebar: React.FC = () => {
       console.error(err);
       showSnackbar(`Erreur d'import : ${err.message || 'Fichier invalide'}`, 'error');
     }
+  };
 
+  // Handle single template or zip file import via input
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await processImportedFile(file);
     if (e.target) e.target.value = '';
+  };
+
+  // Handle file import via native File Picker if supported, else fallback to input
+  const handleOpenFile = async () => {
+    if (typeof window !== 'undefined' && 'showOpenFilePicker' in window) {
+      try {
+        const [handle] = await (window as any).showOpenFilePicker({
+          id: 'framemyapp_file_picker',
+          multiple: false,
+          types: [
+            {
+              description: 'Templates YAML, JSON ou ZIP',
+              accept: {
+                'text/yaml': ['.yml', '.yaml'],
+                'application/json': ['.json'],
+                'application/zip': ['.zip']
+              }
+            }
+          ]
+        });
+        if (handle) {
+          const file = await handle.getFile();
+          await processImportedFile(file, handle);
+          return;
+        }
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
+        console.warn('showOpenFilePicker failed, falling back to input:', err);
+      }
+    }
+    fileInputRef.current?.click();
   };
 
   // Handle directory import via native Directory Picker
@@ -113,8 +145,9 @@ export const LeftSidebar: React.FC = () => {
     if (hasFsSupport) {
       try {
         const dirHandle = await (window as any).showDirectoryPicker({
+          id: 'framemyapp_project_folder',
           mode: 'readwrite',
-          startIn: 'desktop'
+          startIn: loadedBundle?.directoryHandle || 'documents'
         });
         const bundle = await readDirectoryBundle(dirHandle);
         setLoadedBundle(bundle);
@@ -257,48 +290,17 @@ export const LeftSidebar: React.FC = () => {
       // Single file drop (ZIP or YAML)
       if (files && files.length > 0) {
         const file = files[0];
-        const ext = file.name.split('.').pop()?.toLowerCase();
-        if (ext === 'zip') {
-          const bundle = await readZipBundle(file);
-          setLoadedBundle(bundle);
-          setProjectName(bundle.name);
-          setSyncDirectoryName(bundle.name);
-          setSyncFilePath('master.yml');
-          if (bundle.master) {
-            applyBundleItem(bundle.master);
+        let fileHandle: any = null;
+        try {
+          const items = Array.from(e.dataTransfer.items || []);
+          if (items[0] && typeof (items[0] as any).getAsFileSystemHandle === 'function') {
+            const h = await (items[0] as any).getAsFileSystemHandle();
+            if (h && h.kind === 'file') {
+              fileHandle = h;
+            }
           }
-          showSnackbar(`Archive ZIP chargée : ${bundle.name}`, 'folder_zip');
-        } else if (ext === 'yml' || ext === 'yaml' || ext === 'json') {
-          const { name, config } = await readSingleTemplate(file);
-          const templateName = name || file.name.replace(/\.(yml|yaml|json)$/i, '');
-          const item: BundleItem = {
-            id: 'template_' + Date.now(),
-            type: 'master',
-            path: file.name,
-            slug: file.name.replace(/\.(yml|yaml|json)$/i, ''),
-            name: templateName,
-            rawContent: await file.text(),
-            config
-          };
-
-          const detectedAssets = extractAssetsFromConfig(config);
-          if (detectedAssets.length > 0 && hasFsSupport) {
-            requestYamlAssetsPermission(item, file.name, detectedAssets);
-            return;
-          }
-
-          setLoadedBundle({
-            name: templateName,
-            master: item,
-            overrides: {},
-            variants: [],
-            assets: {}
-          });
-          setProjectName(templateName);
-          setSyncFilePath(file.name);
-          applyBundleItem(item);
-          showSnackbar(`Template YAML chargé : ${templateName}`, 'auto_stories');
-        }
+        } catch {}
+        await processImportedFile(file, fileHandle);
       }
     } catch (err: any) {
       console.error(err);
@@ -442,7 +444,7 @@ export const LeftSidebar: React.FC = () => {
               </button>
 
               <button
-                onClick={() => fileInputRef.current?.click()}
+                onClick={handleOpenFile}
                 title="Importer un fichier ZIP ou YAML"
                 className="p-3 rounded-2xl bg-m3-sys-surfaceContainer hover:bg-m3-sys-surfaceContainerHighest border border-m3-sys-outlineVariant/30 flex items-center justify-center space-x-2 transition-all active:scale-95 cursor-pointer shadow-sm"
               >

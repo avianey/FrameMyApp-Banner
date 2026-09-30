@@ -150,6 +150,50 @@ export function computeCanvasSignature(
   });
 }
 
+export function extractAssetsFromElementsAndBackground(
+  bg?: BackgroundConfig | null,
+  els?: CanvasElement[] | null
+): string[] {
+  const assets: string[] = [];
+  if (
+    bg?.imageUrl &&
+    !bg.imageUrl.startsWith('http://') &&
+    !bg.imageUrl.startsWith('https://') &&
+    !bg.imageUrl.startsWith('data:') &&
+    !bg.imageUrl.startsWith('blob:')
+  ) {
+    assets.push(bg.imageUrl);
+  }
+  if (Array.isArray(els)) {
+    for (const el of els) {
+      if (el.type === 'device') {
+        const d = el as DeviceElementModel;
+        if (
+          d.screenImageUrl &&
+          !d.screenImageUrl.startsWith('http://') &&
+          !d.screenImageUrl.startsWith('https://') &&
+          !d.screenImageUrl.startsWith('data:') &&
+          !d.screenImageUrl.startsWith('blob:')
+        ) {
+          assets.push(d.screenImageUrl);
+        }
+      } else if (el.type === 'shape') {
+        const s = el as ShapeElementModel;
+        if (
+          s.imageUrl &&
+          !s.imageUrl.startsWith('http://') &&
+          !s.imageUrl.startsWith('https://') &&
+          !s.imageUrl.startsWith('data:') &&
+          !s.imageUrl.startsWith('blob:')
+        ) {
+          assets.push(s.imageUrl);
+        }
+      }
+    }
+  }
+  return Array.from(new Set(assets));
+}
+
 interface UseDiskSyncOptions {
   canvasWidth: number;
   canvasHeight: number;
@@ -216,9 +260,13 @@ export function useDiskSync({
   const [syncFileHandle, setSyncFileHandleState] = useState<any>(null);
   const syncFileHandleRef = useRef<any>(null);
 
-  // Permission recovery modal state when permissions are lost across sessions
+  // Permission recovery modal state when permissions are lost across sessions or assets need loading
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState<boolean>(false);
   const [permissionTargetName, setPermissionTargetName] = useState<string>('');
+  const [permissionDetectedAssets, setPermissionDetectedAssets] = useState<string[]>([]);
+  const [permissionTitle, setPermissionTitle] = useState<string | undefined>(undefined);
+  const [permissionConfirmLabel, setPermissionConfirmLabel] = useState<string | undefined>(undefined);
+  const [permissionCancelLabel, setPermissionCancelLabel] = useState<string | undefined>(undefined);
   const pendingDiskHandleRef = useRef<any>(null);
 
   const lastSavedSignatureRef = useRef<string>('');
@@ -430,14 +478,11 @@ export function useDiskSync({
     ]
   );
 
-  const hasRestoredOnMountRef = useRef<boolean>(false);
   const loadFromDiskHandleRef = useRef(loadFromDiskHandle);
   loadFromDiskHandleRef.current = loadFromDiskHandle;
 
   // Restore on mount from IndexedDB & Disk
   useEffect(() => {
-    if (hasRestoredOnMountRef.current) return;
-    hasRestoredOnMountRef.current = true;
     let isCancelled = false;
 
     async function restoreFromDisk() {
@@ -447,33 +492,9 @@ export function useDiskSync({
           (await getDirectoryHandleFromIdb('root_bundle_dir'));
         const fileHandle = await getDirectoryHandleFromIdb('sync_file_handle');
 
+        if (isCancelled) return;
+
         const activeHandle = dirHandle || fileHandle;
-        if (!activeHandle) {
-          // No saved disk handle: user starts normally. Restore local draft if any.
-          try {
-            const draftJson = localStorage.getItem('framemyapp_draft_project');
-            if (draftJson) {
-              const draft = JSON.parse(draftJson);
-              if (draft && draft.elements && draft.elements.length > 0) {
-                if (draft.background) {
-                  const bg = { ...draft.background };
-                  if (bg.imageUrl?.startsWith('blob:')) bg.imageUrl = '';
-                  setBackground(bg);
-                }
-                const cleanEls = draft.elements.map((el: any) => ({
-                  ...el,
-                  screenImageUrl: el.screenImageUrl?.startsWith('blob:') ? '' : el.screenImageUrl,
-                  imageUrl: el.imageUrl?.startsWith('blob:') ? '' : el.imageUrl
-                }));
-                setElements(cleanEls);
-                if (draft.exportZone) setExportZone(draft.exportZone);
-                if (draft.canvasWidth) setCanvasWidth(draft.canvasWidth);
-                if (draft.canvasHeight) setCanvasHeight(draft.canvasHeight);
-              }
-            }
-          } catch {}
-          return;
-        }
 
         if (dirHandle) {
           syncDirHandleRef.current = dirHandle;
@@ -485,16 +506,82 @@ export function useDiskSync({
           setSyncFileHandleState(fileHandle);
         }
 
-        // Check permission passively (no browser prompt)
-        const hasPerm = await verifyDirectoryPermission(activeHandle, false, false);
-        if (hasPerm) {
-          // Permissions are still valid: load from disk immediately
-          await loadFromDiskHandleRef.current(activeHandle, isCancelled);
-        } else {
-          // Permissions were revoked/lost across sessions!
-          // Open the modal asking the user to authorize or start new document
+        // 1. Détecter si le projet repris (depuis localStorage draft ou état courant) a des assets manquants
+        let detectedDraftAssets: string[] = [];
+        try {
+          const reqStr = localStorage.getItem('framemyapp_required_assets');
+          if (reqStr) {
+            const parsedReq = JSON.parse(reqStr);
+            if (Array.isArray(parsedReq)) detectedDraftAssets = parsedReq;
+          }
+        } catch {}
+
+        try {
+          const draftJson = localStorage.getItem('framemyapp_draft_project');
+          if (draftJson) {
+            const draft = JSON.parse(draftJson);
+            if (draft && draft.elements && draft.elements.length > 0) {
+              if (draft.background) {
+                setBackground(draft.background);
+              }
+              setElements(draft.elements);
+              if (draft.exportZone) setExportZone(draft.exportZone);
+              if (draft.canvasWidth) setCanvasWidth(draft.canvasWidth);
+              if (draft.canvasHeight) setCanvasHeight(draft.canvasHeight);
+            }
+            if (detectedDraftAssets.length === 0) {
+              detectedDraftAssets = extractAssetsFromElementsAndBackground(draft.background, draft.elements);
+            }
+          }
+        } catch {}
+
+        if (detectedDraftAssets.length === 0) {
+          detectedDraftAssets = extractAssetsFromElementsAndBackground(background, elements);
+        }
+
+        // 2. Si un handle existe, tester la permission passive
+        if (activeHandle) {
+          const hasPerm = await verifyDirectoryPermission(activeHandle, false, false);
+          if (isCancelled) return;
+          if (hasPerm) {
+            await loadFromDiskHandleRef.current(activeHandle, isCancelled);
+            return;
+          }
+        }
+
+        const savedSyncFile = localStorage.getItem('framemyapp_sync_file_path');
+        const savedSyncDir = localStorage.getItem('framemyapp_sync_dir_name');
+        const savedProjectName = localStorage.getItem('framemyapp_project_name');
+
+        const needsAssetsLoading = detectedDraftAssets.length > 0;
+        const needsDiskReauth = Boolean(activeHandle || (savedSyncDir && savedSyncDir !== ''));
+
+        // 3. Si des images locales sont requises OU si un projet/dossier est en attente d'autorisation
+        if (needsAssetsLoading || needsDiskReauth) {
           pendingDiskHandleRef.current = activeHandle;
-          setPermissionTargetName(activeHandle.name || 'Projet local');
+          const targetName =
+            savedSyncFile ||
+            (activeHandle ? activeHandle.name : null) ||
+            savedSyncDir ||
+            savedProjectName ||
+            'Projet local';
+          setPermissionTargetName(targetName);
+          setPermissionDetectedAssets(detectedDraftAssets);
+          setPermissionTitle(
+            needsAssetsLoading
+              ? 'Charger les images du template ?'
+              : 'Reprendre le projet local ?'
+          );
+          setPermissionConfirmLabel(
+            needsAssetsLoading
+              ? 'Sélectionner le dossier du projet'
+              : 'Autoriser l’accès'
+          );
+          setPermissionCancelLabel(
+            needsAssetsLoading
+              ? 'Continuer sans les images'
+              : 'Nouveau document'
+          );
           setIsPermissionModalOpen(true);
         }
       } catch (err) {
@@ -513,49 +600,86 @@ export function useDiskSync({
     };
   }, [setBackground, setElements, setExportZone, setCanvasWidth, setCanvasHeight]);
 
+  const dismissPermissionModal = useCallback(() => {
+    setIsPermissionModalOpen(false);
+  }, []);
+
   const authorizeDiskAccess = useCallback(async () => {
     const handle = pendingDiskHandleRef.current || syncDirHandleRef.current || syncFileHandleRef.current;
-    if (!handle) {
-      setIsPermissionModalOpen(false);
-      return;
+    let chosenDirHandle: any = null;
+
+    // 1. Tenter la ré-autorisation active directe si c'est un directory handle existant
+    if (handle && (handle.kind === 'directory' || typeof handle.getFileHandle === 'function')) {
+      const granted = await verifyDirectoryPermission(handle, true, true);
+      if (granted) {
+        chosenDirHandle = handle;
+      }
     }
 
-    // Called on user click: requestIfPrompt = true, allowed by browser!
-    const granted = await verifyDirectoryPermission(handle, true, true);
-    if (granted) {
-      setIsPermissionModalOpen(false);
-
-      if (
-        handle.kind === 'file' &&
-        !syncDirHandleRef.current &&
-        typeof window !== 'undefined' &&
-        'showDirectoryPicker' in window
-      ) {
-        try {
-          showSnackbar('Sélectionnez le dossier parent pour charger les images (assets/)...', 'folder');
-          const dirHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
-          if (dirHandle) {
-            await verifyDirectoryPermission(dirHandle, true, true);
-            syncDirHandleRef.current = dirHandle;
-            setSyncDirectoryHandleState(dirHandle);
-            setSyncDirectoryName(dirHandle.name);
-            saveDirectoryHandleToIdb(dirHandle, 'sync_dir_handle');
-            saveDirectoryHandleToIdb(dirHandle, 'root_bundle_dir');
-            await loadFromDiskHandle(dirHandle, false);
-            showSnackbar(`Dossier et assets connectés : ${dirHandle.name}`, 'folder_open');
-            return;
-          }
-        } catch (e: any) {
-          if (e.name !== 'AbortError') console.warn('showDirectoryPicker error in authorizeDiskAccess:', e);
+    // 2. Si non accordé ou si besoin d'ouvrir le sélecteur, ouvrir avec startIn pré-sélectionné
+    if (!chosenDirHandle && typeof window !== 'undefined' && 'showDirectoryPicker' in window) {
+      try {
+        chosenDirHandle = await (window as any).showDirectoryPicker({
+          id: 'framemyapp_project_folder',
+          mode: 'readwrite',
+          startIn: handle || 'documents'
+        });
+        if (chosenDirHandle) {
+          await verifyDirectoryPermission(chosenDirHandle, true, true);
         }
+      } catch (e: any) {
+        if (e.name !== 'AbortError') {
+          console.warn('showDirectoryPicker error in authorizeDiskAccess:', e);
+        }
+        return;
+      }
+    }
+
+    if (chosenDirHandle) {
+      setIsPermissionModalOpen(false);
+      pendingDiskHandleRef.current = null;
+      syncDirHandleRef.current = chosenDirHandle;
+      setSyncDirectoryHandleState(chosenDirHandle);
+      setSyncDirectoryName(chosenDirHandle.name);
+      await saveDirectoryHandleToIdb(chosenDirHandle, 'sync_dir_handle');
+      await saveDirectoryHandleToIdb(chosenDirHandle, 'root_bundle_dir');
+
+      const targetFile = syncFilePath || `${slugifyFilename(projectName)}.yml`;
+      const bundle = await readDirectoryBundle(chosenDirHandle, targetFile);
+      setLoadedBundleState(bundle);
+
+      // Résoudre les images sur le canvas actuel à partir des assets chargés
+      if (bundle.assets && Object.keys(bundle.assets).length > 0) {
+        setBackground(prevBg => {
+          if (prevBg.imageUrl && bundle.assets[prevBg.imageUrl]) {
+            return { ...prevBg, imageUrl: bundle.assets[prevBg.imageUrl] };
+          }
+          return prevBg;
+        });
+        setElements(prevEls => {
+          return prevEls.map(el => {
+            if (el.type === 'device') {
+              const d = el as DeviceElementModel;
+              if (d.screenImageUrl && bundle.assets[d.screenImageUrl]) {
+                return { ...d, screenImageUrl: bundle.assets[d.screenImageUrl] };
+              }
+            } else if (el.type === 'shape') {
+              const s = el as ShapeElementModel;
+              if (s.imageUrl && bundle.assets[s.imageUrl]) {
+                return { ...s, imageUrl: bundle.assets[s.imageUrl] };
+              }
+            }
+            return el;
+          });
+        });
       }
 
-      await loadFromDiskHandle(handle, false);
-      showSnackbar(`Accès autorisé : ${handle.name}`, 'folder_open');
+      await loadFromDiskHandle(chosenDirHandle, false);
+      showSnackbar(`Template et dossier connectés : ${chosenDirHandle.name}`, 'folder_open');
     } else {
       showSnackbar('Permission refusée par le navigateur', 'warning');
     }
-  }, [loadFromDiskHandle, showSnackbar]);
+  }, [syncFilePath, projectName, setBackground, setElements, setLoadedBundleState, loadFromDiskHandle, showSnackbar]);
 
   const dismissDiskAccessAndStartNew = useCallback(() => {
     setIsPermissionModalOpen(false);
@@ -604,8 +728,9 @@ export function useDiskSync({
     }
     try {
       const handle = await (window as any).showDirectoryPicker({
+        id: 'framemyapp_project_folder',
         mode: 'readwrite',
-        startIn: 'desktop'
+        startIn: syncDirHandleRef.current || 'documents'
       });
       if (handle) {
         await verifyDirectoryPermission(handle, true, true);
@@ -635,6 +760,7 @@ export function useDiskSync({
     }
     try {
       const [handle] = await (window as any).showOpenFilePicker({
+        id: 'framemyapp_file_picker',
         multiple: false,
         types: [
           {
@@ -663,6 +789,7 @@ export function useDiskSync({
         try {
           showSnackbar('Sélectionnez le dossier parent pour charger les images (assets/)...', 'folder');
           const dirHandle = await (window as any).showDirectoryPicker({
+            id: 'framemyapp_project_folder',
             mode: 'readwrite',
             startIn: handle
           });
@@ -902,6 +1029,10 @@ export function useDiskSync({
         loadedBundle?.assets
       );
       localStorage.setItem('framemyapp_draft_project', JSON.stringify(sanitized));
+      const required = extractAssetsFromElementsAndBackground(sanitized.background, sanitized.elements);
+      if (required.length > 0) {
+        localStorage.setItem('framemyapp_required_assets', JSON.stringify(required));
+      }
     } catch {}
   }, [canvasWidth, canvasHeight, background, elements, exportZone, loadedBundle?.assets]);
 
@@ -989,7 +1120,12 @@ export function useDiskSync({
     lastSavedSignatureRef,
     isPermissionModalOpen,
     permissionTargetName,
+    permissionDetectedAssets,
+    permissionTitle,
+    permissionConfirmLabel,
+    permissionCancelLabel,
     authorizeDiskAccess,
+    dismissPermissionModal,
     dismissDiskAccessAndStartNew
   };
 }

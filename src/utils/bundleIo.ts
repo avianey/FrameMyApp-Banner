@@ -38,7 +38,8 @@ function extractLang(path: string): string | undefined {
  */
 export async function buildBundleFromEntries(
   entries: { path: string; getContent: () => Promise<string>; getBlob?: () => Promise<Blob> }[],
-  bundleName = 'frameyourapp'
+  bundleName = 'frameyourapp',
+  preferredMasterPath?: string
 ): Promise<LoadedBundle> {
   let masterItem: BundleItem | null = null;
   const overrides: Record<string, BundleItem> = {};
@@ -161,8 +162,24 @@ export async function buildBundleFromEntries(
   }
 
   // Fallback: if no master.yml / banner_template.yml was found, pick root YAML file
+  if (preferredMasterPath) {
+    const candidate = rootYamlCandidates.find(c => c.path.toLowerCase() === preferredMasterPath.toLowerCase());
+    if (candidate) {
+      masterItem = {
+        id: 'master',
+        type: 'master',
+        path: candidate.path,
+        slug: candidate.path.replace(/\.(ya?ml|json)$/i, ''),
+        name: candidate.config.name || candidate.path.replace(/\.(ya?ml|json)$/i, ''),
+        rawContent: candidate.raw,
+        config: candidate.config as BannerMasterConfig
+      };
+    }
+  }
+
   if (!masterItem && rootYamlCandidates.length > 0) {
     const chosen =
+      (preferredMasterPath && rootYamlCandidates.find(c => c.path.toLowerCase() === preferredMasterPath.toLowerCase())) ||
       rootYamlCandidates.find(c => c.path.toLowerCase().startsWith(bundleName.toLowerCase())) ||
       rootYamlCandidates[0];
     masterItem = {
@@ -240,7 +257,7 @@ export async function readFilesBundle(files: FileList | File[]): Promise<LoadedB
 /**
  * Loads a bundle from a directory using File System Access API.
  */
-export async function readDirectoryBundle(dirHandle: any): Promise<LoadedBundle> {
+export async function readDirectoryBundle(dirHandle: any, preferredMasterPath?: string): Promise<LoadedBundle> {
   const entries: { path: string; getContent: () => Promise<string>; getBlob: () => Promise<Blob> }[] = [];
 
   async function scanDir(handle: any, currentPath: string) {
@@ -260,9 +277,9 @@ export async function readDirectoryBundle(dirHandle: any): Promise<LoadedBundle>
   }
 
   await scanDir(dirHandle, '');
-  const bundle = await buildBundleFromEntries(entries, dirHandle.name);
+  const bundle = await buildBundleFromEntries(entries, dirHandle.name, preferredMasterPath);
   bundle.directoryHandle = dirHandle;
-  saveDirectoryHandleToIdb(dirHandle);
+  await saveDirectoryHandleToIdb(dirHandle);
   return bundle;
 }
 
@@ -442,7 +459,7 @@ export async function verifyDirectoryPermission(
 }
 
 const DB_NAME = 'framemyapp_banner_fs';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 function openIdb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -470,8 +487,13 @@ function openIdb(): Promise<IDBDatabase> {
 export async function saveDirectoryHandleToIdb(handle: any, key = 'root_bundle_dir'): Promise<void> {
   try {
     const db = await openIdb();
-    const tx = db.transaction('handles', 'readwrite');
-    tx.objectStore('handles').put(handle, key);
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('handles', 'readwrite');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+      tx.objectStore('handles').put(handle, key);
+    });
   } catch (e) {
     console.warn('Could not save handle to IndexedDB:', e);
   }
@@ -504,8 +526,13 @@ export async function removeDirectoryHandleFromIdb(key = 'root_bundle_dir'): Pro
   try {
     const db = await openIdb();
     if (!db.objectStoreNames.contains('handles')) return;
-    const tx = db.transaction('handles', 'readwrite');
-    tx.objectStore('handles').delete(key);
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('handles', 'readwrite');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+      tx.objectStore('handles').delete(key);
+    });
   } catch (e) {
     console.warn('Could not remove handle from IndexedDB:', e);
   }

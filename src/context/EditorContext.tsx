@@ -145,7 +145,7 @@ export interface EditorContextType {
   permissionTitle?: string;
   permissionConfirmLabel?: string;
   permissionCancelLabel?: string;
-  requestYamlAssetsPermission: (item: BundleItem, filename: string, detectedAssets: string[]) => void;
+  requestYamlAssetsPermission: (item: BundleItem, filename: string, detectedAssets: string[], fileHandle?: any) => void;
   authorizeDiskAccess: () => Promise<void>;
   dismissDiskAccessAndStartNew: () => void;
 }
@@ -251,16 +251,6 @@ function cleanDraftProject(raw: string | null) {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw);
-    if (parsed.background?.imageUrl?.startsWith('blob:')) {
-      parsed.background.imageUrl = '';
-    }
-    if (Array.isArray(parsed.elements)) {
-      parsed.elements = parsed.elements.map((el: any) => ({
-        ...el,
-        screenImageUrl: el.screenImageUrl?.startsWith('blob:') ? '' : el.screenImageUrl,
-        imageUrl: el.imageUrl?.startsWith('blob:') ? '' : el.imageUrl
-      }));
-    }
     return parsed;
   } catch {
     return null;
@@ -485,6 +475,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Forward declaration of bundle manager helpers
   const markItemSavedRef = useRef<(id: string) => void>(() => {});
   const loadedBundleRef = useRef<LoadedBundle | null>(null);
+  const setLoadedBundleRef = useRef<React.Dispatch<React.SetStateAction<LoadedBundle | null>>>(() => {});
 
   // Hook 4: Disk Sync (Handles, Auto-Save, Renaming, Startup Restore)
   const diskSync = useDiskSync({
@@ -500,7 +491,9 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setBackground: setBackgroundState,
     setElements,
     setExportZone: navigation.setExportZoneState,
-    setLoadedBundleState: () => {},
+    setLoadedBundleState: updater => {
+      setLoadedBundleRef.current(updater);
+    },
     markItemSaved: id => markItemSavedRef.current(id),
     showSnackbar,
     centerCanvas: (w, h, autoFit) => navigation.centerCanvas(w, h, autoFit),
@@ -553,6 +546,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   });
 
   loadedBundleRef.current = bundleManager.loadedBundle;
+  setLoadedBundleRef.current = bundleManager.setLoadedBundle;
   markItemSavedRef.current = bundleManager.markItemSaved;
 
   // Element Actions
@@ -808,11 +802,19 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     item: BundleItem;
     filename: string;
     detectedAssets: string[];
+    fileHandle?: any;
   } | null>(null);
 
   const requestYamlAssetsPermission = useCallback(
-    (item: BundleItem, filename: string, detectedAssets: string[]) => {
-      setPendingYamlImport({ item, filename, detectedAssets });
+    (item: BundleItem, filename: string, detectedAssets: string[], fileHandle?: any) => {
+      try {
+        localStorage.setItem('framemyapp_required_assets', JSON.stringify(detectedAssets));
+        localStorage.setItem('framemyapp_sync_file_path', filename);
+        if (item.name) {
+          localStorage.setItem('framemyapp_project_name', item.name);
+        }
+      } catch {}
+      setPendingYamlImport({ item, filename, detectedAssets, fileHandle });
     },
     []
   );
@@ -821,12 +823,13 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (pendingYamlImport) {
       try {
         const dirHandle = await (window as any).showDirectoryPicker({
+          id: 'framemyapp_project_folder',
           mode: 'readwrite',
-          startIn: 'desktop'
+          startIn: pendingYamlImport.fileHandle || diskSync.syncDirectoryHandle || 'documents'
         });
         if (dirHandle) {
           await verifyDirectoryPermission(dirHandle, true, true);
-          const bundle = await readDirectoryBundle(dirHandle);
+          const bundle = await readDirectoryBundle(dirHandle, pendingYamlImport.filename);
           if (!bundle.master) {
             bundle.master = pendingYamlImport.item;
           }
@@ -835,8 +838,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           diskSync.setSyncDirectoryName(bundle.name);
           diskSync.setSyncDirectoryHandle(dirHandle);
           diskSync.setSyncFilePath(pendingYamlImport.filename);
-          saveDirectoryHandleToIdb(dirHandle, 'sync_dir_handle');
-          saveDirectoryHandleToIdb(dirHandle, 'root_bundle_dir');
+          await saveDirectoryHandleToIdb(dirHandle, 'sync_dir_handle');
+          await saveDirectoryHandleToIdb(dirHandle, 'root_bundle_dir');
           bundleManager.applyBundleItem(bundle.master || pendingYamlImport.item);
           setPendingYamlImport(null);
           showSnackbar(`Template et dossier connectés : ${dirHandle.name}`, 'folder_open');
@@ -867,6 +870,11 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       bundleManager.applyBundleItem(item);
       setPendingYamlImport(null);
       showSnackbar(`Template chargé sans images : ${item.name}`, 'auto_stories');
+      return;
+    }
+    if (diskSync.permissionDetectedAssets && diskSync.permissionDetectedAssets.length > 0) {
+      diskSync.dismissPermissionModal();
+      showSnackbar('Projet ouvert sans les images locales', 'visibility_off');
       return;
     }
     diskSync.dismissDiskAccessAndStartNew();
@@ -973,10 +981,10 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         selectSyncFile: diskSync.selectSyncFile,
         isPermissionModalOpen: diskSync.isPermissionModalOpen || Boolean(pendingYamlImport),
         permissionTargetName: pendingYamlImport ? pendingYamlImport.filename : diskSync.permissionTargetName,
-        permissionDetectedAssets: pendingYamlImport ? pendingYamlImport.detectedAssets : [],
-        permissionTitle: pendingYamlImport ? 'Charger les images du template ?' : undefined,
-        permissionConfirmLabel: pendingYamlImport ? 'Sélectionner le dossier du projet' : 'Autoriser l’accès',
-        permissionCancelLabel: pendingYamlImport ? 'Continuer sans les images' : 'Nouveau document',
+        permissionDetectedAssets: pendingYamlImport ? pendingYamlImport.detectedAssets : diskSync.permissionDetectedAssets,
+        permissionTitle: pendingYamlImport ? 'Charger les images du template ?' : diskSync.permissionTitle,
+        permissionConfirmLabel: pendingYamlImport ? 'Sélectionner le dossier du projet' : diskSync.permissionConfirmLabel,
+        permissionCancelLabel: pendingYamlImport ? 'Continuer sans les images' : diskSync.permissionCancelLabel,
         requestYamlAssetsPermission,
         authorizeDiskAccess,
         dismissDiskAccessAndStartNew
