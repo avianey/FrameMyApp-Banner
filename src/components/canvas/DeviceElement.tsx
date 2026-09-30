@@ -232,6 +232,55 @@ export const DeviceElement: React.FC<DeviceElementProps> = ({
     (element.screenImageUrl && loadedBundle?.assets ? resolveAsset(element.screenImageUrl, undefined, loadedBundle.assets) : undefined) ||
     element.screenImageUrl;
 
+  // Dimensions de l'écran interne actif (sans le châssis ni le bezel)
+  const totalScreenInset = bodyThickness + screenBorderWidth;
+  const activeScreenWidth = Math.max(10, element.width - 2 * totalScreenInset);
+  const activeScreenHeight = Math.max(10, element.height - 2 * totalScreenInset);
+
+  // État local des dimensions naturelles pour un dimensionnement instantané dès le chargement
+  const [screenNatDims, setScreenNatDims] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+
+  const effectiveImgRatio =
+    screenNatDims.w && screenNatDims.h
+      ? screenNatDims.w / screenNatDims.h
+      : element.imageAspectRatio || 9 / 16;
+
+  const screenFit = element.screenFit || 'cover';
+
+  let imgRenderW = activeScreenWidth;
+  let imgRenderH = activeScreenHeight;
+  let imgRenderLeft = 0;
+  let imgRenderTop = 0;
+
+  if (screenFit === 'contain') {
+    const screenRatio = activeScreenWidth / activeScreenHeight;
+    if (effectiveImgRatio > screenRatio) {
+      imgRenderW = activeScreenWidth;
+      imgRenderH = Math.round(activeScreenWidth / effectiveImgRatio);
+      imgRenderLeft = 0;
+      imgRenderTop = Math.round((activeScreenHeight - imgRenderH) / 2);
+    } else {
+      imgRenderH = activeScreenHeight;
+      imgRenderW = Math.round(activeScreenHeight * effectiveImgRatio);
+      imgRenderTop = 0;
+      imgRenderLeft = Math.round((activeScreenWidth - imgRenderW) / 2);
+    }
+  } else {
+    // 'cover' avec centrage horizontal et alignement en haut (center top)
+    const screenRatio = activeScreenWidth / activeScreenHeight;
+    if (effectiveImgRatio > screenRatio) {
+      imgRenderH = activeScreenHeight;
+      imgRenderW = Math.round(activeScreenHeight * effectiveImgRatio);
+      imgRenderTop = 0;
+      imgRenderLeft = Math.round((activeScreenWidth - imgRenderW) / 2);
+    } else {
+      imgRenderW = activeScreenWidth;
+      imgRenderH = Math.round(activeScreenWidth / effectiveImgRatio);
+      imgRenderLeft = 0;
+      imgRenderTop = 0;
+    }
+  }
+
   return (
     <div
       ref={nodeRef}
@@ -468,21 +517,24 @@ export const DeviceElement: React.FC<DeviceElementProps> = ({
                 backgroundColor: element.screenColor || '#05070a'
               }}
             >
-              {/* Image de l'écran si présente */}
+              {/* Image de l'écran si présente (positionnement absolu pixel-perfect compatible html2canvas) */}
               {element.screenImageUrl ? (
                 <img
                   src={displayScreenUrl}
                   alt="Capture d'écran"
-                  className="w-full h-full pointer-events-none"
+                  className="absolute max-w-none max-h-none select-none pointer-events-none"
                   style={{
-                    objectFit: element.screenFit || 'cover',
-                    objectPosition: 'center top'
+                    width: `${imgRenderW}px`,
+                    height: `${imgRenderH}px`,
+                    left: `${imgRenderLeft}px`,
+                    top: `${imgRenderTop}px`
                   }}
                   draggable={false}
                   onLoad={e => {
                     const nw = e.currentTarget.naturalWidth;
                     const nh = e.currentTarget.naturalHeight;
                     if (nw && nh) {
+                      setScreenNatDims({ w: nw, h: nh });
                       const imgRatio = nw / nh;
                       if (!element.imageAspectRatio || Math.abs(element.imageAspectRatio - imgRatio) > 0.001) {
                         updateElement(element.id, { imageAspectRatio: imgRatio });

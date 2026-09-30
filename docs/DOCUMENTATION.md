@@ -333,6 +333,10 @@ Des presets prédéfinis permettent d'appliquer instantanément les standards gr
 - **Centrage Automatique** : Bouton *« Centrer le cadre »* pour caler instantanément le cadrage au centre du plan de travail.
 - **Plein Canevas** : Bouton *« Plein canevas »* pour étendre la zone d'export à l'intégralité du plan de travail (800 × 600 px).
 
+### 6.4 Rendu Plein Cadre (Full Frame) & Fidélité des Écrans Appareils
+- **Plein Cadre Strict (Full Frame)** : Lors de l'exportation unitaire comme du Batch Export, la scène et ses arrière-plans sont capturés avec des angles droits nets (`border-radius: 0px`), supprimant tout rognage ou bordure arrondie résiduelle pour une conformité parfaite aux magasins d'applications (Google Play, App Store).
+- **Rendu Pixel-Perfect des Mockups de Téléphones** : Les captures d'écran des appareils sont positionnées avec des dimensions et des coordonnées absolues en pixels calculées selon le ratio naturel de l'image et le mode d'ajustement (`cover` ou `contain`), garantissant un rendu complet, synchrone et sans écran noir.
+
 ---
 
 ## 7. Raccourcis Clavier & Interactions Souris

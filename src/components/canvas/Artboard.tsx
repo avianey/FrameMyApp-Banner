@@ -146,7 +146,7 @@ export const Artboard: React.FC = () => {
     <div
       ref={artboardContainerRef}
       id="artboard-container"
-      className="absolute shadow-m3-3 rounded-2xl overflow-visible touch-none flex-shrink-0"
+      className="absolute shadow-m3-3 rounded-none overflow-visible touch-none flex-shrink-0"
       style={{
         left: `${pan.x}px`,
         top: `${pan.y}px`,
@@ -165,11 +165,11 @@ export const Artboard: React.FC = () => {
         id="artboard"
         onPointerDown={handlePointerDown}
         onDoubleClick={handleDoubleClick}
-        className="w-full h-full rounded-2xl relative overflow-visible bg-white"
+        className="w-full h-full rounded-none relative overflow-visible bg-white"
       >
         {/* Fond dynamique */}
         {background.type === 'image' && background.imageUrl ? (
-          <div id="artboard-bg" className="absolute inset-0 w-full h-full rounded-2xl overflow-hidden z-0">
+          <div id="artboard-bg" className="absolute inset-0 w-full h-full rounded-none overflow-hidden z-0">
             <InPlaceImageCropper
               containerWidth={canvasWidth}
               containerHeight={canvasHeight}
@@ -193,7 +193,7 @@ export const Artboard: React.FC = () => {
         ) : (
           <div
             id="artboard-bg"
-            className="absolute inset-0 w-full h-full rounded-2xl overflow-hidden pointer-events-none z-0"
+            className="absolute inset-0 w-full h-full rounded-none overflow-hidden pointer-events-none z-0"
             style={getBackgroundStyle()}
           />
         )}

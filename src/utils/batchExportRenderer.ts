@@ -116,20 +116,47 @@ export async function captureZoneToBlob(
     el.removeAttribute('contenteditable');
   });
 
-  // Temporarily reset to 1:1 scale without pan, and square corners for clean banner export
+  // Temporarily reset to 1:1 scale without pan, and square corners for clean full-frame banner export
   if (container) {
     container.style.transform = 'none';
     container.style.left = '0px';
     container.style.top = '0px';
+    container.style.borderRadius = '0px';
   }
   artboardElement.style.borderRadius = '0px';
   artboardElement.style.boxShadow = 'none';
   artboardElement.style.overflow = 'hidden';
 
+  const bgEl = artboardElement.querySelector('#artboard-bg') as HTMLElement | null;
+  const prevBgRadius = bgEl?.style.borderRadius ?? '';
+  if (bgEl) {
+    bgEl.style.borderRadius = '0px';
+  }
+
   // Wait for fonts and browser layout to settle at scale 1:1
   if (typeof document !== 'undefined' && document.fonts) {
     await document.fonts.ready;
   }
+
+  // Wait for all images in the live artboard to be fully loaded and decoded before capture
+  const liveImages = Array.from(artboardElement.querySelectorAll('img'));
+  await Promise.all(
+    liveImages.map(img => {
+      if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+      return new Promise<void>(resolve => {
+        const onDone = () => resolve();
+        img.addEventListener('load', onDone, { once: true });
+        img.addEventListener('error', onDone, { once: true });
+        setTimeout(resolve, 500);
+      });
+    })
+  );
+
+  // Tag images with IDs so the cloned DOM can accurately reference live image data
+  liveImages.forEach((img, idx) => {
+    img.setAttribute('data-export-img-id', `img-${idx}`);
+  });
+
   await new Promise(r => requestAnimationFrame(r));
   await new Promise(r => setTimeout(r, 60));
 
@@ -186,6 +213,14 @@ export async function captureZoneToBlob(
       x: 0,
       y: 0,
       onclone: (clonedDoc) => {
+        // 1. Force strict full-frame square corners (0px) on artboard and background containers
+        clonedDoc.querySelectorAll('#artboard, #artboard-bg, #artboard-container').forEach((el: any) => {
+          el.style.borderRadius = '0px';
+          el.style.setProperty('border-radius', '0px', 'important');
+          el.style.boxShadow = 'none';
+          el.style.setProperty('box-shadow', 'none', 'important');
+        });
+
         // Transfer all loaded font faces from the parent document into the cloned iframe
         if (document.fonts) {
           document.fonts.forEach((font) => {
@@ -195,25 +230,32 @@ export async function captureZoneToBlob(
           });
         }
 
-        // Apply native canvas blur to images with data-image-blur (html2canvas ignores CSS filter)
-        clonedDoc.querySelectorAll('img[data-image-blur]').forEach((imgEl: any) => {
-          const blurVal = parseFloat(imgEl.getAttribute('data-image-blur') || '0');
-          if (blurVal > 0) {
+        // Convert all images to synchronous Data URLs using the already-loaded live images from the parent document
+        clonedDoc.querySelectorAll('img').forEach((clonedImg: HTMLImageElement) => {
+          const imgId = clonedImg.getAttribute('data-export-img-id');
+          const liveImg = imgId ? (artboardElement.querySelector(`img[data-export-img-id="${imgId}"]`) as HTMLImageElement | null) : null;
+          const sourceImg = liveImg || clonedImg;
+
+          const blurVal = parseFloat(clonedImg.getAttribute('data-image-blur') || '0');
+          const nw = sourceImg.naturalWidth || sourceImg.offsetWidth || 800;
+          const nh = sourceImg.naturalHeight || sourceImg.offsetHeight || 600;
+
+          if (nw > 0 && nh > 0) {
             try {
               const canvas = clonedDoc.createElement('canvas');
-              const w = imgEl.naturalWidth || imgEl.offsetWidth || 800;
-              const h = imgEl.naturalHeight || imgEl.offsetHeight || 600;
-              canvas.width = w;
-              canvas.height = h;
+              canvas.width = nw;
+              canvas.height = nh;
               const ctx = canvas.getContext('2d');
               if (ctx) {
-                ctx.filter = `blur(${blurVal}px)`;
-                ctx.drawImage(imgEl, 0, 0, w, h);
-                imgEl.src = canvas.toDataURL();
-                imgEl.style.filter = 'none';
+                if (blurVal > 0) {
+                  ctx.filter = `blur(${blurVal}px)`;
+                }
+                ctx.drawImage(sourceImg, 0, 0, nw, nh);
+                clonedImg.src = canvas.toDataURL('image/png');
+                clonedImg.style.filter = 'none';
               }
             } catch (err) {
-              console.warn('Could not pre-render blurred image for export:', err);
+              console.warn('Could not serialize image to dataURL for export:', err);
             }
           }
         });
@@ -292,6 +334,9 @@ export async function captureZoneToBlob(
       container.style.left = prevLeft;
       container.style.top = prevTop;
     }
+    if (bgEl) {
+      bgEl.style.borderRadius = prevBgRadius;
+    }
     artboardElement.style.borderRadius = prevRadius;
     artboardElement.style.boxShadow = prevShadow;
     artboardElement.style.overflow = prevOverflow;
@@ -306,6 +351,9 @@ export async function captureZoneToBlob(
     // Clean up tracking attributes
     artboardElement.querySelectorAll('.editable-text-content').forEach((el: any) => {
       el.removeAttribute('data-export-text-id');
+    });
+    artboardElement.querySelectorAll('img').forEach((el: any) => {
+      el.removeAttribute('data-export-img-id');
     });
   }
 }
