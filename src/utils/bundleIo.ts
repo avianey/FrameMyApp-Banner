@@ -44,6 +44,7 @@ export async function buildBundleFromEntries(
   const overrides: Record<string, BundleItem> = {};
   const variants: BundleItem[] = [];
   const assets: Record<string, string> = {};
+  const rootYamlCandidates: { path: string; raw: string; config: any }[] = [];
 
   // Strip leading bundle folder if present (e.g. frameyourapp/master.yml -> master.yml)
   const normalizedEntries = entries.map(entry => {
@@ -152,6 +153,27 @@ export async function buildBundleFromEntries(
       });
       continue;
     }
+
+    // Collect fallback root YAML candidate if no master.yml found
+    if (!p.includes('/')) {
+      rootYamlCandidates.push({ path: p, raw, config });
+    }
+  }
+
+  // Fallback: if no master.yml / banner_template.yml was found, pick root YAML file
+  if (!masterItem && rootYamlCandidates.length > 0) {
+    const chosen =
+      rootYamlCandidates.find(c => c.path.toLowerCase().startsWith(bundleName.toLowerCase())) ||
+      rootYamlCandidates[0];
+    masterItem = {
+      id: 'master',
+      type: 'master',
+      path: chosen.path,
+      slug: chosen.path.replace(/\.(ya?ml|json)$/i, ''),
+      name: chosen.config.name || chosen.path.replace(/\.(ya?ml|json)$/i, ''),
+      rawContent: chosen.raw,
+      config: chosen.config as BannerMasterConfig
+    };
   }
 
   // Sort variants logically (by lang, then by slug)
@@ -389,19 +411,29 @@ export async function writeBlobToDirectory(
 
 /**
  * Checks and requests readwrite permissions on a FileSystemDirectoryHandle if needed.
+ * When requestIfPrompt is false, it only queries permission passively without prompting,
+ * preventing SecurityError: User activation is required to request permissions on page load.
  */
 export async function verifyDirectoryPermission(
   dirHandle: any,
-  readWrite = true
+  readWrite = true,
+  requestIfPrompt = false
 ): Promise<boolean> {
   if (!dirHandle) return false;
   const options = { mode: readWrite ? 'readwrite' : 'read' };
   try {
-    if (dirHandle.queryPermission && (await dirHandle.queryPermission(options)) === 'granted') {
-      return true;
+    if (dirHandle.queryPermission) {
+      const status = await dirHandle.queryPermission(options);
+      if (status === 'granted') {
+        return true;
+      }
+      if (!requestIfPrompt) {
+        return false;
+      }
     }
-    if (dirHandle.requestPermission && (await dirHandle.requestPermission(options)) === 'granted') {
-      return true;
+    if (requestIfPrompt && dirHandle.requestPermission) {
+      const status = await dirHandle.requestPermission(options);
+      return status === 'granted';
     }
   } catch (e) {
     console.warn('Could not verify directory permission:', e);
@@ -409,21 +441,37 @@ export async function verifyDirectoryPermission(
   return false;
 }
 
+const DB_NAME = 'framemyapp_banner_fs';
+const DB_VERSION = 2;
+
+function openIdb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (typeof window === 'undefined' || !window.indexedDB) {
+      return reject(new Error('IndexedDB not supported'));
+    }
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('handles')) {
+        db.createObjectStore('handles');
+      }
+      if (!db.objectStoreNames.contains('assets')) {
+        db.createObjectStore('assets', { keyPath: 'path' });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
 /**
  * Persists a FileSystemDirectoryHandle or FileSystemFileHandle to IndexedDB so it survives page reloads.
  */
 export async function saveDirectoryHandleToIdb(handle: any, key = 'root_bundle_dir'): Promise<void> {
-  if (typeof window === 'undefined' || !window.indexedDB || !handle) return;
   try {
-    const req = indexedDB.open('framemyapp_banner_fs', 1);
-    req.onupgradeneeded = () => {
-      req.result.createObjectStore('handles');
-    };
-    req.onsuccess = () => {
-      const db = req.result;
-      const tx = db.transaction('handles', 'readwrite');
-      tx.objectStore('handles').put(handle, key);
-    };
+    const db = await openIdb();
+    const tx = db.transaction('handles', 'readwrite');
+    tx.objectStore('handles').put(handle, key);
   } catch (e) {
     console.warn('Could not save handle to IndexedDB:', e);
   }
@@ -433,28 +481,34 @@ export async function saveDirectoryHandleToIdb(handle: any, key = 'root_bundle_d
  * Retrieves the persisted handle from IndexedDB if available.
  */
 export async function getDirectoryHandleFromIdb(key = 'root_bundle_dir'): Promise<any> {
-  if (typeof window === 'undefined' || !window.indexedDB) return null;
-  return new Promise(resolve => {
-    try {
-      const req = indexedDB.open('framemyapp_banner_fs', 1);
-      req.onupgradeneeded = () => {
-        req.result.createObjectStore('handles');
-      };
-      req.onsuccess = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains('handles')) {
-          return resolve(null);
-        }
-        const tx = db.transaction('handles', 'readonly');
-        const getReq = tx.objectStore('handles').get(key);
-        getReq.onsuccess = () => resolve(getReq.result || null);
-        getReq.onerror = () => resolve(null);
-      };
-      req.onerror = () => resolve(null);
-    } catch {
-      resolve(null);
-    }
-  });
+  try {
+    const db = await openIdb();
+    return new Promise(resolve => {
+      if (!db.objectStoreNames.contains('handles')) {
+        return resolve(null);
+      }
+      const tx = db.transaction('handles', 'readonly');
+      const getReq = tx.objectStore('handles').get(key);
+      getReq.onsuccess = () => resolve(getReq.result || null);
+      getReq.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Deletes a persisted handle from IndexedDB.
+ */
+export async function removeDirectoryHandleFromIdb(key = 'root_bundle_dir'): Promise<void> {
+  try {
+    const db = await openIdb();
+    if (!db.objectStoreNames.contains('handles')) return;
+    const tx = db.transaction('handles', 'readwrite');
+    tx.objectStore('handles').delete(key);
+  } catch (e) {
+    console.warn('Could not remove handle from IndexedDB:', e);
+  }
 }
 
 

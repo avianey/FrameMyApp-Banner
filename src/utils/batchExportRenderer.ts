@@ -100,6 +100,7 @@ export async function captureZoneToBlob(
   const prevTop = container?.style.top ?? '';
   const prevRadius = artboardElement.style.borderRadius ?? '';
   const prevShadow = artboardElement.style.boxShadow ?? '';
+  const prevOverflow = artboardElement.style.overflow ?? '';
 
   // Hide UI handles and export overlay
   const hiddenElements: { el: HTMLElement; prevDisplay: string }[] = [];
@@ -123,6 +124,7 @@ export async function captureZoneToBlob(
   }
   artboardElement.style.borderRadius = '0px';
   artboardElement.style.boxShadow = 'none';
+  artboardElement.style.overflow = 'hidden';
 
   // Wait for fonts and browser layout to settle at scale 1:1
   if (typeof document !== 'undefined' && document.fonts) {
@@ -192,6 +194,29 @@ export async function captureZoneToBlob(
             } catch (e) {}
           });
         }
+
+        // Apply native canvas blur to images with data-image-blur (html2canvas ignores CSS filter)
+        clonedDoc.querySelectorAll('img[data-image-blur]').forEach((imgEl: any) => {
+          const blurVal = parseFloat(imgEl.getAttribute('data-image-blur') || '0');
+          if (blurVal > 0) {
+            try {
+              const canvas = clonedDoc.createElement('canvas');
+              const w = imgEl.naturalWidth || imgEl.offsetWidth || 800;
+              const h = imgEl.naturalHeight || imgEl.offsetHeight || 600;
+              canvas.width = w;
+              canvas.height = h;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.filter = `blur(${blurVal}px)`;
+                ctx.drawImage(imgEl, 0, 0, w, h);
+                imgEl.src = canvas.toDataURL();
+                imgEl.style.filter = 'none';
+              }
+            } catch (err) {
+              console.warn('Could not pre-render blurred image for export:', err);
+            }
+          }
+        });
 
         // Apply native visual line blocks to prevent html2canvas CJK wrapping or collapse bugs
         clonedDoc.querySelectorAll('.editable-text-content').forEach((clonedEl: any) => {
@@ -269,6 +294,7 @@ export async function captureZoneToBlob(
     }
     artboardElement.style.borderRadius = prevRadius;
     artboardElement.style.boxShadow = prevShadow;
+    artboardElement.style.overflow = prevOverflow;
 
     hiddenElements.forEach(({ el, prevDisplay }) => {
       el.style.display = prevDisplay;

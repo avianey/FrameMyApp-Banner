@@ -24,6 +24,7 @@ import {
   verifyDirectoryPermission,
   saveDirectoryHandleToIdb,
   getDirectoryHandleFromIdb,
+  removeDirectoryHandleFromIdb,
   readDirectoryBundle
 } from '../utils/bundleIo';
 import { assetManager, convertUrlsToRelativeAssetPaths } from '../utils/assetManager';
@@ -215,6 +216,11 @@ export function useDiskSync({
   const [syncFileHandle, setSyncFileHandleState] = useState<any>(null);
   const syncFileHandleRef = useRef<any>(null);
 
+  // Permission recovery modal state when permissions are lost across sessions
+  const [isPermissionModalOpen, setIsPermissionModalOpen] = useState<boolean>(false);
+  const [permissionTargetName, setPermissionTargetName] = useState<string>('');
+  const pendingDiskHandleRef = useRef<any>(null);
+
   const lastSavedSignatureRef = useRef<string>('');
   const autoSyncTimerRef = useRef<any>(null);
   const isInitialLoadCompleteRef = useRef<boolean>(false);
@@ -304,6 +310,126 @@ export function useDiskSync({
     [loadedBundle, activeBundleItemId, setLoadedBundleState]
   );
 
+  const loadFromDiskHandle = useCallback(
+    async (handle: any, isCancelled = false): Promise<boolean> => {
+      if (!handle || isCancelled) return false;
+
+      let loadedConfig: any = null;
+      let loadedName = '';
+
+      const isDir = handle.kind === 'directory' || typeof handle.getFileHandle === 'function';
+
+      if (isDir) {
+        let bundle: any = null;
+        try {
+          bundle = await readDirectoryBundle(handle);
+          if (bundle && bundle.master) {
+            setLoadedBundleState(bundle);
+            const masterConfig = bundle.master.config as BannerMasterConfig;
+            if (masterConfig) {
+              loadedConfig = resolveComposition(
+                masterConfig,
+                undefined,
+                undefined,
+                bundle.assets,
+                bundle.master.path
+              );
+              loadedName = bundle.master.name || bundle.name;
+            }
+          }
+        } catch (e) {
+          console.warn('readDirectoryBundle failed:', e);
+        }
+
+        if (!loadedConfig) {
+          const targetFile = syncFilePath || `${slugifyFilename(projectName)}.yml`;
+          try {
+            const fHandle = await handle.getFileHandle(targetFile);
+            const file = await fHandle.getFile();
+            const text = await file.text();
+            const rawConfig = parseYaml<BannerMasterConfig>(text);
+            loadedConfig = resolveComposition(
+              rawConfig,
+              undefined,
+              undefined,
+              bundle?.assets || {},
+              targetFile
+            );
+            loadedName = rawConfig.name || targetFile.replace(/\.(ya?ml|json)$/i, '');
+          } catch (e) {
+            console.warn(`Fichier ${targetFile} non encore présent sur disque:`, e);
+          }
+        }
+      } else {
+        // File handle
+        try {
+          const file = await handle.getFile();
+          const text = await file.text();
+          const rawConfig = parseYaml<BannerMasterConfig>(text);
+          loadedConfig = resolveComposition(rawConfig, undefined, undefined, {}, handle.name);
+          loadedName = rawConfig.name || handle.name.replace(/\.(ya?ml|json)$/i, '');
+        } catch (e) {
+          console.warn('getFile on fileHandle failed:', e);
+        }
+      }
+
+      if (loadedConfig && !isCancelled) {
+        const targetW = loadedConfig.canvasWidth || loadedConfig.exportZone?.width || 800;
+        const targetH = loadedConfig.canvasHeight || loadedConfig.exportZone?.height || 600;
+        const restoredBg = loadedConfig.background
+          ? { ...initialBackground, ...loadedConfig.background }
+          : initialBackground;
+        const restoredElements = loadedConfig.elements || [];
+        const restoredZone = loadedConfig.exportZone
+          ? { ...initialExportZone, ...loadedConfig.exportZone }
+          : initialExportZone;
+
+        setBackground(restoredBg);
+        setElements(restoredElements);
+        setExportZone(restoredZone);
+        setCanvasWidth(targetW);
+        setCanvasHeight(targetH);
+
+        centerCanvas?.(targetW, targetH, true);
+
+        if (loadedName) {
+          setProjectNameState(loadedName);
+        }
+
+        const restoredSig = computeCanvasSignature(
+          restoredBg,
+          restoredElements,
+          restoredZone,
+          targetW,
+          targetH,
+          loadedName || projectName
+        );
+        lastSavedSignatureRef.current = restoredSig;
+        setSyncStatus('synced');
+        setLastSyncTime(new Date());
+        showSnackbar(`Projet restauré depuis le disque : ${loadedName || 'YAML'}`, 'cloud_done');
+        return true;
+      }
+
+      return false;
+    },
+    [
+      syncFilePath,
+      projectName,
+      initialBackground,
+      initialExportZone,
+      setBackground,
+      setElements,
+      setExportZone,
+      setCanvasWidth,
+      setCanvasHeight,
+      centerCanvas,
+      setProjectNameState,
+      setLoadedBundleState,
+      showSnackbar
+    ]
+  );
+
   // Restore on mount from IndexedDB & Disk
   useEffect(() => {
     let isCancelled = false;
@@ -315,6 +441,34 @@ export function useDiskSync({
           (await getDirectoryHandleFromIdb('root_bundle_dir'));
         const fileHandle = await getDirectoryHandleFromIdb('sync_file_handle');
 
+        const activeHandle = dirHandle || fileHandle;
+        if (!activeHandle) {
+          // No saved disk handle: user starts normally. Restore local draft if any.
+          try {
+            const draftJson = localStorage.getItem('framemyapp_draft_project');
+            if (draftJson) {
+              const draft = JSON.parse(draftJson);
+              if (draft && draft.elements && draft.elements.length > 0) {
+                if (draft.background) {
+                  const bg = { ...draft.background };
+                  if (bg.imageUrl?.startsWith('blob:')) bg.imageUrl = '';
+                  setBackground(bg);
+                }
+                const cleanEls = draft.elements.map((el: any) => ({
+                  ...el,
+                  screenImageUrl: el.screenImageUrl?.startsWith('blob:') ? '' : el.screenImageUrl,
+                  imageUrl: el.imageUrl?.startsWith('blob:') ? '' : el.imageUrl
+                }));
+                setElements(cleanEls);
+                if (draft.exportZone) setExportZone(draft.exportZone);
+                if (draft.canvasWidth) setCanvasWidth(draft.canvasWidth);
+                if (draft.canvasHeight) setCanvasHeight(draft.canvasHeight);
+              }
+            }
+          } catch {}
+          return;
+        }
+
         if (dirHandle) {
           syncDirHandleRef.current = dirHandle;
           setSyncDirectoryHandleState(dirHandle);
@@ -325,115 +479,20 @@ export function useDiskSync({
           setSyncFileHandleState(fileHandle);
         }
 
-        let loadedConfig: any = null;
-        let loadedName = '';
-
-        if (fileHandle) {
-          const hasPerm = await verifyDirectoryPermission(fileHandle, false);
-          if (hasPerm) {
-            const file = await fileHandle.getFile();
-            const text = await file.text();
-            const rawConfig = parseYaml<BannerMasterConfig>(text);
-            loadedConfig = resolveComposition(rawConfig, undefined, undefined, {}, fileHandle.name);
-            loadedName = rawConfig.name || fileHandle.name.replace(/\.(ya?ml|json)$/i, '');
-          }
-        } else if (dirHandle) {
-          const hasPerm = await verifyDirectoryPermission(dirHandle, false);
-          if (hasPerm) {
-            let bundle: any = null;
-            try {
-              bundle = await readDirectoryBundle(dirHandle);
-              if (bundle && bundle.master) {
-                if (!isCancelled) {
-                  setLoadedBundleState(bundle);
-                  const masterConfig = bundle.master.config as BannerMasterConfig;
-                  if (masterConfig) {
-                    loadedConfig = resolveComposition(
-                      masterConfig,
-                      undefined,
-                      undefined,
-                      bundle.assets,
-                      bundle.master.path
-                    );
-                    loadedName = bundle.master.name || bundle.name;
-                  }
-                }
-              }
-            } catch {
-              // Not a full bundle
-            }
-
-            if (!loadedConfig) {
-              const targetFile = syncFilePath || `${slugifyFilename(projectName)}.yml`;
-              try {
-                const fHandle = await dirHandle.getFileHandle(targetFile);
-                const file = await fHandle.getFile();
-                const text = await file.text();
-                const rawConfig = parseYaml<BannerMasterConfig>(text);
-                loadedConfig = resolveComposition(
-                  rawConfig,
-                  undefined,
-                  undefined,
-                  bundle?.assets || {},
-                  targetFile
-                );
-                loadedName = rawConfig.name || targetFile.replace(/\.(ya?ml|json)$/i, '');
-              } catch (e) {
-                console.warn(`Fichier ${targetFile} non encore présent sur disque:`, e);
-              }
-            }
-          }
-        }
-
-        if (loadedConfig && !isCancelled) {
-          const targetW = loadedConfig.canvasWidth || loadedConfig.exportZone?.width || 800;
-          const targetH = loadedConfig.canvasHeight || loadedConfig.exportZone?.height || 600;
-          const restoredBg = loadedConfig.background
-            ? { ...initialBackground, ...loadedConfig.background }
-            : initialBackground;
-          const restoredElements = loadedConfig.elements || [];
-          const restoredZone = loadedConfig.exportZone
-            ? { ...initialExportZone, ...loadedConfig.exportZone }
-            : initialExportZone;
-
-          setBackground(restoredBg);
-          setElements(restoredElements);
-          setExportZone(restoredZone);
-          setCanvasWidth(targetW);
-          setCanvasHeight(targetH);
-
-          // Recentrer automatiquement la scène restaurée dans le viewport
-          centerCanvas?.(targetW, targetH, true);
-
-          if (loadedName) {
-            setProjectNameState(loadedName);
-          }
-
-          const restoredSig = computeCanvasSignature(
-            restoredBg,
-            restoredElements,
-            restoredZone,
-            targetW,
-            targetH,
-            loadedName || projectName
-          );
-          lastSavedSignatureRef.current = restoredSig;
-          setSyncStatus('synced');
-          setLastSyncTime(new Date());
-          showSnackbar(`Projet restauré depuis le disque : ${loadedName || 'YAML'}`, 'cloud_done');
+        // Check permission passively (no browser prompt)
+        const hasPerm = await verifyDirectoryPermission(activeHandle, false, false);
+        if (hasPerm) {
+          // Permissions are still valid: load from disk immediately
+          await loadFromDiskHandle(activeHandle, isCancelled);
         } else {
-          const baseSig = computeCanvasSignature(
-            background,
-            elements,
-            exportZone,
-            canvasWidth,
-            canvasHeight,
-            projectName
-          );
-          lastSavedSignatureRef.current = baseSig;
+          // Permissions were revoked/lost across sessions!
+          // Open the modal asking the user to authorize or start new document
+          pendingDiskHandleRef.current = activeHandle;
+          setPermissionTargetName(activeHandle.name || 'Projet local');
+          setIsPermissionModalOpen(true);
         }
       } catch (err) {
-        console.warn('Erreur lors de la restauration depuis le disque:', err);
+        console.warn('Erreur lors de la vérification du disque au démarrage:', err);
       } finally {
         if (!isCancelled) {
           isInitialLoadCompleteRef.current = true;
@@ -446,7 +505,90 @@ export function useDiskSync({
     return () => {
       isCancelled = true;
     };
-  }, []);
+  }, [loadFromDiskHandle, setBackground, setElements, setExportZone, setCanvasWidth, setCanvasHeight]);
+
+  const authorizeDiskAccess = useCallback(async () => {
+    const handle = pendingDiskHandleRef.current || syncDirHandleRef.current || syncFileHandleRef.current;
+    if (!handle) {
+      setIsPermissionModalOpen(false);
+      return;
+    }
+
+    // Called on user click: requestIfPrompt = true, allowed by browser!
+    const granted = await verifyDirectoryPermission(handle, true, true);
+    if (granted) {
+      setIsPermissionModalOpen(false);
+
+      if (
+        handle.kind === 'file' &&
+        !syncDirHandleRef.current &&
+        typeof window !== 'undefined' &&
+        'showDirectoryPicker' in window
+      ) {
+        try {
+          showSnackbar('Sélectionnez le dossier parent pour charger les images (assets/)...', 'folder');
+          const dirHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
+          if (dirHandle) {
+            await verifyDirectoryPermission(dirHandle, true, true);
+            syncDirHandleRef.current = dirHandle;
+            setSyncDirectoryHandleState(dirHandle);
+            setSyncDirectoryName(dirHandle.name);
+            saveDirectoryHandleToIdb(dirHandle, 'sync_dir_handle');
+            saveDirectoryHandleToIdb(dirHandle, 'root_bundle_dir');
+            await loadFromDiskHandle(dirHandle, false);
+            showSnackbar(`Dossier et assets connectés : ${dirHandle.name}`, 'folder_open');
+            return;
+          }
+        } catch (e: any) {
+          if (e.name !== 'AbortError') console.warn('showDirectoryPicker error in authorizeDiskAccess:', e);
+        }
+      }
+
+      await loadFromDiskHandle(handle, false);
+      showSnackbar(`Accès autorisé : ${handle.name}`, 'folder_open');
+    } else {
+      showSnackbar('Permission refusée par le navigateur', 'warning');
+    }
+  }, [loadFromDiskHandle, showSnackbar]);
+
+  const dismissDiskAccessAndStartNew = useCallback(() => {
+    setIsPermissionModalOpen(false);
+    pendingDiskHandleRef.current = null;
+    syncDirHandleRef.current = null;
+    syncFileHandleRef.current = null;
+    setSyncDirectoryHandleState(null);
+    setSyncDirectoryName(null);
+    setSyncFileHandleState(null);
+    setSyncFilePathState(null);
+    removeDirectoryHandleFromIdb('sync_dir_handle');
+    removeDirectoryHandleFromIdb('root_bundle_dir');
+    removeDirectoryHandleFromIdb('sync_file_handle');
+    try {
+      localStorage.removeItem('framemyapp_sync_dir_name');
+      localStorage.removeItem('framemyapp_sync_file_path');
+      localStorage.removeItem('framemyapp_draft_project');
+    } catch {}
+    // Reset canvas to blank
+    setBackground(initialBackground);
+    setElements([]);
+    setExportZone(initialExportZone);
+    setCanvasWidth(800);
+    setCanvasHeight(600);
+    centerCanvas?.(800, 600, true);
+    showSnackbar('Nouveau document vierge démarré', 'note_add');
+  }, [
+    initialBackground,
+    initialExportZone,
+    setBackground,
+    setElements,
+    setExportZone,
+    setCanvasWidth,
+    setCanvasHeight,
+    centerCanvas,
+    setSyncDirectoryName,
+    setSyncFilePath,
+    showSnackbar
+  ]);
 
   const selectSyncDirectory = useCallback(async (): Promise<boolean> => {
     const hasFsSupport = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
@@ -460,7 +602,7 @@ export function useDiskSync({
         startIn: 'desktop'
       });
       if (handle) {
-        await verifyDirectoryPermission(handle, true);
+        await verifyDirectoryPermission(handle, true, true);
         syncDirHandleRef.current = handle;
         setSyncDirectoryHandle(handle);
         setSyncDirectoryName(handle.name);
@@ -499,10 +641,11 @@ export function useDiskSync({
         ]
       });
       if (handle) {
-        await verifyDirectoryPermission(handle, true);
+        await verifyDirectoryPermission(handle, true, true);
         syncFileHandleRef.current = handle;
         setSyncFileHandle(handle);
         setSyncFilePath(handle.name);
+        saveDirectoryHandleToIdb(handle, 'sync_file_handle');
 
         const file = await handle.getFile();
         const raw = await file.text();
@@ -510,6 +653,30 @@ export function useDiskSync({
         const name = config.name || handle.name.replace(/\.(ya?ml|json)$/i, '');
         setProjectName(name);
 
+        // Prompt user to select parent folder so images/assets can be loaded and synchronized
+        try {
+          showSnackbar('Sélectionnez le dossier parent pour charger les images (assets/)...', 'folder');
+          const dirHandle = await (window as any).showDirectoryPicker({
+            mode: 'readwrite',
+            startIn: handle
+          });
+          if (dirHandle) {
+            await verifyDirectoryPermission(dirHandle, true, true);
+            syncDirHandleRef.current = dirHandle;
+            setSyncDirectoryHandle(dirHandle);
+            setSyncDirectoryName(dirHandle.name);
+            saveDirectoryHandleToIdb(dirHandle, 'sync_dir_handle');
+            saveDirectoryHandleToIdb(dirHandle, 'root_bundle_dir');
+            await loadFromDiskHandle(dirHandle, false);
+            showSnackbar(`Template et dossier connectés : ${dirHandle.name}`, 'folder_open');
+            return true;
+          }
+        } catch (dirErr: any) {
+          if (dirErr.name !== 'AbortError') console.warn('Directory picker failed:', dirErr);
+        }
+
+        // If directory was not chosen, load file config into canvas
+        await loadFromDiskHandle(handle, false);
         showSnackbar(`Fichier connecté pour la synchro : ${handle.name}`, 'file_open');
         return true;
       }
@@ -519,7 +686,7 @@ export function useDiskSync({
       showSnackbar(`Impossible d'accéder au fichier : ${err.message || ''}`, 'error');
     }
     return false;
-  }, [setProjectName, setSyncFileHandle, setSyncFilePath, showSnackbar]);
+  }, [setProjectName, setSyncFileHandle, setSyncFilePath, showSnackbar, loadFromDiskHandle]);
 
   const syncToDisk = useCallback(async (): Promise<boolean> => {
     setSyncStatus('syncing');
@@ -623,12 +790,12 @@ export function useDiskSync({
       }
 
       if (targetDirHandle) {
-        await verifyDirectoryPermission(targetDirHandle, true);
+        await verifyDirectoryPermission(targetDirHandle, true, true);
         await assetManager.saveAllToDirectory(targetDirHandle);
       }
 
       if (targetFileHandle) {
-        await verifyDirectoryPermission(targetFileHandle, true);
+        await verifyDirectoryPermission(targetFileHandle, true, true);
         if (
           typeof (targetFileHandle as any).move === 'function' &&
           targetFilename &&
@@ -709,21 +876,22 @@ export function useDiskSync({
     showSnackbar
   ]);
 
-  // Persistance continue du brouillon local de travail (cache navigateur)
+  // Persistance continue du brouillon local de travail (cache navigateur avec sanitization des URLs)
   useEffect(() => {
     try {
-      localStorage.setItem(
-        'framemyapp_draft_project',
-        JSON.stringify({
+      const sanitized = convertUrlsToRelativeAssetPaths(
+        {
           canvasWidth,
           canvasHeight,
           background,
           elements,
           exportZone
-        })
+        },
+        loadedBundle?.assets
       );
+      localStorage.setItem('framemyapp_draft_project', JSON.stringify(sanitized));
     } catch {}
-  }, [canvasWidth, canvasHeight, background, elements, exportZone]);
+  }, [canvasWidth, canvasHeight, background, elements, exportZone, loadedBundle?.assets]);
 
   // Canvas change detection & debounced auto-sync
   useEffect(() => {
@@ -806,6 +974,10 @@ export function useDiskSync({
     selectSyncDirectory,
     selectSyncFile,
     syncToDisk,
-    lastSavedSignatureRef
+    lastSavedSignatureRef,
+    isPermissionModalOpen,
+    permissionTargetName,
+    authorizeDiskAccess,
+    dismissDiskAccessAndStartNew
   };
 }

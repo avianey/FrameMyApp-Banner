@@ -29,6 +29,7 @@ export const ShapeControls: React.FC<ShapeControlsProps> = ({ element }) => {
     setEditingImageElementId,
     showSnackbar,
     recordHistory,
+    persistAsset,
     state,
     loadedBundle
   } = useEditor();
@@ -468,19 +469,13 @@ export const ShapeControls: React.FC<ShapeControlsProps> = ({ element }) => {
             return (
               <ImageUploadField
                 imageUrl={displayImageUrl}
-                onImageLoaded={(result, file) => {
+                onImageLoaded={async (result, file) => {
                   recordHistory();
                   let finalUrl = result;
                   if (file) {
-                    const { assetPath, displayUrl } = assetManager.registerAsset(file.name, file);
-                    assetManager.registerUrlMapping(result, assetPath);
-                    assetManager.registerUrlMapping(displayUrl, assetPath);
+                    const { displayUrl } = await persistAsset(file);
+                    assetManager.registerUrlMapping(result, displayUrl);
                     finalUrl = displayUrl;
-
-                    const dirHandle = state.syncDirectoryHandle || loadedBundle?.directoryHandle;
-                    if (dirHandle) {
-                      assetManager.saveAllToDirectory(dirHandle).catch(e => console.warn(e));
-                    }
                   }
                   const img = new Image();
                   img.onload = () => {

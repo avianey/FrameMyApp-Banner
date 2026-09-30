@@ -24,6 +24,10 @@ export interface BackgroundConfig {
   imageScale?: number;
   imageNaturalWidth?: number;
   imageNaturalHeight?: number;
+  imageBlurEnable?: boolean;
+  imageBlur?: number;
+  imageOverlayEnable?: boolean;
+  imageOverlayColor?: string;
 }
 
 export type ShapeType = 'rectangle' | 'rounded-rect' | 'circle' | 'pill' | 'star' | 'hexagon';

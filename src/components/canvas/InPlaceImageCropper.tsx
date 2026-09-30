@@ -22,6 +22,7 @@ export interface InPlaceImageCropperProps {
   canvasZoom: number;
   borderRadius?: string | number;
   clipPath?: string;
+  imageBlur?: number;
 }
 
 export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
@@ -38,7 +39,8 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
   onUpdate,
   canvasZoom = 1.0,
   borderRadius = 0,
-  clipPath = 'none'
+  clipPath = 'none',
+  imageBlur
 }) => {
   const [natWidth, setNatWidth] = useState<number>(imageNaturalWidth || 0);
   const [natHeight, setNatHeight] = useState<number>(imageNaturalHeight || 0);
@@ -258,12 +260,15 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
         alt=""
         draggable={false}
         onLoad={handleImageLoad}
+        data-image-blur={imageBlur && imageBlur > 0 ? imageBlur : undefined}
         className="absolute max-w-none max-h-none select-none pointer-events-none"
         style={{
           width: `${geom.renderW}px`,
           height: `${geom.renderH}px`,
           left: `${imgLeft}px`,
           top: `${imgTop}px`,
+          filter: imageBlur && imageBlur > 0 ? `blur(${imageBlur}px)` : undefined,
+          transform: imageBlur && imageBlur > 0 ? 'scale(1.04)' : undefined,
           transition: isSpringing ? 'all 0.3s cubic-bezier(0.25, 1, 0.5, 1)' : 'none'
         }}
       />

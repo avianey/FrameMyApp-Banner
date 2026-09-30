@@ -190,6 +190,13 @@ Le panneau de fond propose 4 modes :
      - **Persistance YAML** : Les coordonnées de décalage (`imageOffsetX`, `imageOffsetY`) et le facteur d'échelle (`imageScale`) sont automatiquement sauvegardés et persistés dans les templates YAML.
      - **Formes avec texture image** : Le même comportement s'applique aux formes géométriques (`ShapeElement`) remplies avec une image (double-clic pour ajuster l'image dans la forme).
    - Mode de redimensionnement : *Remplir (Cover)* ou *Ajuster (Contenir)*.
+   - **Floutage de l'image (`imageBlurEnable` & `imageBlur`)** :
+     - Case à cocher pour activer/désactiver le flou artistique sur l'image d'arrière-plan.
+     - Curseur d'intensité de flou (1 à 50 px, valeur par défaut de 1 px) avec prévisualisation en direct et rendu fidèle lors des exports batch et haute résolution.
+   - **Voile de couleur de premier plan (`imageOverlayEnable` & `imageOverlayColor`)** :
+     - Case à cocher pour appliquer un voile coloré (foreground scrim) superposé entre l'image d'arrière-plan et les éléments graphiques/textuels (désactivé par défaut).
+     - Couleur par défaut avec canal alpha : `#FFFFFF11` (`rgba(255, 255, 255, 0.07)`).
+     - Sélecteur complet avec pipette et canal alpha (`ColorAlphaPicker`) permettant d'ajuster précisément la teinte et l'intensité du filtre (ex: obscurcir ou éclaircir l'image pour optimiser la lisibilité des titres).
    - Opacité globale de l'image (0 à 100%).
 
 ---
@@ -363,6 +370,11 @@ Accessible depuis l'icône de disquette (`save`) dans l'en-tête :
 - **Sauvegarde Automatique sur le Disque & Gestion des Assets (`assets/`)** :
   - Un commutateur permet d'activer la synchronisation automatique en continu. Dès qu'une modification survient sur le canevas (déplacement d'un texte, changement de couleur, redimensionnement d'une forme), l'écriture est déclenchée sur votre disque avec temporisation debounced.
   - **Stockage Physique des Images & Chemins Relatifs** : Lorsqu'un dossier local est connecté, les images ajoutées (captures d'écran de devices, textures de formes, fond) sont automatiquement écrites sous forme de fichiers réels dans le sous-dossier `assets/` du projet (ex: `assets/screenshot.png`). Les fichiers YAML (`master.yml`, overrides, variants) enregistrent uniquement le chemin relatif propre (`imageUrl: "assets/screenshot.png"`), éliminant tout Base64 lourd des fichiers YAML.
+- **Restauration de Session & Dialogue de Réautorisation de Dossier (`DiskPermissionModal`)** :
+  - Lorsqu'un projet local était connecté dans une session précédente et que la page est rechargée (ou une nouvelle session de navigateur lancée), le navigateur révoque nativement les permissions d'accès aux fichiers locaux par mesure de sécurité.
+  - Au lieu de charger des chemins d'images non accessibles ou de tenter des requêtes non autorisées en arrière-plan, une boîte de dialogue M3 **« Reprendre le projet local ? »** s'affiche immédiatement au démarrage proposant deux choix clairs :
+    1. **« Autoriser l'accès »** : Déclenche l'autorisation native du navigateur sur clic direct de l'utilisateur, réactive les droits d'accès sur le dossier et son sous-dossier `assets/`, lit le fichier YAML et recharge instantanément toutes les images physiques du projet.
+    2. **« Nouveau document »** : Réinitialise la connexion disque locale, détache le dossier et ouvre une scène vierge propre.
 - **Synchronisation Manuelle** :
   - Un bouton d'enregistrement immédiat permet de forcer l'écriture immédiate sur le disque et indique l'heure de la dernière écriture réussie.
 
@@ -522,6 +534,8 @@ images:
 
 - **Extraction & Stockage Automatique sur Disque (`assets/`)** :
   - Dès qu'un dossier de projet est connecté via la *File System Access API*, chaque image chargée ou glissée sur un élément ou sur la scène est enregistrée directement en tant que fichier physique dans le sous-répertoire `assets/` du projet (avec nom normalisé, ex: `assets/screen_device_1.png` ou `assets/background.png`).
+  - **Invite automatique de connexion de dossier** : Si l'utilisateur importe une image sur un appareil, un fond ou une forme alors qu'aucun dossier n'est connecté, l'application sollicite immédiatement la sélection du dossier du projet (`showDirectoryPicker`) afin d'écrire physiquement le fichier dans `assets/` et de garantir sa réouverture dans les sessions ultérieures.
+  - **Demande d'autorisation lors de l'import YAML** : Lors du chargement d'un fichier YAML (via import de fichier ou glisser-déposer), l'application demande l'accès au dossier parent du projet afin de monter et charger tous les fichiers graphiques du dossier `assets/`.
   - Dans les fichiers YAML (`master.yml`, overrides, déclinaisons), les images sont sérialisées sous forme de **chemins relatifs propres** (`assets/nom_image.png`), bannissant tout Base64 volumineux du code source YAML.
   - En mémoire vive, des URLs optimisées (`URL.createObjectURL(blob)`) assurent un affichage instantané et fluide dans le canevas sans perte de performance.
   - Lors de l'export en **Bundle ZIP**, tous les assets du projet sont automatiquement rassemblés et intégrés physiquement dans le dossier `assets/` de l'archive.

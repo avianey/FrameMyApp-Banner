@@ -29,6 +29,7 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
     setEditingImageElementId,
     setActivePanel,
     showSnackbar,
+    persistAsset,
     loadedBundle
   } = useEditor();
   const nodeRef = useRef<HTMLDivElement>(null);
@@ -72,19 +73,7 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
     if (files && files[0] && files[0].type.startsWith('image/')) {
       recordHistory();
       const file = files[0];
-      const { assetPath, displayUrl } = assetManager.registerAsset(file.name, file);
-
-      const dirHandle = state.syncDirectoryHandle || loadedBundle?.directoryHandle;
-      if (dirHandle) {
-        assetManager.saveAllToDirectory(dirHandle).catch(err => console.warn(err));
-      }
-
-      const reader = new FileReader();
-      reader.onload = ev => {
-        const result = ev.target?.result as string;
-        if (!result) return;
-        assetManager.registerUrlMapping(result, assetPath);
-        assetManager.registerUrlMapping(displayUrl, assetPath);
+      persistAsset(file).then(({ displayUrl }) => {
         const img = new Image();
         img.onload = () => {
           updateElement(element.id, {
@@ -98,8 +87,7 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
           showSnackbar('Texture enregistrée et appliquée sur la forme', 'image');
         };
         img.src = displayUrl;
-      };
-      reader.readAsDataURL(file);
+      });
     }
   };
 

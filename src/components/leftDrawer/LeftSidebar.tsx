@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { useEditor } from '../../context/EditorContext';
+import { useEditor, extractAssetsFromConfig } from '../../context/EditorContext';
 import { BundleItem, CanvasElement } from '../../types';
 import {
   readFilesBundle,
@@ -33,6 +33,7 @@ export const LeftSidebar: React.FC = () => {
     isItemDirty,
     saveBundleItemToDisk,
     setProjectName,
+    requestYamlAssetsPermission,
     setSyncFilePath,
     setSyncDirectoryName,
     setSyncDirectoryHandle
@@ -79,6 +80,14 @@ export const LeftSidebar: React.FC = () => {
           rawContent: await file.text(),
           config
         };
+
+        const detectedAssets = extractAssetsFromConfig(config);
+        if (detectedAssets.length > 0 && hasFsSupport) {
+          requestYamlAssetsPermission(item, file.name, detectedAssets);
+          if (e.target) e.target.value = '';
+          return;
+        }
+
         setLoadedBundle({
           name: templateName,
           master: item,
@@ -271,6 +280,13 @@ export const LeftSidebar: React.FC = () => {
             rawContent: await file.text(),
             config
           };
+
+          const detectedAssets = extractAssetsFromConfig(config);
+          if (detectedAssets.length > 0 && hasFsSupport) {
+            requestYamlAssetsPermission(item, file.name, detectedAssets);
+            return;
+          }
+
           setLoadedBundle({
             name: templateName,
             master: item,

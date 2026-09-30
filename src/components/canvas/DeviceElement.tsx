@@ -76,7 +76,7 @@ export const DeviceElement: React.FC<DeviceElementProps> = ({
   selectionIndex,
   isMultiSelected
 }) => {
-  const { selectElement, updateElement, state, recordHistory, showSnackbar, setActivePanel, loadedBundle } = useEditor();
+  const { selectElement, updateElement, state, recordHistory, showSnackbar, setActivePanel, persistAsset, loadedBundle } = useEditor();
   const nodeRef = useRef<HTMLDivElement>(null);
   const currentZoom = state.zoom || 1;
   const [isDropTarget, setIsDropTarget] = useState(false);
@@ -118,19 +118,7 @@ export const DeviceElement: React.FC<DeviceElementProps> = ({
     if (files && files[0] && files[0].type.startsWith('image/')) {
       recordHistory();
       const file = files[0];
-      const { assetPath, displayUrl } = assetManager.registerAsset(file.name, file);
-
-      const dirHandle = state.syncDirectoryHandle || loadedBundle?.directoryHandle;
-      if (dirHandle) {
-        assetManager.saveAllToDirectory(dirHandle).catch(err => console.warn(err));
-      }
-
-      const reader = new FileReader();
-      reader.onload = ev => {
-        const result = ev.target?.result as string;
-        if (!result) return;
-        assetManager.registerUrlMapping(result, assetPath);
-        assetManager.registerUrlMapping(displayUrl, assetPath);
+      persistAsset(file).then(({ displayUrl }) => {
         const img = new Image();
         img.onload = () => {
           const imgRatio = img.naturalWidth / img.naturalHeight;
@@ -145,8 +133,7 @@ export const DeviceElement: React.FC<DeviceElementProps> = ({
           showSnackbar('Capture d’écran enregistrée et appliquée', 'smartphone');
         };
         img.src = displayUrl;
-      };
-      reader.readAsDataURL(file);
+      });
     }
   };
 

@@ -81,7 +81,7 @@ interface DeviceControlsProps {
 }
 
 export const DeviceControls: React.FC<DeviceControlsProps> = ({ element }) => {
-  const { updateElement, deleteElement, showSnackbar, recordHistory, state, loadedBundle } = useEditor();
+  const { updateElement, deleteElement, showSnackbar, recordHistory, persistAsset, loadedBundle } = useEditor();
 
   const baseW = element.deviceType === 'pixel-tab' ? 500 : 260;
   const effectiveDims = getDeviceEffectiveDimensions(element);
@@ -99,19 +99,13 @@ export const DeviceControls: React.FC<DeviceControlsProps> = ({ element }) => {
   };
 
   // Ajustement automatique du ratio de l'écran en fonction de l'image
-  const applyImageWithAspectRatio = (imageUrl: string, file?: File) => {
+  const applyImageWithAspectRatio = async (imageUrl: string, file?: File) => {
     recordHistory();
     let finalUrl = imageUrl;
     if (file) {
-      const { assetPath, displayUrl } = assetManager.registerAsset(file.name, file);
-      assetManager.registerUrlMapping(imageUrl, assetPath);
-      assetManager.registerUrlMapping(displayUrl, assetPath);
+      const { displayUrl } = await persistAsset(file);
+      assetManager.registerUrlMapping(imageUrl, displayUrl);
       finalUrl = displayUrl;
-
-      const dirHandle = state.syncDirectoryHandle || loadedBundle?.directoryHandle;
-      if (dirHandle) {
-        assetManager.saveAllToDirectory(dirHandle).catch(e => console.warn(e));
-      }
     }
 
     const img = new Image();

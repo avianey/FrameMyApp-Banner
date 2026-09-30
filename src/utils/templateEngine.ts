@@ -152,7 +152,16 @@ function applyLayer(
   if (layer.background) {
     composition.background = deepMerge(composition.background, layer.background);
     if (composition.background.imageUrl) {
-      const resolved = resolveAsset(composition.background.imageUrl, variantPath, assetsMap);
+      let resolved = resolveAsset(composition.background.imageUrl, variantPath, assetsMap);
+      if (resolved === composition.background.imageUrl) {
+        const bgFallback =
+          assetsMap['assets/background.png'] ||
+          assetsMap['assets/background.jpg'] ||
+          assetsMap['assets/background.jpeg'] ||
+          assetsMap['background.png'] ||
+          assetsMap['background.jpg'];
+        if (bgFallback) resolved = bgFallback;
+      }
       if (resolved) composition.background.imageUrl = resolved;
     }
   }
@@ -248,7 +257,11 @@ export function resolveComposition(
     radialColor1: '#f43f5e',
     radialColor2: '#1e1b4b',
     imageUrl: '',
-    imageFit: 'cover'
+    imageFit: 'cover',
+    imageBlurEnable: false,
+    imageBlur: 1,
+    imageOverlayEnable: false,
+    imageOverlayColor: '#FFFFFF11'
   };
 
   const defaultZone: ExportZone = {
@@ -289,7 +302,16 @@ export function resolveComposition(
 
   // 1.5 Resolve assets in master (background and elements)
   if (composition.background.imageUrl) {
-    const resolved = resolveAsset(composition.background.imageUrl, variantPath, assetsMap);
+    let resolved = resolveAsset(composition.background.imageUrl, variantPath, assetsMap);
+    if (resolved === composition.background.imageUrl) {
+      const bgFallback =
+        assetsMap['assets/background.png'] ||
+        assetsMap['assets/background.jpg'] ||
+        assetsMap['assets/background.jpeg'] ||
+        assetsMap['background.png'] ||
+        assetsMap['background.jpg'];
+      if (bgFallback) resolved = bgFallback;
+    }
     if (resolved) composition.background.imageUrl = resolved;
   }
   for (const el of composition.elements) {

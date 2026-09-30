@@ -22,6 +22,7 @@ import { useElementHierarchy } from '../hooks/useElementHierarchy';
 import { useDiskSync, slugifyFilename, computeCanvasSignature } from '../hooks/useDiskSync';
 import { useBundleManager } from '../hooks/useBundleManager';
 import { assetManager } from '../utils/assetManager';
+import { verifyDirectoryPermission, saveDirectoryHandleToIdb, readDirectoryBundle } from '../utils/bundleIo';
 
 export { slugifyFilename, computeCanvasSignature };
 export type { HistorySnapshot };
@@ -75,6 +76,7 @@ export interface EditorContextType {
   // Background & Elements actions
   setBackground: (updates: Partial<BackgroundConfig>) => void;
   applyBackgroundImage: (imageUrl: string, file?: File) => void;
+  persistAsset: (file: File) => Promise<{ assetPath: string; displayUrl: string }>;
   setCanvasDimensions: (width: number, height: number) => void;
   addText: () => void;
   addShape: (shapeType?: ShapeType) => void;
@@ -135,6 +137,17 @@ export interface EditorContextType {
   isItemDirty: (itemId: string) => boolean;
   markItemSaved: (itemId: string) => void;
   saveBundleItemToDisk: (item: BundleItem) => Promise<boolean>;
+
+  // Disk permission recovery modal
+  isPermissionModalOpen: boolean;
+  permissionTargetName: string;
+  permissionDetectedAssets?: string[];
+  permissionTitle?: string;
+  permissionConfirmLabel?: string;
+  permissionCancelLabel?: string;
+  requestYamlAssetsPermission: (item: BundleItem, filename: string, detectedAssets: string[]) => void;
+  authorizeDiskAccess: () => Promise<void>;
+  dismissDiskAccessAndStartNew: () => void;
 }
 
 const initialBackground: BackgroundConfig = {
@@ -150,7 +163,11 @@ const initialBackground: BackgroundConfig = {
   imageFit: 'cover',
   imageOffsetX: 0,
   imageOffsetY: 0,
-  imageScale: 1.0
+  imageScale: 1.0,
+  imageBlurEnable: false,
+  imageBlur: 1,
+  imageOverlayEnable: false,
+  imageOverlayColor: '#FFFFFF11'
 };
 
 const initialElements: CanvasElement[] = [
@@ -228,6 +245,67 @@ const initialExportZone: ExportZone = {
   lockRatio: true
 };
 
+function cleanDraftProject(raw: string | null) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed.background?.imageUrl?.startsWith('blob:')) {
+      parsed.background.imageUrl = '';
+    }
+    if (Array.isArray(parsed.elements)) {
+      parsed.elements = parsed.elements.map((el: any) => ({
+        ...el,
+        screenImageUrl: el.screenImageUrl?.startsWith('blob:') ? '' : el.screenImageUrl,
+        imageUrl: el.imageUrl?.startsWith('blob:') ? '' : el.imageUrl
+      }));
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function extractAssetsFromConfig(config: any): string[] {
+  if (!config) return [];
+  const assets: string[] = [];
+  if (
+    config.background?.imageUrl &&
+    !config.background.imageUrl.startsWith('http') &&
+    !config.background.imageUrl.startsWith('data:') &&
+    !config.background.imageUrl.startsWith('blob:')
+  ) {
+    assets.push(config.background.imageUrl);
+  }
+  if (Array.isArray(config.elements)) {
+    for (const el of config.elements) {
+      if (
+        el.screenImageUrl &&
+        !el.screenImageUrl.startsWith('http') &&
+        !el.screenImageUrl.startsWith('data:') &&
+        !el.screenImageUrl.startsWith('blob:')
+      ) {
+        assets.push(el.screenImageUrl);
+      }
+      if (
+        el.imageUrl &&
+        !el.imageUrl.startsWith('http') &&
+        !el.imageUrl.startsWith('data:') &&
+        !el.imageUrl.startsWith('blob:')
+      ) {
+        assets.push(el.imageUrl);
+      }
+    }
+  }
+  if (config.images && typeof config.images === 'object') {
+    for (const val of Object.values(config.images)) {
+      if (typeof val === 'string' && !val.startsWith('http') && !val.startsWith('data:') && !val.startsWith('blob:')) {
+        assets.push(val);
+      }
+    }
+  }
+  return Array.from(new Set(assets));
+}
+
 const EditorContext = createContext<EditorContextType | undefined>(undefined);
 
 export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -285,22 +363,16 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Core Canvas State (with localStorage draft fallback)
   const [background, setBackgroundState] = useState<BackgroundConfig>(() => {
     try {
-      const draft = localStorage.getItem('framemyapp_draft_project');
-      if (draft) {
-        const parsed = JSON.parse(draft);
-        if (parsed.background) return { ...initialBackground, ...parsed.background };
-      }
+      const parsed = cleanDraftProject(localStorage.getItem('framemyapp_draft_project'));
+      if (parsed && parsed.background) return { ...initialBackground, ...parsed.background };
     } catch {}
     return initialBackground;
   });
 
   const [elements, setElements] = useState<CanvasElement[]>(() => {
     try {
-      const draft = localStorage.getItem('framemyapp_draft_project');
-      if (draft) {
-        const parsed = JSON.parse(draft);
-        if (parsed.elements && Array.isArray(parsed.elements)) return parsed.elements;
-      }
+      const parsed = cleanDraftProject(localStorage.getItem('framemyapp_draft_project'));
+      if (parsed && parsed.elements && Array.isArray(parsed.elements)) return parsed.elements;
     } catch {}
     return initialElements;
   });
@@ -313,9 +385,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Hook 1: Viewport Navigation (Zoom, Pan, Dimensions, ExportZone)
   const initialDimensions = (() => {
     try {
-      const draft = localStorage.getItem('framemyapp_draft_project');
-      if (draft) {
-        const p = JSON.parse(draft);
+      const p = cleanDraftProject(localStorage.getItem('framemyapp_draft_project'));
+      if (p) {
         return {
           w: p.canvasWidth || 800,
           h: p.canvasHeight || 600,
@@ -491,19 +562,59 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     [history]
   );
 
+  const persistAsset = useCallback(
+    async (file: File): Promise<{ assetPath: string; displayUrl: string }> => {
+      const { assetPath, displayUrl } = assetManager.registerAsset(file.name, file);
+      assetManager.registerUrlMapping(displayUrl, assetPath);
+
+      let dirHandle = diskSync.syncDirectoryHandle || bundleManager.loadedBundle?.directoryHandle;
+
+      if (!dirHandle && typeof window !== 'undefined' && 'showDirectoryPicker' in window) {
+        try {
+          showSnackbar('Sélectionnez le dossier du projet pour enregistrer l’image dans assets/...', 'folder');
+          dirHandle = await (window as any).showDirectoryPicker({
+            mode: 'readwrite',
+            startIn: 'desktop'
+          });
+          if (dirHandle) {
+            diskSync.setSyncDirectoryHandle(dirHandle);
+            diskSync.setSyncDirectoryName(dirHandle.name);
+            saveDirectoryHandleToIdb(dirHandle, 'sync_dir_handle');
+            saveDirectoryHandleToIdb(dirHandle, 'root_bundle_dir');
+          }
+        } catch (err: any) {
+          if (err.name !== 'AbortError') {
+            console.warn('showDirectoryPicker error:', err);
+          }
+        }
+      }
+
+      if (dirHandle) {
+        try {
+          await verifyDirectoryPermission(dirHandle, true, true);
+          await assetManager.saveAllToDirectory(dirHandle);
+          const cleanName = assetPath.split('/').pop();
+          showSnackbar(`Image copiée sur disque : assets/${cleanName}`, 'save');
+        } catch (err: any) {
+          console.warn('Erreur lors de la sauvegarde sur disque de l’asset:', err);
+          showSnackbar(`Impossible d'écrire dans assets/ : ${err.message || ''}`, 'warning');
+        }
+      } else {
+        showSnackbar('Image conservée en mémoire (connectez un dossier pour assets/)', 'info');
+      }
+
+      return { assetPath, displayUrl };
+    },
+    [diskSync, bundleManager.loadedBundle?.directoryHandle, showSnackbar]
+  );
+
   const applyBackgroundImage = useCallback(
-    (imageUrl: string, file?: File) => {
+    async (imageUrl: string, file?: File) => {
       let finalUrl = imageUrl;
       if (file) {
-        const { assetPath, displayUrl } = assetManager.registerAsset(file.name, file);
-        assetManager.registerUrlMapping(imageUrl, assetPath);
-        assetManager.registerUrlMapping(displayUrl, assetPath);
+        const { displayUrl } = await persistAsset(file);
+        assetManager.registerUrlMapping(imageUrl, displayUrl);
         finalUrl = displayUrl;
-
-        const dirHandle = diskSync.syncDirectoryHandle || bundleManager.loadedBundle?.directoryHandle;
-        if (dirHandle) {
-          assetManager.saveAllToDirectory(dirHandle).catch(e => console.warn(e));
-        }
       }
 
       const img = new Image();
@@ -533,7 +644,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       };
       img.src = finalUrl;
     },
-    [history, showSnackbar, diskSync.syncDirectoryHandle, bundleManager.loadedBundle?.directoryHandle]
+    [history, showSnackbar, persistAsset]
   );
 
   const addText = useCallback(() => {
@@ -691,6 +802,74 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     showSnackbar('Projet réinitialisé', 'delete_sweep');
   }, [history, navigation, bundleManager, showSnackbar]);
 
+  const [pendingYamlImport, setPendingYamlImport] = useState<{
+    item: BundleItem;
+    filename: string;
+    detectedAssets: string[];
+  } | null>(null);
+
+  const requestYamlAssetsPermission = useCallback(
+    (item: BundleItem, filename: string, detectedAssets: string[]) => {
+      setPendingYamlImport({ item, filename, detectedAssets });
+    },
+    []
+  );
+
+  const authorizeDiskAccess = useCallback(async () => {
+    if (pendingYamlImport) {
+      try {
+        const dirHandle = await (window as any).showDirectoryPicker({
+          mode: 'readwrite',
+          startIn: 'desktop'
+        });
+        if (dirHandle) {
+          await verifyDirectoryPermission(dirHandle, true, true);
+          const bundle = await readDirectoryBundle(dirHandle);
+          if (!bundle.master) {
+            bundle.master = pendingYamlImport.item;
+          }
+          bundleManager.setLoadedBundle(bundle);
+          diskSync.setProjectName(pendingYamlImport.item.name || bundle.name);
+          diskSync.setSyncDirectoryName(bundle.name);
+          diskSync.setSyncDirectoryHandle(dirHandle);
+          diskSync.setSyncFilePath(pendingYamlImport.filename);
+          saveDirectoryHandleToIdb(dirHandle, 'sync_dir_handle');
+          saveDirectoryHandleToIdb(dirHandle, 'root_bundle_dir');
+          bundleManager.applyBundleItem(bundle.master || pendingYamlImport.item);
+          setPendingYamlImport(null);
+          showSnackbar(`Template et dossier connectés : ${dirHandle.name}`, 'folder_open');
+          return;
+        }
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.warn('showDirectoryPicker error:', err);
+        }
+        return;
+      }
+    }
+    await diskSync.authorizeDiskAccess();
+  }, [pendingYamlImport, bundleManager, diskSync, showSnackbar]);
+
+  const dismissDiskAccessAndStartNew = useCallback(() => {
+    if (pendingYamlImport) {
+      const item = pendingYamlImport.item;
+      bundleManager.setLoadedBundle({
+        name: item.name,
+        master: item,
+        overrides: {},
+        variants: [],
+        assets: {}
+      });
+      diskSync.setProjectName(item.name);
+      diskSync.setSyncFilePath(pendingYamlImport.filename);
+      bundleManager.applyBundleItem(item);
+      setPendingYamlImport(null);
+      showSnackbar(`Template chargé sans images : ${item.name}`, 'auto_stories');
+      return;
+    }
+    diskSync.dismissDiskAccessAndStartNew();
+  }, [pendingYamlImport, bundleManager, diskSync, showSnackbar]);
+
   return (
     <EditorContext.Provider
       value={{
@@ -726,6 +905,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         viewportRef,
         setBackground,
         applyBackgroundImage,
+        persistAsset,
         setCanvasDimensions: navigation.setCanvasDimensions,
         addText,
         addShape,
@@ -788,7 +968,16 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         syncFileHandle: diskSync.syncFileHandle,
         syncToDisk: diskSync.syncToDisk,
         selectSyncDirectory: diskSync.selectSyncDirectory,
-        selectSyncFile: diskSync.selectSyncFile
+        selectSyncFile: diskSync.selectSyncFile,
+        isPermissionModalOpen: diskSync.isPermissionModalOpen || Boolean(pendingYamlImport),
+        permissionTargetName: pendingYamlImport ? pendingYamlImport.filename : diskSync.permissionTargetName,
+        permissionDetectedAssets: pendingYamlImport ? pendingYamlImport.detectedAssets : [],
+        permissionTitle: pendingYamlImport ? 'Charger les images du template ?' : undefined,
+        permissionConfirmLabel: pendingYamlImport ? 'Sélectionner le dossier du projet' : 'Autoriser l’accès',
+        permissionCancelLabel: pendingYamlImport ? 'Continuer sans les images' : 'Nouveau document',
+        requestYamlAssetsPermission,
+        authorizeDiskAccess,
+        dismissDiskAccessAndStartNew
       }}
     >
       {children}

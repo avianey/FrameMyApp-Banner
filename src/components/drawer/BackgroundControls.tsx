@@ -377,6 +377,95 @@ export const BackgroundControls: React.FC = () => {
                   Astuce : Double-cliquez directement sur la scène pour déplacer ou zoomer l'image.
                 </p>
               </div>
+
+              {/* Options de flou et de couleur de premier plan */}
+              <div className="pt-3 border-t border-m3-sys-outlineVariant/30 space-y-4">
+                {/* Option Flou de l'image */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-m3-sys-onSurfaceVariant flex items-center space-x-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(background.imageBlurEnable)}
+                        onChange={e => {
+                          const enable = e.target.checked;
+                          setBackground({
+                            imageBlurEnable: enable,
+                            imageBlur: enable ? (background.imageBlur ?? 1) : background.imageBlur
+                          });
+                        }}
+                        className="w-4 h-4 rounded text-m3-sys-primary focus:ring-m3-sys-primary accent-m3-sys-primary cursor-pointer"
+                      />
+                      <span>Flouter l'image</span>
+                    </label>
+                    {background.imageBlurEnable && (
+                      <span className="text-[11px] font-mono font-bold text-m3-sys-primary bg-m3-sys-primaryContainer px-2 py-0.5 rounded-full">
+                        {background.imageBlur ?? 1} px
+                      </span>
+                    )}
+                  </div>
+
+                  {background.imageBlurEnable && (
+                    <div className="bg-m3-sys-surfaceContainerHighest p-3 rounded-xl space-y-2">
+                      <div className="flex justify-between text-xs text-m3-sys-onSurfaceVariant">
+                        <span>Intensité du flou</span>
+                        <span className="font-mono font-bold">{background.imageBlur ?? 1} px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="1"
+                        max="50"
+                        step="1"
+                        value={background.imageBlur ?? 1}
+                        onChange={e => setBackground({ imageBlur: parseInt(e.target.value, 10) || 1 })}
+                        className="w-full accent-m3-sys-primary cursor-pointer"
+                      />
+                      <div className="flex justify-between text-[10px] text-m3-sys-outline font-mono">
+                        <span>1 px</span>
+                        <span>25 px</span>
+                        <span>50 px</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Option Couleur de Foreground (Voile de couleur) */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-m3-sys-onSurfaceVariant flex items-center space-x-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(background.imageOverlayEnable)}
+                        onChange={e => {
+                          const enable = e.target.checked;
+                          setBackground({
+                            imageOverlayEnable: enable,
+                            imageOverlayColor: background.imageOverlayColor || '#FFFFFF11'
+                          });
+                        }}
+                        className="w-4 h-4 rounded text-m3-sys-primary focus:ring-m3-sys-primary accent-m3-sys-primary cursor-pointer"
+                      />
+                      <span>Couleur de premier plan (Foreground)</span>
+                    </label>
+                    {background.imageOverlayEnable && (
+                      <div
+                        className="w-4 h-4 rounded-full border border-m3-sys-outlineVariant shadow-sm flex-shrink-0"
+                        style={{ backgroundColor: background.imageOverlayColor || '#FFFFFF11' }}
+                      />
+                    )}
+                  </div>
+
+                  {background.imageOverlayEnable && (
+                    <div className="bg-m3-sys-surfaceContainerHighest p-3 rounded-xl space-y-2">
+                      <ColorAlphaPicker
+                        label="Couleur de premier plan"
+                        value={background.imageOverlayColor || '#FFFFFF11'}
+                        onChange={rgba => setBackground({ imageOverlayColor: rgba })}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
             </ImageUploadField>
           );
         })()}

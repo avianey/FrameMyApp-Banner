@@ -187,20 +187,35 @@ export const SaveModal: React.FC = () => {
                     <button
                       onClick={() => selectSyncDirectory()}
                       disabled={!hasFsSupport}
-                      className="p-2.5 rounded-xl bg-m3-sys-surfaceContainerHighest hover:bg-m3-sys-primary/15 text-m3-sys-onSurface hover:text-m3-sys-primary text-xs font-semibold transition-all flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-40"
+                      className="p-2.5 rounded-xl bg-m3-sys-surfaceContainerHighest hover:bg-m3-sys-primary/15 text-m3-sys-onSurface hover:text-m3-sys-primary text-xs font-semibold transition-all flex flex-col items-center justify-center space-y-0.5 cursor-pointer disabled:opacity-40"
                     >
-                      <span className="material-symbols-rounded text-base text-m3-sys-primary">folder_open</span>
-                      <span>Choisir un dossier...</span>
+                      <div className="flex items-center space-x-1.5">
+                        <span className="material-symbols-rounded text-base text-m3-sys-primary">folder_open</span>
+                        <span>Choisir un dossier...</span>
+                      </div>
+                      <span className="text-[10px] text-emerald-400 font-normal">Recommandé (avec assets/)</span>
                     </button>
                     <button
                       onClick={() => selectSyncFile()}
                       disabled={!hasFsSupport}
-                      className="p-2.5 rounded-xl bg-m3-sys-surfaceContainerHighest hover:bg-m3-sys-primary/15 text-m3-sys-onSurface hover:text-m3-sys-primary text-xs font-semibold transition-all flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-40"
+                      className="p-2.5 rounded-xl bg-m3-sys-surfaceContainerHighest hover:bg-m3-sys-primary/15 text-m3-sys-onSurface hover:text-m3-sys-primary text-xs font-semibold transition-all flex flex-col items-center justify-center space-y-0.5 cursor-pointer disabled:opacity-40"
                     >
-                      <span className="material-symbols-rounded text-base text-m3-sys-primary">file_open</span>
-                      <span>Choisir un fichier YAML...</span>
+                      <div className="flex items-center space-x-1.5">
+                        <span className="material-symbols-rounded text-base text-m3-sys-primary">file_open</span>
+                        <span>Fichier YAML seul...</span>
+                      </div>
+                      <span className="text-[10px] text-m3-sys-onSurfaceVariant/70 font-normal">Sans gestion des assets</span>
                     </button>
                   </div>
+                </div>
+              )}
+
+              {syncFileHandle && !syncDirectoryHandle && (
+                <div className="flex items-start space-x-2 text-[11px] text-amber-500 bg-amber-500/10 p-2.5 rounded-xl border border-amber-500/20">
+                  <span className="material-symbols-rounded text-base flex-shrink-0">warning</span>
+                  <span>
+                    <strong>Mode fichier seul :</strong> Les images physiques du sous-dossier <code>assets/</code> ne peuvent pas être écrites ni lues sans permission d'accès au dossier parent. Connectez un dossier pour une synchronisation complète.
+                  </span>
                 </div>
               )}
 

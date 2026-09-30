@@ -10,9 +10,24 @@ import { ConfirmModal } from './components/ConfirmModal';
 import { BatchExportModal } from './components/modal/BatchExportModal';
 import { DocumentationModal } from './components/modal/DocumentationModal';
 import { SaveModal } from './components/modal/SaveModal';
+import { DiskPermissionModal } from './components/modal/DiskPermissionModal';
 
 export const AppContent: React.FC = () => {
-  const { isConfirmModalOpen, setIsConfirmModalOpen, clearAll, isDocOpen, setIsDocOpen } = useEditor();
+  const {
+    isConfirmModalOpen,
+    setIsConfirmModalOpen,
+    clearAll,
+    isDocOpen,
+    setIsDocOpen,
+    isPermissionModalOpen,
+    permissionTargetName,
+    permissionDetectedAssets,
+    permissionTitle,
+    permissionConfirmLabel,
+    permissionCancelLabel,
+    authorizeDiskAccess,
+    dismissDiskAccessAndStartNew
+  } = useEditor();
 
   return (
     <div className="h-full w-full bg-m3-sys-surface text-m3-sys-onSurface flex flex-col overflow-hidden font-sans">
@@ -34,6 +49,16 @@ export const AppContent: React.FC = () => {
       <DocumentationModal
         isOpen={isDocOpen}
         onClose={() => setIsDocOpen(false)}
+      />
+      <DiskPermissionModal
+        isOpen={isPermissionModalOpen}
+        targetName={permissionTargetName}
+        detectedAssets={permissionDetectedAssets}
+        title={permissionTitle}
+        confirmLabel={permissionConfirmLabel}
+        cancelLabel={permissionCancelLabel}
+        onAuthorize={authorizeDiskAccess}
+        onNewDocument={dismissDiskAccessAndStartNew}
       />
     </div>
   );

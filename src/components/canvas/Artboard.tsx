@@ -165,11 +165,11 @@ export const Artboard: React.FC = () => {
         id="artboard"
         onPointerDown={handlePointerDown}
         onDoubleClick={handleDoubleClick}
-        className="w-full h-full rounded-2xl relative overflow-hidden bg-white"
+        className="w-full h-full rounded-2xl relative overflow-visible bg-white"
       >
         {/* Fond dynamique */}
         {background.type === 'image' && background.imageUrl ? (
-          <div id="artboard-bg" className="absolute inset-0 w-full h-full">
+          <div id="artboard-bg" className="absolute inset-0 w-full h-full rounded-2xl overflow-hidden">
             <InPlaceImageCropper
               containerWidth={canvasWidth}
               containerHeight={canvasHeight}
@@ -185,18 +185,25 @@ export const Artboard: React.FC = () => {
               onClose={() => setEditingImageElementId(null)}
               canvasZoom={zoom || 1.0}
               title="Recadrer l'arrière-plan"
+              imageBlur={background.imageBlurEnable ? (background.imageBlur ?? 1) : undefined}
             />
+            {background.imageOverlayEnable && (
+              <div
+                className="absolute inset-0 pointer-events-none z-10"
+                style={{ backgroundColor: background.imageOverlayColor || '#FFFFFF11' }}
+              />
+            )}
           </div>
         ) : (
           <div
             id="artboard-bg"
-            className="absolute inset-0 w-full h-full pointer-events-none"
+            className="absolute inset-0 w-full h-full rounded-2xl overflow-hidden pointer-events-none"
             style={getBackgroundStyle()}
           />
         )}
 
         {/* Objets (Textes & Formes) */}
-        <div id="artboard-elements" className="absolute inset-0 w-full h-full">
+        <div id="artboard-elements" className="absolute inset-0 w-full h-full overflow-visible">
           {elements.map(el => {
             const isSelected = selectedElementIds.includes(el.id);
             const selectionIndex = isSelected ? selectedElementIds.indexOf(el.id) + 1 : undefined;
