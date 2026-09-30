@@ -188,6 +188,8 @@ const initialElements: CanvasElement[] = [
     letterSpacing: 1,
     lineHeight: 1.2,
     minLines: 1,
+    textAlign: 'left',
+    verticalAlign: 'top',
     glow: { enable: true, color: 'rgba(59, 130, 246, 0.85)', blur: 16, x: 0, y: 0 },
     shadow: { enable: true, color: 'rgba(0, 0, 0, 0.45)', blur: 8, x: 2, y: 4 }
   },

@@ -213,7 +213,9 @@ Lorsqu'un élément de texte est sélectionné, le panneau **TextControls** offr
 - **Espacements** :
   - *Interligne (Line Height)* : Hauteur de ligne relative.
   - *Espacement des lettres (Letter Spacing)* : Suivi typographique en pixels.
-- **Alignement horizontal** : Gauche, Centré, Droite, Justifié.
+- **Alignements du texte** :
+  - **Alignement horizontal (`textAlign`)** : Gauche (`format_align_left`), Centré (`format_align_center`), Droite (`format_align_right`), Justifié (`format_align_justify`).
+  - **Alignement vertical (`verticalAlign`)** : En haut (`vertical_align_top`), Au milieu (`vertical_align_center`), En bas (`vertical_align_bottom`) au sein de la boîte de délimitation de l'élément.
 - **Styles rapides** : Gras (`B`), Italique (`I`), Souligné (`U`), Majuscules (`TT`).
 - **Couleur du texte** : Sélecteur complet avec gestion de l'alpha.
 - **Effet de Lueur (Glow) / Halo** :

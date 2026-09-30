@@ -231,7 +231,7 @@ export async function captureZoneToBlob(
             clonedEl.innerHTML = info.lines
               .map(
                 line =>
-                  `<div style="line-height: ${info.lineHeight}px; white-space: pre; margin: 0; padding: 0; font-family: inherit; font-size: inherit; font-weight: inherit; color: inherit; text-shadow: inherit;">${escapeHtml(
+                  `<div style="line-height: ${info.lineHeight}px; white-space: pre; margin: 0; padding: 0; font-family: inherit; font-size: inherit; font-weight: inherit; color: inherit; text-shadow: inherit; text-align: inherit;">${escapeHtml(
                     line
                   )}</div>`
               )

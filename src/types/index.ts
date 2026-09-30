@@ -83,6 +83,9 @@ export interface VisualEffectsElement extends BaseElement, GlowableElement, Shad
   shadow: ShadowConfig;
 }
 
+export type TextAlign = 'left' | 'center' | 'right' | 'justify';
+export type TextVerticalAlign = 'top' | 'middle' | 'bottom';
+
 export interface TextElementModel extends VisualEffectsElement {
   type: 'text';
   text: string;
@@ -93,6 +96,8 @@ export interface TextElementModel extends VisualEffectsElement {
   letterSpacing: number;
   lineHeight: number;
   minLines: number;
+  textAlign?: TextAlign;
+  verticalAlign?: TextVerticalAlign;
 }
 
 export interface ShapeElementModel extends VisualEffectsElement {

@@ -378,4 +378,38 @@ assert.strictEqual(resolvedBgOverrideComp.background.imageBlur, 15, 'imageBlur s
 assert.strictEqual(resolvedBgOverrideComp.background.imageOverlayColor, 'rgba(0, 0, 0, 0.4)', 'imageOverlayColor should be updated by override');
 console.log('✔ Background image blur & foreground overlay cascade verified');
 
+// 12. Text alignment (horizontal & vertical) cascade verification
+const textAlignMaster = {
+  name: 'Text Alignment Master',
+  elements: [
+    {
+      id: 'txt-align',
+      customId: 'hero_title',
+      type: 'text',
+      text: 'Aligned Text',
+      textAlign: 'center',
+      verticalAlign: 'middle'
+    }
+  ]
+};
+
+const resolvedTextAlignComp = resolveComposition(textAlignMaster);
+const resolvedTextEl = resolvedTextAlignComp.elements.find(e => e.customId === 'hero_title');
+assert.strictEqual(resolvedTextEl.textAlign, 'center');
+assert.strictEqual(resolvedTextEl.verticalAlign, 'middle');
+
+const textAlignOverride = {
+  elements: {
+    hero_title: {
+      textAlign: 'right',
+      verticalAlign: 'bottom'
+    }
+  }
+};
+const resolvedTextAlignOverride = resolveComposition(textAlignMaster, textAlignOverride);
+const resolvedOverriddenTextEl = resolvedTextAlignOverride.elements.find(e => e.customId === 'hero_title');
+assert.strictEqual(resolvedOverriddenTextEl.textAlign, 'right');
+assert.strictEqual(resolvedOverriddenTextEl.verticalAlign, 'bottom');
+console.log('✔ Text horizontal & vertical alignment cascade verified');
+
 console.log('\nAll tests passed successfully!');

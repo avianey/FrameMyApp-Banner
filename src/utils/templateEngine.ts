@@ -152,16 +152,7 @@ function applyLayer(
   if (layer.background) {
     composition.background = deepMerge(composition.background, layer.background);
     if (composition.background.imageUrl) {
-      let resolved = resolveAsset(composition.background.imageUrl, variantPath, assetsMap);
-      if (resolved === composition.background.imageUrl) {
-        const bgFallback =
-          assetsMap['assets/background.png'] ||
-          assetsMap['assets/background.jpg'] ||
-          assetsMap['assets/background.jpeg'] ||
-          assetsMap['background.png'] ||
-          assetsMap['background.jpg'];
-        if (bgFallback) resolved = bgFallback;
-      }
+      const resolved = resolveAsset(composition.background.imageUrl, variantPath, assetsMap);
       if (resolved) composition.background.imageUrl = resolved;
     }
   }
@@ -302,16 +293,7 @@ export function resolveComposition(
 
   // 1.5 Resolve assets in master (background and elements)
   if (composition.background.imageUrl) {
-    let resolved = resolveAsset(composition.background.imageUrl, variantPath, assetsMap);
-    if (resolved === composition.background.imageUrl) {
-      const bgFallback =
-        assetsMap['assets/background.png'] ||
-        assetsMap['assets/background.jpg'] ||
-        assetsMap['assets/background.jpeg'] ||
-        assetsMap['background.png'] ||
-        assetsMap['background.jpg'];
-      if (bgFallback) resolved = bgFallback;
-    }
+    const resolved = resolveAsset(composition.background.imageUrl, variantPath, assetsMap);
     if (resolved) composition.background.imageUrl = resolved;
   }
   for (const el of composition.elements) {

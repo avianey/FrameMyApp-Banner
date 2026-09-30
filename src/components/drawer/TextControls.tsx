@@ -138,6 +138,130 @@ export const TextControls: React.FC<TextControlsProps> = ({ element }) => {
         </select>
       </div>
 
+      {/* Alignement du texte (Horizontal & Vertical) */}
+      <div className="space-y-3 bg-m3-sys-surfaceContainer rounded-2xl p-3.5 border border-m3-sys-outlineVariant/30">
+        {/* Alignement horizontal */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold text-m3-sys-onSurfaceVariant uppercase flex items-center justify-between">
+            <span>Alignement horizontal</span>
+            <span className="text-[10px] font-mono text-m3-sys-primary font-bold">
+              {element.textAlign === 'center'
+                ? 'Centré'
+                : element.textAlign === 'right'
+                ? 'Droite'
+                : element.textAlign === 'justify'
+                ? 'Justifié'
+                : 'Gauche'}
+            </span>
+          </label>
+          <div className="grid grid-cols-4 gap-1 p-1 bg-m3-sys-surfaceContainerHighest rounded-xl">
+            <button
+              type="button"
+              onClick={() => handleUpdate({ textAlign: 'left' })}
+              title="Aligner à gauche"
+              className={`py-1.5 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
+                (!element.textAlign || element.textAlign === 'left')
+                  ? 'bg-m3-sys-primary text-white shadow-sm font-bold'
+                  : 'text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainer'
+              }`}
+            >
+              <span className="material-symbols-rounded text-lg">format_align_left</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleUpdate({ textAlign: 'center' })}
+              title="Centrer horizontalement"
+              className={`py-1.5 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
+                element.textAlign === 'center'
+                  ? 'bg-m3-sys-primary text-white shadow-sm font-bold'
+                  : 'text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainer'
+              }`}
+            >
+              <span className="material-symbols-rounded text-lg">format_align_center</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleUpdate({ textAlign: 'right' })}
+              title="Aligner à droite"
+              className={`py-1.5 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
+                element.textAlign === 'right'
+                  ? 'bg-m3-sys-primary text-white shadow-sm font-bold'
+                  : 'text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainer'
+              }`}
+            >
+              <span className="material-symbols-rounded text-lg">format_align_right</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleUpdate({ textAlign: 'justify' })}
+              title="Justifier"
+              className={`py-1.5 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
+                element.textAlign === 'justify'
+                  ? 'bg-m3-sys-primary text-white shadow-sm font-bold'
+                  : 'text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainer'
+              }`}
+            >
+              <span className="material-symbols-rounded text-lg">format_align_justify</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Alignement vertical */}
+        <div className="space-y-1.5 pt-2 border-t border-m3-sys-outlineVariant/20">
+          <label className="text-xs font-semibold text-m3-sys-onSurfaceVariant uppercase flex items-center justify-between">
+            <span>Alignement vertical</span>
+            <span className="text-[10px] font-mono text-m3-sys-primary font-bold">
+              {element.verticalAlign === 'bottom'
+                ? 'Bas'
+                : element.verticalAlign === 'middle'
+                ? 'Milieu'
+                : 'Haut'}
+            </span>
+          </label>
+          <div className="grid grid-cols-3 gap-1 p-1 bg-m3-sys-surfaceContainerHighest rounded-xl">
+            <button
+              type="button"
+              onClick={() => handleUpdate({ verticalAlign: 'top' })}
+              title="Aligner en haut"
+              className={`py-1.5 rounded-lg flex items-center justify-center space-x-1 transition-all cursor-pointer ${
+                (!element.verticalAlign || element.verticalAlign === 'top')
+                  ? 'bg-m3-sys-primary text-white shadow-sm font-bold'
+                  : 'text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainer'
+              }`}
+            >
+              <span className="material-symbols-rounded text-lg">vertical_align_top</span>
+              <span className="text-xs">Haut</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleUpdate({ verticalAlign: 'middle' })}
+              title="Aligner au milieu"
+              className={`py-1.5 rounded-lg flex items-center justify-center space-x-1 transition-all cursor-pointer ${
+                element.verticalAlign === 'middle'
+                  ? 'bg-m3-sys-primary text-white shadow-sm font-bold'
+                  : 'text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainer'
+              }`}
+            >
+              <span className="material-symbols-rounded text-lg">vertical_align_center</span>
+              <span className="text-xs">Milieu</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleUpdate({ verticalAlign: 'bottom' })}
+              title="Aligner en bas"
+              className={`py-1.5 rounded-lg flex items-center justify-center space-x-1 transition-all cursor-pointer ${
+                element.verticalAlign === 'bottom'
+                  ? 'bg-m3-sys-primary text-white shadow-sm font-bold'
+                  : 'text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainer'
+              }`}
+            >
+              <span className="material-symbols-rounded text-lg">vertical_align_bottom</span>
+              <span className="text-xs">Bas</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Couleur du texte avec Alpha */}
       <ColorAlphaPicker
         label="Couleur du texte (Alpha)"

@@ -430,8 +430,14 @@ export function useDiskSync({
     ]
   );
 
+  const hasRestoredOnMountRef = useRef<boolean>(false);
+  const loadFromDiskHandleRef = useRef(loadFromDiskHandle);
+  loadFromDiskHandleRef.current = loadFromDiskHandle;
+
   // Restore on mount from IndexedDB & Disk
   useEffect(() => {
+    if (hasRestoredOnMountRef.current) return;
+    hasRestoredOnMountRef.current = true;
     let isCancelled = false;
 
     async function restoreFromDisk() {
@@ -483,7 +489,7 @@ export function useDiskSync({
         const hasPerm = await verifyDirectoryPermission(activeHandle, false, false);
         if (hasPerm) {
           // Permissions are still valid: load from disk immediately
-          await loadFromDiskHandle(activeHandle, isCancelled);
+          await loadFromDiskHandleRef.current(activeHandle, isCancelled);
         } else {
           // Permissions were revoked/lost across sessions!
           // Open the modal asking the user to authorize or start new document
@@ -505,7 +511,7 @@ export function useDiskSync({
     return () => {
       isCancelled = true;
     };
-  }, [loadFromDiskHandle, setBackground, setElements, setExportZone, setCanvasWidth, setCanvasHeight]);
+  }, [setBackground, setElements, setExportZone, setCanvasWidth, setCanvasHeight]);
 
   const authorizeDiskAccess = useCallback(async () => {
     const handle = pendingDiskHandleRef.current || syncDirHandleRef.current || syncFileHandleRef.current;
@@ -715,6 +721,8 @@ export function useDiskSync({
               loadedBundle?.assets
             );
             yamlContent = stringifyYaml(masterConfig);
+            item.config = masterConfig;
+            item.rawContent = yamlContent;
           } else if (item.type === 'override') {
             const overrideConfig = convertUrlsToRelativeAssetPaths(
               serializeCanvasToOverride(
@@ -727,6 +735,8 @@ export function useDiskSync({
               loadedBundle?.assets
             );
             yamlContent = stringifyYaml(overrideConfig);
+            item.config = overrideConfig;
+            item.rawContent = yamlContent;
           } else {
             const variantConfig = convertUrlsToRelativeAssetPaths(
               serializeCanvasToVariant(
@@ -738,6 +748,8 @@ export function useDiskSync({
               loadedBundle?.assets
             );
             yamlContent = stringifyYaml(variantConfig);
+            item.config = variantConfig;
+            item.rawContent = yamlContent;
           }
           targetFilename = item.path;
         }

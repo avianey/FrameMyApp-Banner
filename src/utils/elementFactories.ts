@@ -26,6 +26,8 @@ export function createTextElement(count: number, offset: number): TextElementMod
     letterSpacing: 0,
     lineHeight: 1.3,
     minLines: 1,
+    textAlign: 'left',
+    verticalAlign: 'top',
     glow: { enable: false, color: 'rgba(56, 189, 248, 0.75)', blur: 10, x: 0, y: 0 },
     shadow: { enable: false, color: 'rgba(0, 0, 0, 0.3)', blur: 4, x: 2, y: 2 }
   };

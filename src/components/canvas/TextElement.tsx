@@ -23,6 +23,15 @@ export const TextElement: React.FC<TextElementProps> = ({
   const currentZoom = state.zoom || 1;
 
   // Synchronize innerText when element.text updates externally (e.g. from drawer)
+  const setRef = (node: HTMLDivElement | null) => {
+    textInnerRef.current = node;
+    if (node && document.activeElement !== node) {
+      if (node.innerText !== element.text) {
+        node.innerText = element.text;
+      }
+    }
+  };
+
   useEffect(() => {
     if (textInnerRef.current && document.activeElement !== textInnerRef.current) {
       if (textInnerRef.current.innerText !== element.text) {
@@ -112,16 +121,24 @@ export const TextElement: React.FC<TextElementProps> = ({
         top: `${element.y}px`,
         width: `${element.width}px`,
         height: `${element.height}px`,
-        transform: `rotate(${element.rotation || 0}deg)`
+        transform: `rotate(${element.rotation || 0}deg)`,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent:
+          element.verticalAlign === 'bottom'
+            ? 'flex-end'
+            : element.verticalAlign === 'middle'
+            ? 'center'
+            : 'flex-start'
       }}
       onPointerDown={handlePointerDown}
     >
       <div
-        ref={textInnerRef}
+        ref={setRef}
         contentEditable
         suppressContentEditableWarning
         spellCheck={false}
-        className="editable-text-content w-full h-full p-2 outline-none break-words cursor-text rounded focus:ring-2 focus:ring-m3-sys-primary"
+        className="editable-text-content w-full p-2 outline-none break-words cursor-text rounded focus:ring-2 focus:ring-m3-sys-primary"
         style={{
           fontFamily: `'${element.fontFamily}', 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif`,
           fontWeight: element.fontWeight || 400,
@@ -132,18 +149,22 @@ export const TextElement: React.FC<TextElementProps> = ({
           overflowWrap: 'anywhere',
           wordBreak: 'break-word',
           textShadow: combinedShadow,
-          minHeight: `${minHeightPx}px`
+          minHeight: `${minHeightPx}px`,
+          textAlign: element.textAlign || 'left'
         }}
         onInput={handleInput}
         onFocus={handleFocus}
+        onBlur={() => {
+          if (textInnerRef.current) {
+            updateElement(element.id, { text: textInnerRef.current.innerText });
+          }
+        }}
         onKeyDown={e => {
           if (e.key === 'Escape') {
             textInnerRef.current?.blur();
           }
         }}
-      >
-        {element.text}
-      </div>
+      />
 
       {isSelected && !isMultiSelected && (
         <SelectionHandles element={element} elementRef={nodeRef} />
