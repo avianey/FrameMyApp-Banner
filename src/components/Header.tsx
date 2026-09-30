@@ -24,7 +24,8 @@ export const Header: React.FC = () => {
     lastSyncTime,
     syncToDisk,
     syncDirectoryName,
-    syncFileHandle
+    syncFileHandle,
+    openExportPreview
   } = useEditor();
   const { theme, zoom, canUndo, canRedo } = state;
 
@@ -173,6 +174,15 @@ export const Header: React.FC = () => {
           className="w-10 h-10 rounded-full flex items-center justify-center border border-m3-sys-outlineVariant/40 bg-m3-sys-surfaceContainerLow hover:bg-m3-sys-surfaceContainerHighest hover:border-m3-sys-primary text-m3-sys-onSurface active:scale-95 shadow-sm transition-all cursor-pointer"
         >
           <span className="material-symbols-rounded text-xl leading-none">filter_center_focus</span>
+        </button>
+
+        {/* Aperçu du rendu exporté (Lightbox) */}
+        <button
+          onClick={openExportPreview}
+          title="Aperçu du rendu qui sera exporté (Lightbox)"
+          className="w-10 h-10 rounded-full flex items-center justify-center border border-m3-sys-outlineVariant/40 bg-m3-sys-surfaceContainerLow hover:bg-m3-sys-primaryContainer/30 hover:border-m3-sys-primary text-m3-sys-onSurface hover:text-m3-sys-primary active:scale-95 shadow-sm transition-all cursor-pointer"
+        >
+          <span className="material-symbols-rounded text-xl leading-none">visibility</span>
         </button>
 
         {/* Volet Templates & Bundles (icône répertoire) */}

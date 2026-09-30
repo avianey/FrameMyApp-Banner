@@ -59,7 +59,7 @@ export const LeftSidebar: React.FC = () => {
         setLoadedBundle(bundle);
         setProjectName(bundle.name);
         setSyncDirectoryName(bundle.name);
-        setSyncFilePath('master.yml');
+        setSyncFilePath(bundle.master?.path || 'master.yml');
         if (bundle.master) {
           applyBundleItem(bundle.master);
         }
@@ -153,7 +153,7 @@ export const LeftSidebar: React.FC = () => {
         setLoadedBundle(bundle);
         setProjectName(bundle.name);
         setSyncDirectoryName(bundle.name);
-        setSyncFilePath('master.yml');
+        setSyncFilePath(bundle.master?.path || 'master.yml');
         if (bundle.directoryHandle) {
           setSyncDirectoryHandle(bundle.directoryHandle);
         }
@@ -180,7 +180,7 @@ export const LeftSidebar: React.FC = () => {
       setLoadedBundle(bundle);
       setProjectName(bundle.name);
       setSyncDirectoryName(bundle.name);
-      setSyncFilePath('master.yml');
+      setSyncFilePath(bundle.master?.path || 'master.yml');
       if (bundle.master) {
         applyBundleItem(bundle.master);
       }
@@ -231,7 +231,7 @@ export const LeftSidebar: React.FC = () => {
               setLoadedBundle(bundle);
               setProjectName(bundle.name);
               setSyncDirectoryName(bundle.name);
-              setSyncFilePath('master.yml');
+              setSyncFilePath(bundle.master?.path || 'master.yml');
               setSyncDirectoryHandle(handle);
               if (bundle.master) {
                 applyBundleItem(bundle.master);
@@ -278,7 +278,7 @@ export const LeftSidebar: React.FC = () => {
           setLoadedBundle(bundle);
           setProjectName(bundle.name);
           setSyncDirectoryName(bundle.name);
-          setSyncFilePath('master.yml');
+          setSyncFilePath(bundle.master?.path || 'master.yml');
           if (bundle.master) {
             applyBundleItem(bundle.master);
           }

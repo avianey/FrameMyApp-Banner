@@ -257,6 +257,35 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
           editingImageElementId === element.id ? 'cursor-default' : 'cursor-move'
         }`}
         style={shapeStyle}
+        data-shape-id={element.id}
+        data-fill-type={element.fillType}
+        data-shape-w={element.width}
+        data-shape-h={element.height}
+        data-gradient-angle={element.angle ?? 0}
+        data-gradient-stops={
+          element.fillType === 'linear'
+            ? JSON.stringify(
+                element.gradientStops && element.gradientStops.length > 0
+                  ? element.gradientStops
+                  : [
+                      { color: element.color1 || 'rgba(139, 92, 246, 0.9)', offset: 0 },
+                      { color: element.color2 || 'rgba(236, 72, 153, 0.9)', offset: 100 }
+                    ]
+              )
+            : undefined
+        }
+        data-radial-stops={
+          element.fillType === 'radial'
+            ? JSON.stringify(
+                element.radialStops && element.radialStops.length > 0
+                  ? element.radialStops
+                  : [
+                      { color: element.radialColor1 || 'rgba(251, 191, 36, 1)', offset: 0 },
+                      { color: element.radialColor2 || 'rgba(185, 28, 28, 0.9)', offset: 100 }
+                    ]
+              )
+            : undefined
+        }
       >
         {element.fillType === 'image' && element.imageUrl && (
           <InPlaceImageCropper

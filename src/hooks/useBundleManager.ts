@@ -36,6 +36,7 @@ interface UseBundleManagerOptions {
   canvasHeight: number;
   projectName: string;
   setProjectName: (name: string) => void;
+  syncFilePath?: string | null;
   setSyncFilePath: (path: string) => void;
   setSyncStatus: (status: any) => void;
   lastSavedSignatureRef: React.MutableRefObject<string>;
@@ -52,6 +53,7 @@ export function useBundleManager({
   canvasHeight,
   projectName,
   setProjectName,
+  syncFilePath,
   setSyncFilePath,
   setSyncStatus,
   lastSavedSignatureRef,
@@ -77,12 +79,13 @@ export function useBundleManager({
         } else if (bundleDirHandleRef.current) {
           bundle.directoryHandle = bundleDirHandleRef.current;
         }
-        setSyncFilePath('master.yml');
+        const targetPath = bundle.master?.path || syncFilePath || 'master.yml';
+        setSyncFilePath(targetPath);
         setSyncStatus('synced');
       }
       setLoadedBundleState(bundle);
     },
-    [setProjectName, setSyncFilePath, setSyncStatus]
+    [setProjectName, setSyncFilePath, setSyncStatus, syncFilePath]
   );
 
   const currentCanvasSignature = useMemo(() => {

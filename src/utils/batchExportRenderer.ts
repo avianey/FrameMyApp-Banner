@@ -85,6 +85,65 @@ function extractVisualLines(element: HTMLElement): string[] {
 }
 
 /**
+ * Renders a CSS linear or radial gradient to an offscreen canvas element.
+ * Used during html2canvas export to bypass html2canvas's buggy `createPattern(canvas, 'repeat')`
+ * which causes unwanted sub-pixel edge lines (e.g. at the bottom of transparent gradients).
+ */
+function renderGradientToCanvas(
+  ownerDoc: Document,
+  width: number,
+  height: number,
+  fillType: 'linear' | 'radial',
+  options: {
+    angle?: number;
+    stops: Array<{ color: string; offset: number }>;
+  }
+): HTMLCanvasElement | null {
+  if (width <= 0 || height <= 0 || !options.stops || options.stops.length === 0) return null;
+  const canvas = (ownerDoc || document).createElement('canvas');
+  canvas.width = Math.max(1, Math.round(width));
+  canvas.height = Math.max(1, Math.round(height));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  if (fillType === 'linear') {
+    const angle = options.angle ?? 0;
+    const rad = (angle * Math.PI) / 180;
+    const lineLength = Math.abs(canvas.width * Math.sin(rad)) + Math.abs(canvas.height * Math.cos(rad));
+    const halfWidth = canvas.width / 2;
+    const halfHeight = canvas.height / 2;
+    const halfLineLength = lineLength / 2;
+    const dx = Math.sin(rad) * halfLineLength;
+    const dy = -Math.cos(rad) * halfLineLength;
+    const x0 = halfWidth - dx;
+    const y0 = halfHeight - dy;
+    const x1 = halfWidth + dx;
+    const y1 = halfHeight + dy;
+
+    const grad = ctx.createLinearGradient(x0, y0, x1, y1);
+    const sortedStops = [...options.stops].sort((a, b) => a.offset - b.offset);
+    sortedStops.forEach(s => {
+      grad.addColorStop(Math.max(0, Math.min(1, s.offset / 100)), s.color);
+    });
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  } else {
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const r = Math.sqrt(cx * cx + cy * cy);
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    const sortedStops = [...options.stops].sort((a, b) => a.offset - b.offset);
+    sortedStops.forEach(s => {
+      grad.addColorStop(Math.max(0, Math.min(1, s.offset / 100)), s.color);
+    });
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  return canvas;
+}
+
+/**
  * Captures an HTML element, crops to the exportZone, scales to target dimensions, and returns a PNG Blob.
  * Neutralizes any CSS zoom/pan transforms on the artboard container during capture to ensure
  * pixel-perfect rendering, exact font metrics, crisp background resolution and sharp text.
@@ -229,6 +288,51 @@ export async function captureZoneToBlob(
             } catch (e) {}
           });
         }
+
+        // 2. Convert all linear/radial gradient shapes and backgrounds into native canvas elements
+        // This neutralizes html2canvas's internal createPattern(canvas, 'repeat') sub-pixel looping bug
+        // which caused unsightly lines at the boundary of transparent gradients.
+        clonedDoc.querySelectorAll('.shape-render-content, #artboard-bg').forEach((clonedEl: any) => {
+          const fillType = clonedEl.getAttribute('data-fill-type') || clonedEl.getAttribute('data-bg-type');
+          if (fillType === 'linear' || fillType === 'radial') {
+            const angle = parseFloat(clonedEl.getAttribute('data-gradient-angle') || '0');
+            const stopsJson = fillType === 'linear'
+              ? clonedEl.getAttribute('data-gradient-stops')
+              : clonedEl.getAttribute('data-radial-stops');
+
+            let stops: Array<{ color: string; offset: number }> = [];
+            try {
+              if (stopsJson) stops = JSON.parse(stopsJson);
+            } catch (e) {}
+
+            const width = parseFloat(clonedEl.getAttribute('data-shape-w') || String(clonedEl.offsetWidth || 100));
+            const height = parseFloat(clonedEl.getAttribute('data-shape-h') || String(clonedEl.offsetHeight || 100));
+
+            if (width > 0 && height > 0 && stops.length > 0) {
+              const gradCanvas = renderGradientToCanvas(clonedDoc, width, height, fillType, {
+                angle,
+                stops
+              });
+
+              if (gradCanvas) {
+                // Clear the container background so html2canvas doesn't invoke its pattern repeat
+                clonedEl.style.background = 'transparent';
+                clonedEl.style.backgroundImage = 'none';
+
+                gradCanvas.style.position = 'absolute';
+                gradCanvas.style.left = '0';
+                gradCanvas.style.top = '0';
+                gradCanvas.style.width = '100%';
+                gradCanvas.style.height = '100%';
+                gradCanvas.style.borderRadius = clonedEl.style.borderRadius || 'inherit';
+                gradCanvas.style.pointerEvents = 'none';
+                gradCanvas.style.zIndex = '0';
+
+                clonedEl.insertBefore(gradCanvas, clonedEl.firstChild);
+              }
+            }
+          }
+        });
 
         // Convert all images to synchronous Data URLs using the already-loaded live images from the parent document
         clonedDoc.querySelectorAll('img').forEach((clonedImg: HTMLImageElement) => {

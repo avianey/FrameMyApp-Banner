@@ -404,6 +404,35 @@ export async function writeTextToDirectory(
 }
 
 /**
+ * Computes the longest common directory prefix of a list of relative paths.
+ * E.g. ['assets/a.png', 'assets/b.png'] -> 'assets'
+ *      ['assets/sub/a.png', 'assets/sub/b.png'] -> 'assets/sub'
+ *      ['assets/a.png', 'banners/b.png'] -> ''
+ */
+export function getLongestCommonDirectory(paths: string[]): string {
+  if (!paths || paths.length === 0) return '';
+  const dirPartsList = paths.map(p => {
+    const normalized = p.replace(/\\/g, '/').replace(/^\/+/, '');
+    const segments = normalized.split('/');
+    segments.pop(); // retire le nom du fichier
+    return segments;
+  });
+  if (dirPartsList.length === 0 || dirPartsList[0].length === 0) return '';
+
+  const first = dirPartsList[0];
+  const commonSegments: string[] = [];
+  for (let i = 0; i < first.length; i++) {
+    const seg = first[i];
+    if (seg && dirPartsList.every(parts => parts[i] === seg)) {
+      commonSegments.push(seg);
+    } else {
+      break;
+    }
+  }
+  return commonSegments.join('/');
+}
+
+/**
  * Recursively writes a binary Blob/File to a file inside a FileSystemDirectoryHandle.
  */
 export async function writeBlobToDirectory(
@@ -411,7 +440,11 @@ export async function writeBlobToDirectory(
   relativePath: string,
   blobOrFile: Blob | File
 ): Promise<void> {
-  const parts = relativePath.split('/').filter(Boolean);
+  let parts = relativePath.split('/').filter(Boolean);
+  // Si rootDirHandle est déjà le sous-dossier ciblé (ex: "assets"), éviter d'imbriquer assets/assets/...
+  if (rootDirHandle?.name && parts.length > 0 && parts[0].toLowerCase() === rootDirHandle.name.toLowerCase()) {
+    parts.shift();
+  }
   const filename = parts.pop();
   if (!filename) return;
 

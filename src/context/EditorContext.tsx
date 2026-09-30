@@ -22,10 +22,11 @@ import { useElementHierarchy } from '../hooks/useElementHierarchy';
 import { useDiskSync, slugifyFilename, computeCanvasSignature } from '../hooks/useDiskSync';
 import { useBundleManager } from '../hooks/useBundleManager';
 import { assetManager } from '../utils/assetManager';
-import { verifyDirectoryPermission, saveDirectoryHandleToIdb, readDirectoryBundle } from '../utils/bundleIo';
+import { verifyDirectoryPermission, saveDirectoryHandleToIdb, readDirectoryBundle, getLongestCommonDirectory } from '../utils/bundleIo';
+import { captureExportPreview, ExportPreviewData } from '../utils/export';
 
 export { slugifyFilename, computeCanvasSignature };
-export type { HistorySnapshot };
+export type { HistorySnapshot, ExportPreviewData };
 
 interface SnackbarState {
   message: string;
@@ -63,6 +64,11 @@ export interface EditorContextType {
   setIsConfirmModalOpen: (open: boolean) => void;
   isBatchExportModalOpen: boolean;
   setIsBatchExportModalOpen: (open: boolean) => void;
+  isExportPreviewOpen: boolean;
+  setIsExportPreviewOpen: (open: boolean) => void;
+  exportPreviewData: ExportPreviewData | null;
+  isGeneratingPreview: boolean;
+  openExportPreview: () => Promise<void>;
   isDocOpen: boolean;
   setIsDocOpen: (open: boolean) => void;
   isLeftSidebarOpen: boolean;
@@ -145,9 +151,11 @@ export interface EditorContextType {
   permissionTitle?: string;
   permissionConfirmLabel?: string;
   permissionCancelLabel?: string;
+  permissionErrorMessage?: string | null;
   requestYamlAssetsPermission: (item: BundleItem, filename: string, detectedAssets: string[], fileHandle?: any) => void;
   authorizeDiskAccess: () => Promise<void>;
   dismissDiskAccessAndStartNew: () => void;
+  abortPendingImport: () => void;
 }
 
 const initialBackground: BackgroundConfig = {
@@ -348,6 +356,9 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
   const [isSavePanelOpen, setIsSavePanelOpen] = useState<boolean>(false);
   const [isBatchExportModalOpen, setIsBatchExportModalOpen] = useState<boolean>(false);
+  const [isExportPreviewOpen, setIsExportPreviewOpen] = useState<boolean>(false);
+  const [exportPreviewData, setExportPreviewData] = useState<ExportPreviewData | null>(null);
+  const [isGeneratingPreview, setIsGeneratingPreview] = useState<boolean>(false);
   const [isDocOpen, setIsDocOpen] = useState<boolean>(false);
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState<boolean>(false);
   const [activeLeftTab, setActiveLeftTab] = useState<'templates' | 'customIds'>('templates');
@@ -537,6 +548,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     canvasHeight: navigation.canvasHeight,
     projectName: diskSync.projectName,
     setProjectName: diskSync.setProjectName,
+    syncFilePath: diskSync.syncFilePath,
     setSyncFilePath: diskSync.setSyncFilePath,
     setSyncStatus: diskSync.setSyncStatus,
     lastSavedSignatureRef: diskSync.lastSavedSignatureRef,
@@ -804,9 +816,13 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     detectedAssets: string[];
     fileHandle?: any;
   } | null>(null);
+  const [permissionModalError, setPermissionModalError] = useState<string | null>(null);
+  const [isSuggestedBlocked, setIsSuggestedBlocked] = useState<boolean>(false);
 
   const requestYamlAssetsPermission = useCallback(
     (item: BundleItem, filename: string, detectedAssets: string[], fileHandle?: any) => {
+      setPermissionModalError(null);
+      setIsSuggestedBlocked(false);
       try {
         localStorage.setItem('framemyapp_required_assets', JSON.stringify(detectedAssets));
         localStorage.setItem('framemyapp_sync_file_path', filename);
@@ -819,19 +835,35 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     []
   );
 
+  const abortPendingImport = useCallback(() => {
+    setPendingYamlImport(null);
+    setPermissionModalError(null);
+    setIsSuggestedBlocked(false);
+    diskSync.dismissPermissionModal();
+    showSnackbar('Import du template abandonné', 'info');
+  }, [diskSync, showSnackbar]);
+
   const authorizeDiskAccess = useCallback(async () => {
     if (pendingYamlImport) {
       try {
+        setPermissionModalError(null);
+        const startInDir =
+          diskSync.syncDirectoryHandle && diskSync.syncDirectoryHandle.kind === 'directory'
+            ? diskSync.syncDirectoryHandle
+            : 'documents';
         const dirHandle = await (window as any).showDirectoryPicker({
           id: 'framemyapp_project_folder',
           mode: 'readwrite',
-          startIn: pendingYamlImport.fileHandle || diskSync.syncDirectoryHandle || 'documents'
+          startIn: startInDir
         });
         if (dirHandle) {
           await verifyDirectoryPermission(dirHandle, true, true);
           const bundle = await readDirectoryBundle(dirHandle, pendingYamlImport.filename);
           if (!bundle.master) {
             bundle.master = pendingYamlImport.item;
+          }
+          if (bundle.master) {
+            bundle.master.path = pendingYamlImport.filename;
           }
           bundleManager.setLoadedBundle(bundle);
           diskSync.setProjectName(pendingYamlImport.item.name || bundle.name);
@@ -842,20 +874,35 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           await saveDirectoryHandleToIdb(dirHandle, 'root_bundle_dir');
           bundleManager.applyBundleItem(bundle.master || pendingYamlImport.item);
           setPendingYamlImport(null);
+          setPermissionModalError(null);
           showSnackbar(`Template et dossier connectés : ${dirHandle.name}`, 'folder_open');
           return;
         }
       } catch (err: any) {
-        if (err.name !== 'AbortError') {
-          console.warn('showDirectoryPicker error:', err);
+        if (err.name === 'AbortError') {
+          return;
         }
-        return;
+        if (err.name === 'NotAllowedError') {
+          const msg = "L'autorisation d'accès aux dossiers a été refusée ou révoquée dans Chrome. Pour la réactiver, autorisez l'accès aux fichiers dans les paramètres de votre navigateur (icône 🔒 à gauche de la barre d'adresse) puis réessayez.";
+          setPermissionModalError(msg);
+        } else {
+          console.warn('showDirectoryPicker error:', err);
+          const msg = `Erreur d'accès au dossier : ${err.message || 'Non autorisé'}`;
+          setPermissionModalError(msg);
+        }
+        throw err;
       }
     }
-    await diskSync.authorizeDiskAccess();
+    try {
+      await diskSync.authorizeDiskAccess();
+    } catch (err: any) {
+      throw err;
+    }
   }, [pendingYamlImport, bundleManager, diskSync, showSnackbar]);
 
   const dismissDiskAccessAndStartNew = useCallback(() => {
+    setPermissionModalError(null);
+    setIsSuggestedBlocked(false);
     if (pendingYamlImport) {
       const item = pendingYamlImport.item;
       bundleManager.setLoadedBundle({
@@ -879,6 +926,42 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     diskSync.dismissDiskAccessAndStartNew();
   }, [pendingYamlImport, bundleManager, diskSync, showSnackbar]);
+
+  // Export Preview Lightbox trigger
+  const openExportPreview = useCallback(async () => {
+    if (!artboardRef.current) return;
+    setIsExportPreviewOpen(true);
+    setIsGeneratingPreview(true);
+
+    const currentSelection = selectedElementId;
+    const currentZoom = navigation.zoom;
+    selectElement(null);
+    navigation.setZoom(1.0);
+
+    // Court délai pour permettre à l'UI de désélectionner avant capture
+    await new Promise(res => setTimeout(res, 120));
+
+    try {
+      const { blob, dataUrl } = await captureExportPreview(artboardRef.current, navigation.exportZone);
+      setExportPreviewData({
+        blob,
+        dataUrl,
+        targetWidth: Math.round(navigation.exportZone.targetWidth),
+        targetHeight: Math.round(navigation.exportZone.targetHeight),
+        ratio: navigation.exportZone.ratio || (navigation.exportZone.targetWidth / navigation.exportZone.targetHeight) || 1,
+        preset: navigation.exportZone.preset
+      });
+    } catch (err: any) {
+      console.error('Erreur génération preview :', err);
+      showSnackbar('Échec de la génération de l’aperçu', 'error');
+    } finally {
+      navigation.setZoom(currentZoom);
+      if (currentSelection) {
+        selectElement(currentSelection);
+      }
+      setIsGeneratingPreview(false);
+    }
+  }, [artboardRef, selectedElementId, navigation, selectElement, showSnackbar]);
 
   return (
     <EditorContext.Provider
@@ -904,6 +987,11 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setIsConfirmModalOpen,
         isBatchExportModalOpen,
         setIsBatchExportModalOpen,
+        isExportPreviewOpen,
+        setIsExportPreviewOpen,
+        exportPreviewData,
+        isGeneratingPreview,
+        openExportPreview,
         isDocOpen,
         setIsDocOpen,
         isLeftSidebarOpen,
@@ -985,9 +1073,11 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         permissionTitle: pendingYamlImport ? 'Charger les images du template ?' : diskSync.permissionTitle,
         permissionConfirmLabel: pendingYamlImport ? 'Sélectionner le dossier du projet' : diskSync.permissionConfirmLabel,
         permissionCancelLabel: pendingYamlImport ? 'Continuer sans les images' : diskSync.permissionCancelLabel,
+        permissionErrorMessage: permissionModalError || diskSync.permissionErrorMessage,
         requestYamlAssetsPermission,
         authorizeDiskAccess,
-        dismissDiskAccessAndStartNew
+        dismissDiskAccessAndStartNew,
+        abortPendingImport
       }}
     >
       {children}

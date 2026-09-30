@@ -51,6 +51,7 @@ Dans `master.yml`, chaque élément dispose d'un attribut **`customId`**. C'est 
 ### Conventions de nommage recommandées pour une IA :
 * Textes : `main_title`, `subtitle`, `cta_text`, `badge_text`, `price_tag`, `disclaimer`
 * Formes & Cartes : `hero_card`, `badge_pill`, `cta_button`, `divider_line`, `accent_shape`
+* Mockups Terminaux (Devices) : `hero_device`, `phone_mockup`, `tablet_preview`
 * Fond : ciblé via le mot-clé réservé `background` ou `bg`
 
 ---
@@ -64,6 +65,8 @@ Le fichier maître définit l'état initial complet de la composition.
 ```yaml
 name: "Campagne Printemps 2025"
 version: "1.0"
+canvasWidth: 800              # [Optionnel] Largeur du canevas (800 par défaut)
+canvasHeight: 600             # [Optionnel] Hauteur du canevas (600 par défaut)
 
 # Cadrage et dimensions d'exportation
 exportZone:
@@ -89,6 +92,13 @@ background:
   radialColor2: "rgba(30, 27, 75, 1)"
   imageUrl: ""                 # Nom du fichier dans assets/ ou URL
   imageFit: "cover"            # "cover", "contain", "auto"
+  imageOffsetX: 0              # Décalage horizontal en px
+  imageOffsetY: 0              # Décalage vertical en px
+  imageScale: 1                # Échelle de l'image (0.1 à 3)
+  imageBlurEnable: false       # Flou d'arrière-plan
+  imageBlur: 4                 # Rayon du flou en px (0 à 30)
+  imageOverlayEnable: false    # Voile / calque coloré par-dessus l'image
+  imageOverlayColor: "rgba(0, 0, 0, 0.4)"
 
 # Liste ordonnée des calques (du bas vers le haut)
 elements:
@@ -109,7 +119,8 @@ elements:
     angle: 45
     radialColor1: "rgba(245, 158, 11, 1)"
     radialColor2: "rgba(220, 38, 38, 0.85)"
-    imageUrl: ""
+    imageUrl: ""                # Si fillType: "image"
+    imageFit: "cover"           # "cover", "contain", "auto"
     opacity: 0.95               # 0.05 à 1.0
     borderRadius: 24            # Rayon d'arrondi en pixels
     stroke:
@@ -133,13 +144,15 @@ elements:
     width: 380
     height: 90
     rotation: 0
-    fontFamily: "Space Grotesk" # Polices : "Roboto", "Inter", "Poppins", "Montserrat", "Playfair Display", "DM Serif Display", "Space Grotesk", "Oswald", "Pacifico", "Lobster", "Dancing Script", "Caveat", "Cinzel"
+    fontFamily: "Space Grotesk" # Polices : "Roboto", "Inter", "Poppins", "Montserrat", "Playfair Display", "DM Serif Display", "Space Grotesk", "Noto Sans JP", "Oswald", "Pacifico", "Lobster", "Dancing Script", "Caveat", "Cinzel"
     fontWeight: 700             # 100 à 900
     fontSize: 42
     color: "rgba(255, 255, 255, 1)"
     letterSpacing: 0
     lineHeight: 1.2
     minLines: 1
+    textAlign: "left"           # "left", "center", "right", "justify"
+    verticalAlign: "top"        # "top", "middle", "bottom"
     glow:
       enable: false
       color: "rgba(59, 130, 246, 0.85)"
@@ -169,6 +182,8 @@ elements:
     letterSpacing: 0.5
     lineHeight: 1.3
     minLines: 1
+    textAlign: "left"
+    verticalAlign: "top"
     glow:
       enable: false
       color: "rgba(0, 0, 0, 0)"
@@ -181,6 +196,42 @@ elements:
       blur: 0
       x: 0
       y: 0
+
+  # 3. Exemple d'élément Mockup d'Appareil (Device)
+  - id: "dev-1"
+    customId: "hero_device"
+    type: "device"
+    deviceType: "iphone-pro-max" # "pixel-10", "iphone-pro-max", "samsung-galaxy", "pixel-tab"
+    x: 480
+    y: 90
+    width: 250
+    height: 500
+    rotation: -4
+    bodyColor: "rgba(30, 41, 59, 1)"           # Couleur du châssis extérieur
+    brushedMetal: true                         # Finition métal brossé réaliste
+    brushedMetalOpacity: 0.05                  # Opacité de la texture brossée (0.01 à 0.20)
+    bodyThicknessPercent: 3.5                  # Épaisseur du châssis en % de la largeur
+    screenBorderColor: "rgba(0, 0, 0, 1)"       # Bordure d'écran intérieure (bezel)
+    screenBorderWidthPercent: 1.5              # Épaisseur de bordure d'écran en %
+    screenImageUrl: "app_screenshot.png"       # Capture d'écran (chemin relatif assets/ ou URL)
+    screenFit: "cover"                         # "cover", "contain", "fill"
+    screenColor: "rgba(0, 0, 0, 1)"            # Couleur de fond d'écran
+    showButtons: true                          # Boutons physiques latéraux
+    buttonColor: "rgba(71, 85, 105, 1)"
+    showCamera: true                           # Caméra / Dynamic Island / Poinçon
+    showHomeIndicator: true                    # Barre de navigation Home iOS/Android
+    homeIndicatorColor: "rgba(255, 255, 255, 0.45)"
+    showFlare: true                            # Reflet d'écran réaliste en biseau
+    flareColor: "rgba(255, 255, 255, 0.22)"
+    flareAngle: 45                             # Orientation du reflet (0° à 360°)
+    flareSpread: 40                            # Étendue du reflet (10% à 100%)
+    borderRadiusPercent: 12                    # Rayon des coins en % de la largeur
+    shadow:
+      enable: true
+      color: "rgba(0, 0, 0, 0.45)"
+      blur: 24
+      x: 8
+      y: 16
 ```
 
 ---
@@ -200,16 +251,19 @@ background:
   color2: "rgba(67, 20, 7, 1)"
   angle: 120
 
-# Remplacement d'images éventuelles
+# Remplacement d'images éventuelles (fond, forme ou écran de device)
 images:
   background: "bg_flash_sale.jpg"
   hero_card: "badge_promo.png"
+  hero_device: "screen_promo.png"
 
 # Surcharge ciblée des attributs d'éléments par customId
 elements:
   hero_card:
     solidColor: "rgba(239, 68, 68, 1)"
     borderRadius: 30
+  hero_device:
+    bodyColor: "rgba(185, 28, 28, 1)"
   cta_text:
     color: "rgba(254, 240, 138, 1)"
     fontSize: 22
@@ -229,9 +283,10 @@ content:
   main_title: "Jusqu'à -50% ce week-end seulement"
   cta_text: "Commander maintenant →"
 
-# 2. Remplacement d'image localisée si nécessaire
+# 2. Remplacement d'images localisées (formes ou captures d'écran de devices)
 images:
   hero_card: "badge_fr.png"
+  hero_device: "screen_fr.png"
 
 # 3. Ajustements visuels fins si le texte traduit est plus long
 elements:
@@ -257,7 +312,7 @@ flowchart LR
 2. **Override (`overrides/<slug>.yml`)** : Écrase le fond, les styles ou les attributs d'éléments ciblés par leur `customId`.
 3. **Variant (`variants/<lang>/<slug>.yml`)** :
    - Injection des textes traduits définis dans `content: { [customId]: "texte" }`.
-   - Injection des images définies dans `images: { [customId]: "nom_fichier" }`.
+   - Injection des images définies dans `images: { [customId]: "nom_fichier" }` : remplace l'image d'arrière-plan (`background` / `bg`), l'image d'une forme (`imageUrl`) ou la capture d'écran d'un mockup terminal (`screenImageUrl`).
    - Surcharges fines dans `elements: { [customId]: { fontSize: ... } }`.
 4. **Résolution des Assets (`resolveAsset`)** :
    - Recherche d'abord dans le dossier localisé : `assets/<lang>/<filename>`
@@ -292,15 +347,15 @@ Génère l'arborescence et les fichiers YAML complets pour une campagne publicit
 Contraintes impératives :
 1. Crée un fichier `master.yml` complet contenant au minimum :
    - `exportZone` (700x525 px, targetWidth: 1200, targetHeight: 900)
-   - `background` (linear ou solid)
-   - 2 à 4 éléments (`text` et `shape`) ayant chacun un `customId` explicite (ex: `main_title`, `subtitle`, `cta_text`, `badge_card`).
+   - `background` (linear, solid ou image)
+   - 2 à 4 éléments (`text`, `shape` ou `device`) ayant chacun un `customId` explicite (ex: `main_title`, `subtitle`, `cta_text`, `badge_card`, `phone_mockup`).
 2. Crée 2 thèmes visuels dans `overrides/` :
    - `overrides/01_promo.yml`
    - `overrides/02_dark.yml`
 3. Crée les déclinaisons linguistiques dans `variants/` pour `fr` et `en` :
    - `variants/fr/01_promo.yml` et `variants/fr/02_dark.yml`
    - `variants/en/01_promo.yml` et `variants/en/02_dark.yml`
-4. Utilise la clé `content` pour les textes traduits et `elements` pour les adaptations de taille de police (`fontSize`).
+4. Utilise la clé `content` pour les textes traduits, `images` pour les captures d'écran ou visuels spécifiques et `elements` pour les adaptations de taille de police (`fontSize`).
 5. Présente chaque fichier dans un bloc de code séparé avec son chemin relatif complet en en-tête.
 ````
 
@@ -394,6 +449,29 @@ elements:
     letterSpacing: 0
     lineHeight: 1.3
     minLines: 1
+
+  - id: "dev-phone"
+    customId: "app_mockup"
+    type: "device"
+    deviceType: "pixel-10"
+    x: 480
+    y: 70
+    width: 210
+    height: 420
+    rotation: 5
+    bodyColor: "rgba(30, 41, 59, 1)"
+    screenImageUrl: "fitness_screen.png"
+    screenFit: "cover"
+    showButtons: true
+    buttonColor: "rgba(71, 85, 105, 1)"
+    showCamera: true
+    showFlare: true
+    shadow:
+      enable: true
+      color: "rgba(0, 0, 0, 0.4)"
+      blur: 20
+      x: 6
+      y: 12
 ```
 
 ### `overrides/01_intense_red.yml`
@@ -413,6 +491,8 @@ elements:
     color: "rgba(254, 226, 226, 1)"
   cta_text:
     color: "rgba(253, 224, 71, 1)"
+  app_mockup:
+    bodyColor: "rgba(127, 29, 29, 1)"
 ```
 
 ### `variants/fr/01_intense_red.yml`
@@ -422,6 +502,8 @@ content:
   badge_label: "ÉDITION 2025"
   main_title: "Dépassez vos limites au quotidien"
   cta_text: "Démarrer l'entraînement →"
+images:
+  app_mockup: "fitness_screen_fr.png"
 elements:
   main_title:
     fontSize: 38
@@ -434,6 +516,8 @@ content:
   badge_label: "2025 EDITION"
   main_title: "Push beyond your limits daily"
   cta_text: "Start training now →"
+images:
+  app_mockup: "fitness_screen_en.png"
 elements:
   main_title:
     fontSize: 40

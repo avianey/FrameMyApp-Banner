@@ -267,6 +267,7 @@ export function useDiskSync({
   const [permissionTitle, setPermissionTitle] = useState<string | undefined>(undefined);
   const [permissionConfirmLabel, setPermissionConfirmLabel] = useState<string | undefined>(undefined);
   const [permissionCancelLabel, setPermissionCancelLabel] = useState<string | undefined>(undefined);
+  const [permissionErrorMessage, setPermissionErrorMessage] = useState<string | null>(null);
   const pendingDiskHandleRef = useRef<any>(null);
 
   const lastSavedSignatureRef = useRef<string>('');
@@ -370,9 +371,16 @@ export function useDiskSync({
       if (isDir) {
         let bundle: any = null;
         try {
-          bundle = await readDirectoryBundle(handle);
+          const targetFile = syncFilePath || (projectName ? `${slugifyFilename(projectName)}.yml` : undefined);
+          bundle = await readDirectoryBundle(handle, targetFile);
           if (bundle && bundle.master) {
             setLoadedBundleState(bundle);
+            if (bundle.master.path) {
+              setSyncFilePathState(bundle.master.path);
+              try {
+                localStorage.setItem('framemyapp_sync_file_path', bundle.master.path);
+              } catch {}
+            }
             const masterConfig = bundle.master.config as BannerMasterConfig;
             if (masterConfig) {
               loadedConfig = resolveComposition(
@@ -602,40 +610,58 @@ export function useDiskSync({
 
   const dismissPermissionModal = useCallback(() => {
     setIsPermissionModalOpen(false);
+    setPermissionErrorMessage(null);
   }, []);
 
-  const authorizeDiskAccess = useCallback(async () => {
+  const authorizeDiskAccess = useCallback(async (targetMode: 'suggested' | 'other' = 'suggested') => {
+    setPermissionErrorMessage(null);
     const handle = pendingDiskHandleRef.current || syncDirHandleRef.current || syncFileHandleRef.current;
     let chosenDirHandle: any = null;
 
     // 1. Tenter la ré-autorisation active directe si c'est un directory handle existant
     if (handle && (handle.kind === 'directory' || typeof handle.getFileHandle === 'function')) {
-      const granted = await verifyDirectoryPermission(handle, true, true);
-      if (granted) {
-        chosenDirHandle = handle;
+      try {
+        const granted = await verifyDirectoryPermission(handle, true, true);
+        if (granted) {
+          chosenDirHandle = handle;
+        }
+      } catch (err: any) {
+        console.warn('verifyDirectoryPermission failed:', err);
       }
     }
 
     // 2. Si non accordé ou si besoin d'ouvrir le sélecteur, ouvrir avec startIn pré-sélectionné
     if (!chosenDirHandle && typeof window !== 'undefined' && 'showDirectoryPicker' in window) {
       try {
+        const startInDir =
+          handle && handle.kind === 'directory'
+            ? handle
+            : 'documents';
+        const pickerId =
+          targetMode === 'suggested' ? 'framemyapp_assets_folder' : 'framemyapp_project_folder';
         chosenDirHandle = await (window as any).showDirectoryPicker({
-          id: 'framemyapp_project_folder',
+          id: pickerId,
           mode: 'readwrite',
-          startIn: handle || 'documents'
+          startIn: startInDir
         });
         if (chosenDirHandle) {
           await verifyDirectoryPermission(chosenDirHandle, true, true);
         }
       } catch (e: any) {
-        if (e.name !== 'AbortError') {
-          console.warn('showDirectoryPicker error in authorizeDiskAccess:', e);
+        if (e.name === 'AbortError') {
+          return;
         }
-        return;
+        const msg =
+          e.name === 'NotAllowedError'
+            ? "L'autorisation d'accès aux dossiers a été refusée ou révoquée dans Chrome. Pour la réactiver, autorisez l'accès aux fichiers dans les paramètres de votre navigateur (icône 🔒 ou réglages du site à gauche de l'adresse) ou sélectionnez un autre dossier."
+            : `Erreur d'accès au dossier : ${e.message || 'Non autorisé'}`;
+        setPermissionErrorMessage(msg);
+        throw e;
       }
     }
 
     if (chosenDirHandle) {
+      setPermissionErrorMessage(null);
       setIsPermissionModalOpen(false);
       pendingDiskHandleRef.current = null;
       syncDirHandleRef.current = chosenDirHandle;
@@ -647,31 +673,8 @@ export function useDiskSync({
       const targetFile = syncFilePath || `${slugifyFilename(projectName)}.yml`;
       const bundle = await readDirectoryBundle(chosenDirHandle, targetFile);
       setLoadedBundleState(bundle);
-
-      // Résoudre les images sur le canvas actuel à partir des assets chargés
-      if (bundle.assets && Object.keys(bundle.assets).length > 0) {
-        setBackground(prevBg => {
-          if (prevBg.imageUrl && bundle.assets[prevBg.imageUrl]) {
-            return { ...prevBg, imageUrl: bundle.assets[prevBg.imageUrl] };
-          }
-          return prevBg;
-        });
-        setElements(prevEls => {
-          return prevEls.map(el => {
-            if (el.type === 'device') {
-              const d = el as DeviceElementModel;
-              if (d.screenImageUrl && bundle.assets[d.screenImageUrl]) {
-                return { ...d, screenImageUrl: bundle.assets[d.screenImageUrl] };
-              }
-            } else if (el.type === 'shape') {
-              const s = el as ShapeElementModel;
-              if (s.imageUrl && bundle.assets[s.imageUrl]) {
-                return { ...s, imageUrl: bundle.assets[s.imageUrl] };
-              }
-            }
-            return el;
-          });
-        });
+      if (bundle.master?.path) {
+        setSyncFilePath(bundle.master.path);
       }
 
       await loadFromDiskHandle(chosenDirHandle, false);
@@ -679,7 +682,7 @@ export function useDiskSync({
     } else {
       showSnackbar('Permission refusée par le navigateur', 'warning');
     }
-  }, [syncFilePath, projectName, setBackground, setElements, setLoadedBundleState, loadFromDiskHandle, showSnackbar]);
+  }, [syncFilePath, projectName, setBackground, setElements, setLoadedBundleState, loadFromDiskHandle, setSyncFilePath, showSnackbar]);
 
   const dismissDiskAccessAndStartNew = useCallback(() => {
     setIsPermissionModalOpen(false);
@@ -727,10 +730,14 @@ export function useDiskSync({
       return false;
     }
     try {
+      const startInDir =
+        syncDirHandleRef.current && syncDirHandleRef.current.kind === 'directory'
+          ? syncDirHandleRef.current
+          : 'documents';
       const handle = await (window as any).showDirectoryPicker({
         id: 'framemyapp_project_folder',
         mode: 'readwrite',
-        startIn: syncDirHandleRef.current || 'documents'
+        startIn: startInDir
       });
       if (handle) {
         await verifyDirectoryPermission(handle, true, true);
@@ -791,7 +798,7 @@ export function useDiskSync({
           const dirHandle = await (window as any).showDirectoryPicker({
             id: 'framemyapp_project_folder',
             mode: 'readwrite',
-            startIn: handle
+            startIn: 'documents'
           });
           if (dirHandle) {
             await verifyDirectoryPermission(dirHandle, true, true);
@@ -1124,6 +1131,7 @@ export function useDiskSync({
     permissionTitle,
     permissionConfirmLabel,
     permissionCancelLabel,
+    permissionErrorMessage,
     authorizeDiskAccess,
     dismissPermissionModal,
     dismissDiskAccessAndStartNew

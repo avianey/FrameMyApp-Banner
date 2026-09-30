@@ -59,16 +59,6 @@ export function resolveAsset(
   if (assetPath.startsWith('blob:')) {
     const isLive = Object.values(assetsMap).includes(assetPath);
     if (isLive) return assetPath;
-
-    // A blob: URL from YAML is dead across sessions.
-    // Recover by finding an appropriate candidate in assetsMap (e.g. background/bg)
-    const assetKeys = Object.keys(assetsMap);
-    if (assetKeys.length > 0) {
-      const bgMatch = assetKeys.find(k => /background|bg|cover/i.test(k));
-      if (bgMatch) return assetsMap[bgMatch];
-      const anyImg = assetKeys.find(k => /\.(png|jpe?g|webp|svg)$/i.test(k));
-      if (anyImg) return assetsMap[anyImg];
-    }
     return assetPath;
   }
 

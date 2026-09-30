@@ -2,7 +2,7 @@ import React from 'react';
 import { useEditor } from '../../context/EditorContext';
 
 export const ExportOverlay: React.FC = () => {
-  const { state, updateExportZone } = useEditor();
+  const { state, updateExportZone, openExportPreview } = useEditor();
   const {
     exportZone,
     activePanel,
@@ -182,9 +182,22 @@ export const ExportOverlay: React.FC = () => {
             {Math.round(exportZone.width)} × {Math.round(exportZone.height)}
           </span>
         </span>
-        <span className="bg-m3-sys-surfaceContainerHighest text-m3-sys-onSurface text-[10px] font-mono px-1.5 py-0.5 rounded border border-m3-sys-outlineVariant/50 font-bold">
-          Ratio {formattedRatio}:1
-        </span>
+        <div className="flex items-center space-x-1">
+          <button
+            onPointerDown={e => {
+              e.stopPropagation();
+              openExportPreview();
+            }}
+            title="Prévisualiser le cadrage actuel dans la Lightbox"
+            className="bg-m3-sys-primary hover:bg-m3-sys-primary/90 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow flex items-center gap-1 cursor-pointer transition-all hover:scale-105 active:scale-95"
+          >
+            <span className="material-symbols-rounded text-xs leading-none">visibility</span>
+            <span>Aperçu</span>
+          </button>
+          <span className="bg-m3-sys-surfaceContainerHighest text-m3-sys-onSurface text-[10px] font-mono px-1.5 py-0.5 rounded border border-m3-sys-outlineVariant/50 font-bold">
+            Ratio {formattedRatio}:1
+          </span>
+        </div>
 
         {/* 4 Poignées de redimensionnement de coin */}
         <div

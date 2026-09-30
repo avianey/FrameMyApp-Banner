@@ -195,6 +195,26 @@ export const Artboard: React.FC = () => {
             id="artboard-bg"
             className="absolute inset-0 w-full h-full rounded-none overflow-hidden pointer-events-none z-0"
             style={getBackgroundStyle()}
+            data-bg-type={background.type}
+            data-shape-w={canvasWidth}
+            data-shape-h={canvasHeight}
+            data-gradient-angle={background.angle ?? 135}
+            data-gradient-stops={
+              background.type === 'linear'
+                ? JSON.stringify([
+                    { color: background.color1 || '#6366F1', offset: 0 },
+                    { color: background.color2 || '#EC4899', offset: 100 }
+                  ])
+                : undefined
+            }
+            data-radial-stops={
+              background.type === 'radial'
+                ? JSON.stringify([
+                    { color: background.radialColor1 || '#F43F5E', offset: 0 },
+                    { color: background.radialColor2 || '#1E1B4B', offset: 100 }
+                  ])
+                : undefined
+            }
           />
         )}
 

@@ -32,7 +32,9 @@ export const ExportControls: React.FC = () => {
     setIsDrawingExportMode,
     selectElement,
     showSnackbar,
-    setZoom
+    setZoom,
+    openExportPreview,
+    isGeneratingPreview
   } = useEditor();
 
   const {
@@ -351,9 +353,20 @@ export const ExportControls: React.FC = () => {
               Résolution Cible Réelle
             </label>
           </div>
-          <span className="text-[10px] font-mono font-bold text-m3-sys-onPrimaryContainer bg-m3-sys-primaryContainer px-2 py-0.5 rounded-full">
-            Ratio {formatRatio(currentRatio)}
-          </span>
+          <div className="flex items-center space-x-1.5">
+            <button
+              onClick={openExportPreview}
+              disabled={isGeneratingPreview || isExporting}
+              title="Prévisualiser le cadrage dans la Lightbox"
+              className="px-2 py-0.5 rounded-full bg-m3-sys-primary/10 hover:bg-m3-sys-primary hover:text-white text-m3-sys-primary text-[10px] font-bold flex items-center space-x-1 transition-all cursor-pointer disabled:opacity-50"
+            >
+              <span className="material-symbols-rounded text-xs">visibility</span>
+              <span>Aperçu</span>
+            </button>
+            <span className="text-[10px] font-mono font-bold text-m3-sys-onPrimaryContainer bg-m3-sys-primaryContainer px-2 py-0.5 rounded-full">
+              Ratio {formatRatio(currentRatio)}
+            </span>
+          </div>
         </div>
 
         {/* Champs de saisie Largeur / Hauteur */}
@@ -528,8 +541,26 @@ export const ExportControls: React.FC = () => {
         </div>
       </div>
 
-      {/* 4. Bouton de Téléchargement Direct */}
-      <div className="pt-2">
+      {/* 4. Boutons d'Action : Prévisualisation Lightbox & Téléchargement Direct */}
+      <div className="pt-2 space-y-2.5">
+        <button
+          onClick={openExportPreview}
+          disabled={isGeneratingPreview || isExporting}
+          className="w-full py-3 px-4 rounded-full bg-m3-sys-secondaryContainer hover:bg-m3-sys-secondaryContainer/80 text-m3-sys-onSecondaryContainer font-bold text-xs sm:text-sm border border-m3-sys-outlineVariant/50 shadow-sm hover:shadow-m3-1 active:scale-98 transition-all flex items-center justify-center space-x-2 disabled:opacity-60 cursor-pointer"
+        >
+          {isGeneratingPreview ? (
+            <>
+              <span className="material-symbols-rounded animate-spin text-base">progress_activity</span>
+              <span>Génération de l'aperçu...</span>
+            </>
+          ) : (
+            <>
+              <span className="material-symbols-rounded text-lg">visibility</span>
+              <span>Prévisualiser le rendu (Lightbox)</span>
+            </>
+          )}
+        </button>
+
         <button
           onClick={handleExport}
           disabled={isExporting}

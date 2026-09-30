@@ -8,6 +8,7 @@ import { BottomBar } from './components/BottomBar';
 import { Snackbar } from './components/Snackbar';
 import { ConfirmModal } from './components/ConfirmModal';
 import { BatchExportModal } from './components/modal/BatchExportModal';
+import { ExportPreviewModal } from './components/modal/ExportPreviewModal';
 import { DocumentationModal } from './components/modal/DocumentationModal';
 import { SaveModal } from './components/modal/SaveModal';
 import { DiskPermissionModal } from './components/modal/DiskPermissionModal';
@@ -25,8 +26,11 @@ export const AppContent: React.FC = () => {
     permissionTitle,
     permissionConfirmLabel,
     permissionCancelLabel,
+    permissionErrorMessage,
+    isSuggestedBlocked,
     authorizeDiskAccess,
-    dismissDiskAccessAndStartNew
+    dismissDiskAccessAndStartNew,
+    abortPendingImport
   } = useEditor();
 
   return (
@@ -46,6 +50,7 @@ export const AppContent: React.FC = () => {
       />
       <SaveModal />
       <BatchExportModal />
+      <ExportPreviewModal />
       <DocumentationModal
         isOpen={isDocOpen}
         onClose={() => setIsDocOpen(false)}
@@ -57,8 +62,10 @@ export const AppContent: React.FC = () => {
         title={permissionTitle}
         confirmLabel={permissionConfirmLabel}
         cancelLabel={permissionCancelLabel}
+        errorMessage={permissionErrorMessage}
         onAuthorize={authorizeDiskAccess}
         onNewDocument={dismissDiskAccessAndStartNew}
+        onAbortImport={abortPendingImport}
       />
     </div>
   );

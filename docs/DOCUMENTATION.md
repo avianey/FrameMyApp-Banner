@@ -336,6 +336,27 @@ Des presets prédéfinis permettent d'appliquer instantanément les standards gr
 ### 6.4 Rendu Plein Cadre (Full Frame) & Fidélité des Écrans Appareils
 - **Plein Cadre Strict (Full Frame)** : Lors de l'exportation unitaire comme du Batch Export, la scène et ses arrière-plans sont capturés avec des angles droits nets (`border-radius: 0px`), supprimant tout rognage ou bordure arrondie résiduelle pour une conformité parfaite aux magasins d'applications (Google Play, App Store).
 - **Rendu Pixel-Perfect des Mockups de Téléphones** : Les captures d'écran des appareils sont positionnées avec des dimensions et des coordonnées absolues en pixels calculées selon le ratio naturel de l'image et le mode d'ajustement (`cover` ou `contain`), garantissant un rendu complet, synchrone et sans écran noir.
+- **Pureté des Dégradés & Transparences Alpha** : Les formes et fonds en dégradé (linéaire ou radial) sont pré-rendus sur des surfaces vectorielles synchrones sans répétition de motif (`createPattern`), éliminant définitivement les traits ou lignes sub-pixels parasites aux frontières des zones translucides.
+
+### 6.5 Prévisualisation du Rendu (Lightbox HD)
+Avant de télécharger votre image ou de lancer des exports multiples, vous pouvez prévisualiser le rendu final exact dans une lightbox dédiée :
+- **Points d'accès rapides** :
+  - Dans le volet **Export** : bouton *« Prévisualiser le rendu (Lightbox) »* situé juste au-dessus du bouton de téléchargement, ainsi qu'un bouton d'accès rapide dans l'en-tête de la section.
+  - Sur le **Canevas** : bouton *« Aperçu »* intégré directement sur le badge du cadre de cadrage interactif (`ExportOverlay`).
+  - Dans la **Barre supérieure (Header)** : bouton avec icône `visibility` pour déclencher la prévisualisation instantanée à tout moment.
+- **Fonctionnalités de la Lightbox** :
+  - **Fidélité pixel-perfect** : Génération haute définition respectant les polices, les marges, les mockups et le cadrage cible exact.
+  - **Damier de Transparence (Alpha)** : Un fond en damier sombre/clair permet de vérifier immédiatement la présence et la pureté des transparences (fonds transparents ou semi-opaques).
+  - **Métadonnées en Direct** : Affichage de la résolution en pixels (`targetWidth × targetHeight px`), du ratio d'aspect (`16:9`, `9:16`, `1:1`, etc.), de la taille estimée du fichier PNG (`Ko` / `Mo`) et du preset appliqué.
+  - **Modes de Zoom** :
+    - *Adapter* : Redimensionne l'image pour qu'elle tienne entièrement dans l'espace disponible de l'écran.
+    - *100% (Taille réelle)* : Affiche l'image à sa dimension native en pixels avec défilement pour inspecter la netteté et les détails au niveau du pixel.
+    - *Zoom manuel* : Boutons `+` et `-` pour ajuster l'échelle de 25% à 300%.
+  - **Actions Intégrées** :
+    - *Copier l'image* : Copie directement le rendu PNG dans le presse-papiers du système pour le coller instantanément dans d'autres outils (messageries, Figma, présentations).
+    - *Télécharger* : Exporte et enregistre immédiatement le fichier PNG avec un nom adapté (`banner-WIDTHxHEIGHT.png`).
+    - *Rafraîchir* : Régénère le rendu sans quitter la modale pour observer instantanément l'impact de nouveaux ajustements.
+  - **Fermeture fluide** : Via la touche `Échap`, la croix de fermeture ou un simple clic sur l'arrière-plan assombri.
 
 ---
 
@@ -543,8 +564,12 @@ images:
   - **Invite automatique de connexion de dossier** : Si l'utilisateur importe une image sur un appareil, un fond ou une forme alors qu'aucun dossier n'est connecté, l'application sollicite immédiatement la sélection du dossier du projet (`showDirectoryPicker`) afin d'écrire physiquement le fichier dans `assets/` et de garantir sa réouverture dans les sessions ultérieures.
   - **Demande d'autorisation lors de l'import YAML & au chargement du site** :
     - Lors du chargement initial du site (reprise d'un template ou brouillon précédent nécessitant des images locales `assets/`) ou lors du chargement d'un fichier YAML (via le bouton « Importer Fichier » avec sélecteur natif ou via glisser-déposer), l'application ouvre la boîte de dialogue modale *« Charger les images du template ? »*.
-    - Cette modale liste les images requises et propose deux choix : *« Continuer sans les images »* (permet de poursuivre sans écraser le canevas) ou *« Sélectionner le dossier du projet »*.
-    - **Pré-sélection automatique du dossier** : Grâce à l'intégration de la *File System Access API* (`showOpenFilePicker` et `startIn: fileHandle | dirHandle` avec identifiant mémorisé), le sélecteur de dossier s'ouvre directement pré-sélectionné dans le répertoire parent contenant le fichier YAML ou le projet.
+    - **Organisation des actions de la modale** :
+      - **Gros bouton principal** : **« Sélectionner le dossier du projet »** pour autoriser et connecter le répertoire contenant les fichiers et `assets/`.
+      - **Deux boutons secondaires en dessous** :
+        - **« Abandonner l'import »** : Annule immédiatement l'opération et referme la boîte de dialogue sans modifier le canevas.
+        - **« Continuer sans les images »** : Charge la composition YAML sans les visuels locaux.
+    - **Gestion des autorisations navigateur & répertoires protégés** : Si l'accès au dossier a été révoqué ou bloqué dans Chrome (ou déclenche `NotAllowedError`), l'explication et la marche à suivre s'affichent directement au sein de la modale (jamais dans une snackbar masquée par le fond flouté). Le bouton d'autorisation invite à réactiver l'accès via l'icône de réglages du site dans la barre d'adresse du navigateur.
     - Une fois l'accès validé, les images du sous-répertoire `assets/` sont automatiquement résolues et appliquées en temps réel sur le canevas.
   - Dans les fichiers YAML (`master.yml`, overrides, déclinaisons), les images sont sérialisées sous forme de **chemins relatifs propres** (`assets/nom_image.png`), bannissant tout Base64 volumineux du code source YAML.
   - En mémoire vive, des URLs optimisées (`URL.createObjectURL(blob)`) assurent un affichage instantané et fluide dans le canevas sans perte de performance.
