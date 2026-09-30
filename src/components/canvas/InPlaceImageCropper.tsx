@@ -23,6 +23,8 @@ export interface InPlaceImageCropperProps {
   borderRadius?: string | number;
   clipPath?: string;
   imageBlur?: number;
+  overlayEnable?: boolean;
+  overlayColor?: string;
 }
 
 export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
@@ -40,7 +42,9 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
   canvasZoom = 1.0,
   borderRadius = 0,
   clipPath = 'none',
-  imageBlur
+  imageBlur,
+  overlayEnable,
+  overlayColor
 }) => {
   const [natWidth, setNatWidth] = useState<number>(imageNaturalWidth || 0);
   const [natHeight, setNatHeight] = useState<number>(imageNaturalHeight || 0);
@@ -272,6 +276,14 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
           transition: isSpringing ? 'all 0.3s cubic-bezier(0.25, 1, 0.5, 1)' : 'none'
         }}
       />
+
+      {/* Voile de couleur de premier plan (Foreground) superposé uniquement sur l'image */}
+      {overlayEnable && (
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{ backgroundColor: overlayColor || '#FFFFFF11' }}
+        />
+      )}
 
       {/* Mode interactif d'ajustement */}
       {isEditing && (

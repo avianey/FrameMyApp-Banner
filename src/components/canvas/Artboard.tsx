@@ -169,7 +169,7 @@ export const Artboard: React.FC = () => {
       >
         {/* Fond dynamique */}
         {background.type === 'image' && background.imageUrl ? (
-          <div id="artboard-bg" className="absolute inset-0 w-full h-full rounded-2xl overflow-hidden">
+          <div id="artboard-bg" className="absolute inset-0 w-full h-full rounded-2xl overflow-hidden z-0">
             <InPlaceImageCropper
               containerWidth={canvasWidth}
               containerHeight={canvasHeight}
@@ -186,24 +186,20 @@ export const Artboard: React.FC = () => {
               canvasZoom={zoom || 1.0}
               title="Recadrer l'arrière-plan"
               imageBlur={background.imageBlurEnable ? (background.imageBlur ?? 1) : undefined}
+              overlayEnable={background.imageOverlayEnable}
+              overlayColor={background.imageOverlayColor}
             />
-            {background.imageOverlayEnable && (
-              <div
-                className="absolute inset-0 pointer-events-none z-10"
-                style={{ backgroundColor: background.imageOverlayColor || '#FFFFFF11' }}
-              />
-            )}
           </div>
         ) : (
           <div
             id="artboard-bg"
-            className="absolute inset-0 w-full h-full rounded-2xl overflow-hidden pointer-events-none"
+            className="absolute inset-0 w-full h-full rounded-2xl overflow-hidden pointer-events-none z-0"
             style={getBackgroundStyle()}
           />
         )}
 
-        {/* Objets (Textes & Formes) */}
-        <div id="artboard-elements" className="absolute inset-0 w-full h-full overflow-visible">
+        {/* Objets (Textes, Formes & Mockups) */}
+        <div id="artboard-elements" className="absolute inset-0 w-full h-full overflow-visible z-10">
           {elements.map(el => {
             const isSelected = selectedElementIds.includes(el.id);
             const selectionIndex = isSelected ? selectedElementIds.indexOf(el.id) + 1 : undefined;
