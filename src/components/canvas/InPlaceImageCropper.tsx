@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { computeImageCropGeometry, clampImageOffset, applyRubberBandOffset } from '../../utils/imageCropHelper';
+import { renderZoomBlur } from '../../utils/zoomBlurHelper';
 
 export interface InPlaceImageCropperProps {
   containerWidth: number;
@@ -25,6 +26,12 @@ export interface InPlaceImageCropperProps {
   imageBlur?: number;
   overlayEnable?: boolean;
   overlayColor?: string;
+  title?: string;
+  onClose?: () => void;
+  zoomBlurEnable?: boolean;
+  zoomBlurIntensity?: number;
+  zoomBlurCenterX?: number;
+  zoomBlurCenterY?: number;
 }
 
 export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
@@ -44,7 +51,11 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
   clipPath = 'none',
   imageBlur,
   overlayEnable,
-  overlayColor
+  overlayColor,
+  zoomBlurEnable = false,
+  zoomBlurIntensity = 25,
+  zoomBlurCenterX,
+  zoomBlurCenterY
 }) => {
   const [natWidth, setNatWidth] = useState<number>(imageNaturalWidth || 0);
   const [natHeight, setNatHeight] = useState<number>(imageNaturalHeight || 0);
@@ -54,6 +65,8 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
   const [isSpringing, setIsSpringing] = useState(false);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: imageOffsetX, y: imageOffsetY });
   const dragStartRef = useRef<{ startX: number; startY: number; initX: number; initY: number } | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Sync natural dimensions if prop changes or on image load
   useEffect(() => {
@@ -70,17 +83,13 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
     }
   }, [imageOffsetX, imageOffsetY, isDragging]);
 
-  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const nw = e.currentTarget.naturalWidth;
-    const nh = e.currentTarget.naturalHeight;
-    if (nw && nh && (nw !== natWidth || nh !== natHeight)) {
-      setNatWidth(nw);
-      setNatHeight(nh);
-      if (!imageNaturalWidth || !imageNaturalHeight) {
-        onUpdate({ imageNaturalWidth: nw, imageNaturalHeight: nh });
-      }
+  // Si on quitte le mode édition pendant un déplacement, persister immédiatement les coordonnées
+  useEffect(() => {
+    if (!isEditing && isDragging) {
+      setIsDragging(false);
+      onUpdate({ imageOffsetX: dragOffset.x, imageOffsetY: dragOffset.y });
     }
-  };
+  }, [isEditing, isDragging, dragOffset, onUpdate]);
 
   const currentScale = Math.max(imageFit === 'cover' ? 1.0 : 0.1, imageScale);
 
@@ -95,6 +104,68 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
     dragOffset.y,
     imageFit
   );
+
+  const imgLeft = geom.centerLeft + dragOffset.x;
+  const imgTop = geom.centerTop + dragOffset.y;
+
+  const effectiveCenterX = zoomBlurCenterX ?? containerWidth / 2;
+  const effectiveCenterY = zoomBlurCenterY ?? containerHeight / 2;
+
+  const drawZoomBlur = useCallback(() => {
+    if (!zoomBlurEnable || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const img = imgRef.current;
+    if (!img || !img.complete || img.naturalWidth === 0) return;
+
+    renderZoomBlur({
+      ctx,
+      source: img,
+      sourceX: imgLeft,
+      sourceY: imgTop,
+      sourceW: geom.renderW,
+      sourceH: geom.renderH,
+      centerX: effectiveCenterX,
+      centerY: effectiveCenterY,
+      intensity: zoomBlurIntensity,
+      gaussianBlur: imageBlur && imageBlur > 0 ? imageBlur : 0,
+      targetWidth: containerWidth,
+      targetHeight: containerHeight
+    });
+  }, [
+    zoomBlurEnable,
+    effectiveCenterX,
+    effectiveCenterY,
+    zoomBlurIntensity,
+    imageBlur,
+    imgLeft,
+    imgTop,
+    geom.renderW,
+    geom.renderH,
+    containerWidth,
+    containerHeight
+  ]);
+
+  useEffect(() => {
+    drawZoomBlur();
+  }, [drawZoomBlur]);
+
+  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const nw = e.currentTarget.naturalWidth;
+    const nh = e.currentTarget.naturalHeight;
+    if (nw && nh && (nw !== natWidth || nh !== natHeight)) {
+      setNatWidth(nw);
+      setNatHeight(nh);
+      if (!imageNaturalWidth || !imageNaturalHeight) {
+        onUpdate({ imageNaturalWidth: nw, imageNaturalHeight: nh });
+      }
+    }
+    if (zoomBlurEnable) {
+      setTimeout(drawZoomBlur, 10);
+    }
+  };
 
   // Pointer down : démarre le déplacement de l'image
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -247,35 +318,85 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
     };
   }, [isEditing, canvasZoom, containerWidth, containerHeight, natWidth, natHeight, imageFit, imageScale, dragOffset, onUpdate]);
 
-  const imgLeft = geom.centerLeft + dragOffset.x;
-  const imgTop = geom.centerTop + dragOffset.y;
-
   return (
     <div
       className="absolute inset-0 w-full h-full overflow-hidden"
       style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: '100%',
+        height: '100%',
         borderRadius: typeof borderRadius === 'number' ? `${borderRadius}px` : borderRadius,
         clipPath
       }}
     >
-      {/* Élément d'image rendu avec positionnement absolu pixel-perfect (compatible html2canvas) */}
+      {/* Élément d'image rendu avec positionnement absolu */}
       <img
+        ref={imgRef}
         src={imageUrl}
         alt=""
         draggable={false}
+        crossOrigin="anonymous"
         onLoad={handleImageLoad}
         data-image-blur={imageBlur && imageBlur > 0 ? imageBlur : undefined}
-        className="absolute max-w-none max-h-none select-none pointer-events-none"
-        style={{
-          width: `${geom.renderW}px`,
-          height: `${geom.renderH}px`,
-          left: `${imgLeft}px`,
-          top: `${imgTop}px`,
-          filter: imageBlur && imageBlur > 0 ? `blur(${imageBlur}px)` : undefined,
-          transform: imageBlur && imageBlur > 0 ? 'scale(1.04)' : undefined,
-          transition: isSpringing ? 'all 0.3s cubic-bezier(0.25, 1, 0.5, 1)' : 'none'
-        }}
+        className={zoomBlurEnable ? 'hidden' : 'absolute max-w-none max-h-none select-none pointer-events-none'}
+        style={
+          !zoomBlurEnable
+            ? {
+                width: `${geom.renderW}px`,
+                height: `${geom.renderH}px`,
+                left: `${imgLeft}px`,
+                top: `${imgTop}px`,
+                filter: imageBlur && imageBlur > 0 ? `blur(${imageBlur}px)` : undefined,
+                transform: imageBlur && imageBlur > 0 ? 'scale(1.04)' : undefined,
+                transition: isSpringing ? 'all 0.3s cubic-bezier(0.25, 1, 0.5, 1)' : 'none'
+              }
+            : undefined
+        }
       />
+
+      {/* Rendu dynamique du flou de zoom cinétique sur Canvas (compatible html2canvas) */}
+      {zoomBlurEnable && (
+        <canvas
+          ref={canvasRef}
+          data-canvas-id="background-zoom-blur"
+          data-zoom-blur="true"
+          data-zoom-intensity={zoomBlurIntensity}
+          data-zoom-cx={effectiveCenterX}
+          data-zoom-cy={effectiveCenterY}
+          data-source-x={imgLeft}
+          data-source-y={imgTop}
+          data-source-w={geom.renderW}
+          data-source-h={geom.renderH}
+          data-gaussian-blur={imageBlur && imageBlur > 0 ? imageBlur : 0}
+          width={containerWidth}
+          height={containerHeight}
+          className="absolute inset-0 w-full h-full select-none pointer-events-none"
+          style={{
+            width: '100%',
+            height: '100%'
+          }}
+        />
+      )}
+
+      {/* Lors du recadrage interactif avec flou cinétique activé, afficher l'image semi-transparente pour le calage visuel */}
+      {isEditing && zoomBlurEnable && (
+        <img
+          src={imageUrl}
+          alt=""
+          draggable={false}
+          className="absolute max-w-none max-h-none select-none pointer-events-none opacity-40"
+          style={{
+            width: `${geom.renderW}px`,
+            height: `${geom.renderH}px`,
+            left: `${imgLeft}px`,
+            top: `${imgTop}px`
+          }}
+        />
+      )}
 
       {/* Voile de couleur de premier plan (Foreground) superposé uniquement sur l'image */}
       {overlayEnable && (

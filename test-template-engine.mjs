@@ -8,6 +8,7 @@ import {
   resolveAsset
 } from './src/utils/templateEngine.ts';
 import { alignElements, distributeElements } from './src/utils/alignment.ts';
+import { assetManager, convertUrlsToRelativeAssetPaths } from './src/utils/assetManager.ts';
 
 console.log('Testing Template Engine & YAML round-tripping...');
 
@@ -411,5 +412,68 @@ const resolvedOverriddenTextEl = resolvedTextAlignOverride.elements.find(e => e.
 assert.strictEqual(resolvedOverriddenTextEl.textAlign, 'right');
 assert.strictEqual(resolvedOverriddenTextEl.verticalAlign, 'bottom');
 console.log('✔ Text horizontal & vertical alignment cascade verified');
+
+// 13. Background kinetic zoom blur cascade verification
+const bgZoomBlurMaster = {
+  name: 'Background Zoom Blur Master',
+  background: {
+    type: 'image',
+    imageUrl: 'assets/bg.jpg',
+    imageFit: 'cover',
+    zoomBlurEnable: true,
+    zoomBlurIntensity: 35,
+    zoomBlurOrigin: 'auto-device',
+    zoomBlurOriginX: 50,
+    zoomBlurOriginY: 50
+  }
+};
+
+const resolvedZoomBlurComp = resolveComposition(bgZoomBlurMaster);
+assert.strictEqual(resolvedZoomBlurComp.background.zoomBlurEnable, true);
+assert.strictEqual(resolvedZoomBlurComp.background.zoomBlurIntensity, 35);
+assert.strictEqual(resolvedZoomBlurComp.background.zoomBlurOrigin, 'auto-device');
+
+// With override modifying zoom blur origin & intensity
+const bgZoomBlurOverride = {
+  background: {
+    zoomBlurIntensity: 60,
+    zoomBlurOrigin: 'custom',
+    zoomBlurOriginX: 40,
+    zoomBlurOriginY: 65
+  }
+};
+const resolvedZoomBlurOverride = resolveComposition(bgZoomBlurMaster, bgZoomBlurOverride);
+assert.strictEqual(resolvedZoomBlurOverride.background.zoomBlurEnable, true, 'zoomBlurEnable should be preserved from master');
+assert.strictEqual(resolvedZoomBlurOverride.background.zoomBlurIntensity, 60, 'zoomBlurIntensity should be updated by override');
+assert.strictEqual(resolvedZoomBlurOverride.background.zoomBlurOrigin, 'custom', 'zoomBlurOrigin should be updated by override');
+assert.strictEqual(resolvedZoomBlurOverride.background.zoomBlurOriginX, 40, 'zoomBlurOriginX should be updated by override');
+assert.strictEqual(resolvedZoomBlurOverride.background.zoomBlurOriginY, 65, 'zoomBlurOriginY should be updated by override');
+console.log('✔ Background kinetic zoom blur cascade verified');
+
+// 14. Asset Subdirectory Preservation & AssetManager isolation verification
+assetManager.clear();
+// Existing asset on disk with subfolder
+assetManager.registerExistingAsset('assets/sub/screen.png', new Blob(['test']), 'blob:http://sub-screen');
+// Uploaded asset from UI
+assetManager.registerAsset('uploaded_photo.png', new Blob(['test2']));
+
+assert.strictEqual(
+  assetManager.getAssetPathFromUrl('blob:http://sub-screen'),
+  'assets/sub/screen.png',
+  'Subdirectory asset path must remain intact in assetManager'
+);
+
+const configWithSubAsset = {
+  background: {
+    imageUrl: 'blob:http://sub-screen'
+  }
+};
+const convertedConfig = convertUrlsToRelativeAssetPaths(configWithSubAsset);
+assert.strictEqual(
+  convertedConfig.background.imageUrl,
+  'assets/sub/screen.png',
+  'Asset URL conversion must preserve subdirectory path without flattening to root assets/'
+);
+console.log('✔ Asset subdirectory preservation & selective disk tracking verified');
 
 console.log('\nAll tests passed successfully!');

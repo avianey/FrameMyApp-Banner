@@ -62,31 +62,51 @@ export function useBundleManager({
   showSnackbar
 }: UseBundleManagerOptions) {
   const [loadedBundle, setLoadedBundleState] = useState<LoadedBundle | null>(null);
+  const loadedBundleRef = useRef<LoadedBundle | null>(null);
   const [activeBundleItemId, setActiveBundleItemId] = useState<string | null>(null);
   const [savedCanvasSignatures, setSavedCanvasSignatures] = useState<Record<string, string>>({});
   const bundleDirHandleRef = useRef<any>(null);
 
   const setLoadedBundle = useCallback(
-    (bundle: LoadedBundle | null) => {
-      if (bundle) {
-        if (bundle.name) {
-          setProjectName(bundle.name);
-        }
-        if (bundle.directoryHandle) {
-          bundleDirHandleRef.current = bundle.directoryHandle;
-          saveDirectoryHandleToIdb(bundle.directoryHandle);
-          saveDirectoryHandleToIdb(bundle.directoryHandle, 'sync_dir_handle');
+    (bundleOrUpdater: LoadedBundle | null | ((prev: LoadedBundle | null) => LoadedBundle | null)) => {
+      let resolvedBundle: LoadedBundle | null = null;
+      if (typeof bundleOrUpdater === 'function') {
+        setLoadedBundleState(prev => {
+          resolvedBundle = bundleOrUpdater(prev);
+          loadedBundleRef.current = resolvedBundle;
+          return resolvedBundle;
+        });
+      } else {
+        resolvedBundle = bundleOrUpdater;
+        loadedBundleRef.current = resolvedBundle;
+        setLoadedBundleState(resolvedBundle);
+      }
+
+      if (resolvedBundle) {
+        if (resolvedBundle.directoryHandle) {
+          bundleDirHandleRef.current = resolvedBundle.directoryHandle;
+          saveDirectoryHandleToIdb(resolvedBundle.directoryHandle);
+          saveDirectoryHandleToIdb(resolvedBundle.directoryHandle, 'sync_dir_handle');
         } else if (bundleDirHandleRef.current) {
-          bundle.directoryHandle = bundleDirHandleRef.current;
+          resolvedBundle.directoryHandle = bundleDirHandleRef.current;
         }
-        const targetPath = bundle.master?.path || syncFilePath || 'master.yml';
+        const targetPath = resolvedBundle.master?.path || syncFilePath || 'master.yml';
         setSyncFilePath(targetPath);
         setSyncStatus('synced');
+      } else {
+        bundleDirHandleRef.current = null;
       }
-      setLoadedBundleState(bundle);
     },
-    [setProjectName, setSyncFilePath, setSyncStatus, syncFilePath]
+    [setSyncFilePath, setSyncStatus, syncFilePath]
   );
+
+  const detachBundle = useCallback(() => {
+    bundleDirHandleRef.current = null;
+    loadedBundleRef.current = null;
+    setLoadedBundleState(null);
+    setActiveBundleItemId(null);
+    setSavedCanvasSignatures({});
+  }, []);
 
   const currentCanvasSignature = useMemo(() => {
     return computeCanvasSignature(background, elements, exportZone, canvasWidth, canvasHeight, projectName);
@@ -113,11 +133,18 @@ export function useBundleManager({
   );
 
   const applyBundleItem = useCallback(
-    (item: BundleItem) => {
-      if (!loadedBundle) return;
+    (item: BundleItem, bundleOverride?: LoadedBundle) => {
+      let activeBundle = bundleOverride || loadedBundleRef.current || loadedBundle;
+      if (typeof activeBundle === 'function') {
+        activeBundle = loadedBundle;
+      }
+      if (!activeBundle || typeof activeBundle !== 'object') return;
       recordHistory();
 
-      const masterConfig = (loadedBundle.master?.config as BannerMasterConfig) || {};
+      const masterConfig = (activeBundle.master?.config as BannerMasterConfig) || {};
+      const activeOverrides = activeBundle.overrides || {};
+      const activeAssets = activeBundle.assets || {};
+
       let resolved: {
         background: BackgroundConfig;
         elements: CanvasElement[];
@@ -131,7 +158,7 @@ export function useBundleManager({
           item.config as BannerMasterConfig,
           undefined,
           undefined,
-          loadedBundle.assets,
+          activeAssets,
           item.path
         );
       } else if (item.type === 'override') {
@@ -139,16 +166,16 @@ export function useBundleManager({
           masterConfig,
           item.config as BannerOverrideConfig,
           undefined,
-          loadedBundle.assets,
+          activeAssets,
           item.path
         );
       } else {
-        const matchingOverride = loadedBundle.overrides[item.slug];
+        const matchingOverride = activeOverrides[item.slug];
         resolved = resolveComposition(
           masterConfig,
           matchingOverride?.config as BannerOverrideConfig | undefined,
           item.config as BannerVariantConfig,
-          loadedBundle.assets,
+          activeAssets,
           item.path
         );
       }
@@ -195,11 +222,14 @@ export function useBundleManager({
 
   const saveBundleItemToDisk = useCallback(
     async (item: BundleItem): Promise<boolean> => {
-      if (!loadedBundle) return false;
+      const currentBundle = loadedBundleRef.current || loadedBundle;
+      if (!currentBundle) return false;
 
       try {
         let yamlContent = '';
         let updatedConfig: any = null;
+
+        const activeOverrides = currentBundle.overrides || {};
 
         if (item.type === 'master') {
           const masterConfig = serializeCanvasToMaster(
@@ -218,27 +248,28 @@ export function useBundleManager({
             background,
             elements,
             exportZone,
-            loadedBundle.master?.config as BannerMasterConfig | undefined
+            currentBundle.master?.config as BannerMasterConfig | undefined
           );
           yamlContent = stringifyYaml(overrideConfig);
           updatedConfig = overrideConfig;
         } else {
+          const matchingOverride = activeOverrides[item.slug];
           const variantConfig = serializeCanvasToVariant(
             item,
             elements,
-            loadedBundle.master?.config as BannerMasterConfig | undefined,
-            loadedBundle.overrides[item.slug]?.config as BannerOverrideConfig | undefined
+            currentBundle.master?.config as BannerMasterConfig | undefined,
+            matchingOverride?.config as BannerOverrideConfig | undefined
           );
           yamlContent = stringifyYaml(variantConfig);
           updatedConfig = variantConfig;
         }
 
-        let dirHandle = loadedBundle.directoryHandle || bundleDirHandleRef.current;
+        let dirHandle = currentBundle.directoryHandle || bundleDirHandleRef.current;
         if (!dirHandle) {
           dirHandle = await getDirectoryHandleFromIdb();
           if (dirHandle) {
             bundleDirHandleRef.current = dirHandle;
-            loadedBundle.directoryHandle = dirHandle;
+            currentBundle.directoryHandle = dirHandle;
           }
         }
 
@@ -252,7 +283,7 @@ export function useBundleManager({
             });
             if (dirHandle) {
               bundleDirHandleRef.current = dirHandle;
-              loadedBundle.directoryHandle = dirHandle;
+              currentBundle.directoryHandle = dirHandle;
               saveDirectoryHandleToIdb(dirHandle);
             }
           } catch (err: any) {
@@ -263,7 +294,7 @@ export function useBundleManager({
 
         if (dirHandle) {
           await verifyDirectoryPermission(dirHandle, true);
-          await assetManager.saveAllToDirectory(dirHandle);
+          await assetManager.saveAllToDirectory(dirHandle, true);
           const cleanConfig = convertUrlsToRelativeAssetPaths(updatedConfig);
           yamlContent = stringifyYaml(cleanConfig);
           await writeTextToDirectory(dirHandle, item.path, yamlContent);
@@ -281,27 +312,44 @@ export function useBundleManager({
           config: updatedConfig
         };
 
+        let newBundle: LoadedBundle;
         if (item.type === 'master') {
-          setLoadedBundleState({
-            ...loadedBundle,
+          newBundle = {
+            ...currentBundle,
             master: updatedItem
-          });
+          };
         } else if (item.type === 'override') {
-          setLoadedBundleState({
-            ...loadedBundle,
+          newBundle = {
+            ...currentBundle,
             overrides: {
-              ...loadedBundle.overrides,
+              ...(currentBundle.overrides || {}),
               [item.slug]: updatedItem
             }
-          });
+          };
         } else {
-          setLoadedBundleState({
-            ...loadedBundle,
-            variants: loadedBundle.variants.map(v => (v.id === item.id ? updatedItem : v))
-          });
+          newBundle = {
+            ...currentBundle,
+            variants: (currentBundle.variants || []).map(v => (v.id === item.id ? updatedItem : v))
+          };
         }
 
+        loadedBundleRef.current = newBundle;
+        setLoadedBundleState(newBundle);
+
         markItemSaved(item.id);
+        const sig = computeCanvasSignature(
+          background,
+          elements,
+          exportZone,
+          canvasWidth,
+          canvasHeight,
+          item.name || projectName
+        );
+        lastSavedSignatureRef.current = sig;
+        setSyncStatus('synced');
+        if (item.path) {
+          setSyncFilePath(item.path);
+        }
         return true;
       } catch (err: any) {
         console.error('Erreur lors de l\'enregistrement sur le disque :', err);
@@ -316,6 +364,10 @@ export function useBundleManager({
       exportZone,
       canvasWidth,
       canvasHeight,
+      projectName,
+      lastSavedSignatureRef,
+      setSyncFilePath,
+      setSyncStatus,
       markItemSaved,
       showSnackbar
     ]
@@ -382,6 +434,7 @@ export function useBundleManager({
     loadedBundle,
     setLoadedBundle,
     setLoadedBundleState,
+    detachBundle,
     activeBundleItemId,
     setActiveBundleItemId,
     savedCanvasSignatures,

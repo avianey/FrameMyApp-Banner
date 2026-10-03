@@ -257,7 +257,22 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
           editingImageElementId === element.id ? 'cursor-default' : 'cursor-move'
         }`}
         style={shapeStyle}
+        data-element-type="shape"
         data-shape-id={element.id}
+        data-shape-type={element.shapeType}
+        data-glow-enable={element.glow?.enable ? 'true' : 'false'}
+        data-glow-color={element.glow?.color || ''}
+        data-glow-blur={element.glow?.blur ?? 0}
+        data-glow-x={element.glow?.x ?? 0}
+        data-glow-y={element.glow?.y ?? 0}
+        data-shadow-enable={element.shadow?.enable ? 'true' : 'false'}
+        data-shadow-color={element.shadow?.color || ''}
+        data-shadow-blur={element.shadow?.blur ?? 0}
+        data-shadow-x={element.shadow?.x ?? 0}
+        data-shadow-y={element.shadow?.y ?? 0}
+        data-border-radius={element.borderRadius ?? (element.shapeType === 'rounded-rect' ? 16 : 0)}
+        data-width={element.width}
+        data-height={element.height}
         data-fill-type={element.fillType}
         data-shape-w={element.width}
         data-shape-h={element.height}

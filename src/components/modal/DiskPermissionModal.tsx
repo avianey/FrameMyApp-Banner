@@ -117,7 +117,7 @@ export const DiskPermissionModal: React.FC<DiskPermissionModalProps> = ({
           <p>
             {description ||
               (detectedAssets.length > 0
-                ? "Ce template YAML utilise des images physiques situées dans le dossier assets/. Pour les charger et permettre leur synchronisation automatique, veuillez autoriser l'accès au dossier du projet."
+                ? "Ce template YAML utilise des images physiques situées dans le dossier assets/ (ou ses sous-répertoires). Pour les charger et permettre leur synchronisation automatique, veuillez autoriser l'accès ou sélectionner le dossier racine du bundle/projet."
                 : "Un projet enregistré sur votre disque a été détecté. Votre navigateur nécessite une autorisation pour charger ses fichiers et ses images (assets/).")}
           </p>
 

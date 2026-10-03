@@ -36,9 +36,10 @@ export function dataUrlToBlob(dataUrl: string): { blob: Blob; ext: string } {
 }
 
 export interface AssetEntry {
-  assetPath: string; // e.g. "assets/screenshot.png"
+  assetPath: string; // e.g. "assets/sub/screenshot.png"
   blob: Blob | File;
   url: string; // displayable URL (blob: or data:)
+  isUploaded?: boolean; // true if added via the UI upload in this session
 }
 
 class AssetManager {
@@ -46,8 +47,8 @@ class AssetManager {
   private urlToPath = new Map<string, string>();
 
   /**
-   * Registers a binary file or blob as an asset.
-   * Returns its clean relative path ("assets/filename.ext") and display URL.
+   * Registers a newly uploaded binary file or blob from the UI.
+   * Placed by default in assets/filename.ext and flagged as isUploaded: true.
    */
   registerAsset(filename: string, blobOrFile: Blob | File): { assetPath: string; displayUrl: string } {
     const cleanFilename = sanitizeAssetFilename(filename);
@@ -57,7 +58,8 @@ class AssetManager {
     const entry: AssetEntry = {
       assetPath,
       blob: blobOrFile,
-      url: displayUrl
+      url: displayUrl,
+      isUploaded: true
     };
 
     this.assets.set(assetPath, entry);
@@ -69,19 +71,24 @@ class AssetManager {
 
   /**
    * Registers an already existing asset from disk or bundle (with existing objectUrl).
+   * Preserves the EXACT relative path (including subdirectories) without flattening or moving to assets/ root.
    */
   registerExistingAsset(assetPath: string, blob: Blob | File, objectUrl: string) {
-    const cleanPath = assetPath.startsWith('assets/') ? assetPath : `assets/${assetPath}`;
+    const normalized = assetPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const cleanPath = normalized.startsWith('assets/') ? normalized : `assets/${normalized}`;
     const filename = cleanPath.split('/').pop() || cleanPath;
 
     const entry: AssetEntry = {
       assetPath: cleanPath,
       blob,
-      url: objectUrl
+      url: objectUrl,
+      isUploaded: false
     };
 
     this.assets.set(cleanPath, entry);
-    this.assets.set(filename, entry);
+    if (!this.assets.has(filename)) {
+      this.assets.set(filename, entry);
+    }
     this.urlToPath.set(objectUrl, cleanPath);
   }
 
@@ -89,7 +96,8 @@ class AssetManager {
    * Associates an existing URL (e.g. data URL or external URL) to a relative asset path.
    */
   registerUrlMapping(url: string, assetPath: string) {
-    const cleanPath = assetPath.startsWith('assets/') ? assetPath : `assets/${assetPath}`;
+    const normalized = assetPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const cleanPath = normalized.startsWith('assets/') ? normalized : `assets/${normalized}`;
     this.urlToPath.set(url, cleanPath);
   }
 
@@ -100,7 +108,8 @@ class AssetManager {
 
   getDisplayUrl(assetPath: string | undefined): string | undefined {
     if (!assetPath) return undefined;
-    const cleanPath = assetPath.startsWith('assets/') ? assetPath : `assets/${assetPath}`;
+    const normalized = assetPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const cleanPath = normalized.startsWith('assets/') ? normalized : `assets/${normalized}`;
     const filename = cleanPath.split('/').pop() || cleanPath;
     const entry = this.assets.get(cleanPath) || this.assets.get(filename);
     if (entry) return entry.url;
@@ -112,19 +121,33 @@ class AssetManager {
   }
 
   /**
-   * Writes all tracked assets into the given FileSystemDirectoryHandle under assets/...
+   * Writes tracked assets to the given FileSystemDirectoryHandle.
+   * If onlyUploaded is true (default), only newly uploaded assets from the UI are written,
+   * avoiding rewriting, moving, or reorganizing assets that already exist on disk in their subdirectories.
    */
-  async saveAllToDirectory(dirHandle: any): Promise<void> {
+  async saveAllToDirectory(dirHandle: any, onlyUploaded = true): Promise<void> {
     if (!dirHandle) return;
     for (const [key, entry] of this.assets.entries()) {
-      if (key.startsWith('assets/')) {
-        try {
-          await writeBlobToDirectory(dirHandle, entry.assetPath, entry.blob);
-        } catch (e) {
-          console.warn(`Could not save asset ${entry.assetPath} to directory:`, e);
-        }
+      // Only process canonical entries to prevent duplicate writes
+      if (key !== entry.assetPath) continue;
+      // Skip assets already existing on disk unless they were uploaded in this session
+      if (onlyUploaded && !entry.isUploaded) continue;
+
+      try {
+        await writeBlobToDirectory(dirHandle, entry.assetPath, entry.blob);
+        entry.isUploaded = false;
+      } catch (e) {
+        console.warn(`Could not save asset ${entry.assetPath} to directory:`, e);
       }
     }
+  }
+
+  /**
+   * Resets all cached assets and URL mappings.
+   */
+  clear() {
+    this.assets.clear();
+    this.urlToPath.clear();
   }
 }
 
@@ -145,9 +168,9 @@ export function convertUrlsToRelativeAssetPaths<T extends Record<string, any>>(
   const sanitizeUrl = (url: string | undefined, defaultPrefix: string): string | undefined => {
     if (!url) return url;
 
-    // 1. If already a clean relative path
+    // 1. If already a clean relative path, preserve it intact without altering subdirectories
     if (!url.startsWith('blob:') && !url.startsWith('data:') && !url.startsWith('http://') && !url.startsWith('https://')) {
-      return url.startsWith('assets/') ? url : `assets/${url}`;
+      return url;
     }
 
     // 2. Check if registered in assetManager
@@ -160,9 +183,8 @@ export function convertUrlsToRelativeAssetPaths<T extends Record<string, any>>(
     if (bundleAssets) {
       for (const [assetKey, assetVal] of Object.entries(bundleAssets)) {
         if (assetVal === url) {
-          const clean = assetKey.startsWith('assets/') ? assetKey : `assets/${assetKey}`;
-          assetManager.registerUrlMapping(url, clean);
-          return clean;
+          assetManager.registerUrlMapping(url, assetKey);
+          return assetKey;
         }
       }
     }

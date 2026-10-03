@@ -238,7 +238,13 @@ export const SelectionHandles: React.FC<SelectionHandlesProps> = ({ element, ele
   const s = 1 / currentZoom;
   const offset = 4 * s;
   const w = element.width;
-  const h = element.height;
+  const h =
+    element.type === 'text'
+      ? Math.max(
+          element.height || 0,
+          ((element as any).minLines || 1) * ((element as any).fontSize || 24) * ((element as any).lineHeight || 1.2)
+        )
+      : element.height;
   const stemHeight = 36 * s;
 
   const handleDefs: HandleDef[] = [

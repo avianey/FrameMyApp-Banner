@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useEditor } from '../../context/EditorContext';
 import { BatchExportItem, BannerMasterConfig, BannerOverrideConfig, BannerVariantConfig } from '../../types';
 import { resolveComposition } from '../../utils/templateEngine';
@@ -10,9 +10,13 @@ export const BatchExportModal: React.FC = () => {
     isBatchExportModalOpen,
     setIsBatchExportModalOpen,
     loadedBundle,
+    activeBundleItemId,
+    applyBundleItem,
     artboardRef,
     state,
     applyCompositionDirectly,
+    pauseDiskSync,
+    resumeDiskSync,
     showSnackbar
   } = useEditor();
 
@@ -24,6 +28,7 @@ export const BatchExportModal: React.FC = () => {
   const [currentRenderingName, setCurrentRenderingName] = useState<string>('');
   const [isCompleted, setIsCompleted] = useState(false);
   const [generatedCount, setGeneratedCount] = useState(0);
+  const abortExportRef = useRef(false);
 
   // Carets repliables (Master & Overrides repliés par défaut, Variantes dépliées)
   const [isMasterExpanded, setIsMasterExpanded] = useState(false);
@@ -137,11 +142,14 @@ export const BatchExportModal: React.FC = () => {
       return;
     }
 
+    // Pause disk synchronization during batch export so temporary renders never overwrite YAML files
+    pauseDiskSync();
+    abortExportRef.current = false;
     setIsExporting(true);
     setIsCompleted(false);
     setProgressIndex(0);
 
-    // Save initial editor state to restore later (including canvas dimensions)
+    // Save initial editor state as fallback
     const initialComposition = {
       background: JSON.parse(JSON.stringify(state.background)),
       elements: JSON.parse(JSON.stringify(state.elements)),
@@ -168,110 +176,137 @@ export const BatchExportModal: React.FC = () => {
     }
 
     let successCount = 0;
+    let processedCount = 0;
 
-    for (let i = 0; i < items.length; i++) {
-      const current = items[i];
-      if (!current.selected) continue;
+    try {
+      for (let i = 0; i < items.length; i++) {
+        const current = items[i];
+        if (!current.selected) continue;
 
-      setProgressIndex(i + 1);
-      setCurrentRenderingName(current.item.name);
-
-      // Mark status as rendering
-      setItems(prev =>
-        prev.map((it, idx) => (idx === i ? { ...it, status: 'rendering' } : it))
-      );
-
-      try {
-        // 1. Resolve composition
-        const masterConfig = (loadedBundle.master?.config as BannerMasterConfig) || {};
-        let resolved;
-
-        if (current.item.type === 'master') {
-          resolved = resolveComposition(
-            current.item.config as BannerMasterConfig,
-            undefined,
-            undefined,
-            loadedBundle.assets,
-            current.item.path
-          );
-        } else if (current.item.type === 'override') {
-          resolved = resolveComposition(
-            masterConfig,
-            current.item.config as BannerOverrideConfig,
-            undefined,
-            loadedBundle.assets,
-            current.item.path
-          );
-        } else {
-          // Variant
-          const matchingOverride = loadedBundle.overrides[current.item.slug];
-          resolved = resolveComposition(
-            masterConfig,
-            matchingOverride?.config as BannerOverrideConfig | undefined,
-            current.item.config as BannerVariantConfig,
-            loadedBundle.assets,
-            current.item.path
-          );
+        if (abortExportRef.current) {
+          showSnackbar('Export par lot interrompu', 'info');
+          break;
         }
 
-        // 2. Apply to editor DOM
-        applyCompositionDirectly(resolved, false);
+        processedCount++;
+        setProgressIndex(processedCount);
+        setCurrentRenderingName(current.item.name);
 
-        // 3. Wait for layout, fonts and images to settle
-        if (typeof document !== 'undefined' && document.fonts) {
-          await document.fonts.ready;
-        }
-        await new Promise(r => requestAnimationFrame(r));
-        await new Promise(r => setTimeout(r, 100));
-
-        // 4. Capture
-        const { blob, dataUrl } = await captureZoneToBlob(artboardRef.current, resolved.exportZone);
-
-        // 5. Store/write
-        if (exportMode === 'directory' && rootSubDirHandle) {
-          await writeBlobToDirectory(rootSubDirHandle, current.outputPath, blob);
-        } else {
-          renderedFiles.push({ path: current.outputPath, blob });
-        }
-
-        successCount++;
-
-        // Update item status to done with preview
+        // Mark status as rendering
         setItems(prev =>
-          prev.map((it, idx) =>
-            idx === i ? { ...it, status: 'done', previewDataUrl: dataUrl } : it
-          )
+          prev.map((it, idx) => (idx === i ? { ...it, status: 'rendering' } : it))
         );
-      } catch (err: any) {
-        console.error(`Error rendering ${current.item.name}:`, err);
-        setItems(prev =>
-          prev.map((it, idx) =>
-            idx === i ? { ...it, status: 'error', errorMessage: err.message } : it
-          )
+
+        try {
+          // 1. Resolve composition
+          const masterConfig = (loadedBundle.master?.config as BannerMasterConfig) || {};
+          let resolved;
+
+          if (current.item.type === 'master') {
+            resolved = resolveComposition(
+              current.item.config as BannerMasterConfig,
+              undefined,
+              undefined,
+              loadedBundle.assets,
+              current.item.path
+            );
+          } else if (current.item.type === 'override') {
+            resolved = resolveComposition(
+              masterConfig,
+              current.item.config as BannerOverrideConfig,
+              undefined,
+              loadedBundle.assets,
+              current.item.path
+            );
+          } else {
+            // Variant
+            const activeOverrides = loadedBundle.overrides || {};
+            const matchingOverride = activeOverrides[current.item.slug];
+            resolved = resolveComposition(
+              masterConfig,
+              matchingOverride?.config as BannerOverrideConfig | undefined,
+              current.item.config as BannerVariantConfig,
+              loadedBundle.assets,
+              current.item.path
+            );
+          }
+
+          // 2. Apply to editor DOM
+          applyCompositionDirectly(resolved, false);
+
+          // 3. Wait for layout, fonts and images to settle
+          if (typeof document !== 'undefined' && document.fonts) {
+            await document.fonts.ready;
+          }
+          await new Promise(r => requestAnimationFrame(r));
+          await new Promise(r => setTimeout(r, 100));
+
+          // 4. Capture
+          const { blob, dataUrl } = await captureZoneToBlob(artboardRef.current, resolved.exportZone);
+
+          // 5. Store/write
+          if (exportMode === 'directory' && rootSubDirHandle) {
+            await writeBlobToDirectory(rootSubDirHandle, current.outputPath, blob);
+          } else {
+            renderedFiles.push({ path: current.outputPath, blob });
+          }
+
+          successCount++;
+
+          // Update item status to done with preview
+          setItems(prev =>
+            prev.map((it, idx) =>
+              idx === i ? { ...it, status: 'done', previewDataUrl: dataUrl } : it
+            )
+          );
+        } catch (err: any) {
+          console.error(`Error rendering ${current.item.name}:`, err);
+          setItems(prev =>
+            prev.map((it, idx) =>
+              idx === i ? { ...it, status: 'error', errorMessage: err.message } : it
+            )
+          );
+        }
+      }
+
+      // 6. If ZIP mode, package and trigger download
+      if (!abortExportRef.current && (exportMode === 'zip' || !rootSubDirHandle)) {
+        if (renderedFiles.length > 0) {
+          const zipBlob = await createBatchExportZip(renderedFiles, folderContainerName);
+          downloadBlob(`${folderContainerName}.zip`, zipBlob);
+          showSnackbar(`Archive ZIP téléchargée (${renderedFiles.length} images)`, 'folder_zip');
+        }
+      } else if (!abortExportRef.current && rootSubDirHandle && dirHandle) {
+        showSnackbar(
+          `Export terminé : ${successCount} images créées dans ${dirHandle.name}/${folderContainerName}/`,
+          'folder'
         );
       }
-    }
 
-    // 6. If ZIP mode, package and trigger download
-    if (exportMode === 'zip' || !rootSubDirHandle) {
-      if (renderedFiles.length > 0) {
-        const zipBlob = await createBatchExportZip(renderedFiles, folderContainerName);
-        downloadBlob(`${folderContainerName}.zip`, zipBlob);
-        showSnackbar(`Archive ZIP téléchargée (${renderedFiles.length} images)`, 'folder_zip');
+      if (!abortExportRef.current) {
+        setIsCompleted(true);
+        setGeneratedCount(successCount);
       }
-    } else {
-      showSnackbar(
-        `Export terminé : ${successCount} images créées dans ${dirHandle.name}/${folderContainerName}/`,
-        'folder'
-      );
+    } finally {
+      // Recharger fidèlement le YAML sélectionné avant l'export (ou le master si aucun)
+      const currentActiveId = activeBundleItemId;
+      const overridesList = Object.values(loadedBundle?.overrides || {});
+      const itemToRestore =
+        (currentActiveId && loadedBundle ? (
+          (loadedBundle.master?.id === currentActiveId ? loadedBundle.master : undefined) ||
+          overridesList.find(o => o.id === currentActiveId || o.slug === currentActiveId) ||
+          loadedBundle.variants?.find(v => v.id === currentActiveId || v.slug === currentActiveId)
+        ) : undefined) || loadedBundle?.master;
+
+      if (itemToRestore && loadedBundle) {
+        applyBundleItem(itemToRestore, loadedBundle);
+      } else {
+        applyCompositionDirectly(initialComposition, false);
+      }
+
+      resumeDiskSync();
+      setIsExporting(false);
     }
-
-    // Restore canvas to original state
-    applyCompositionDirectly(initialComposition, false);
-
-    setIsExporting(false);
-    setIsCompleted(true);
-    setGeneratedCount(successCount);
   };
 
   const selectedCount = items.filter(it => it.selected).length;
@@ -295,11 +330,20 @@ export const BatchExportModal: React.FC = () => {
             </div>
           </div>
           <button
-            onClick={() => !isExporting && setIsBatchExportModalOpen(false)}
-            disabled={isExporting}
-            className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-m3-sys-surfaceContainerHighest text-m3-sys-onSurfaceVariant cursor-pointer disabled:opacity-30"
+            onClick={() => {
+              if (isExporting) {
+                abortExportRef.current = true;
+                showSnackbar("Arrêt de l'export en cours...", 'info');
+              } else {
+                setIsBatchExportModalOpen(false);
+              }
+            }}
+            title={isExporting ? "Interrompre l'export" : 'Fermer'}
+            className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-m3-sys-surfaceContainerHighest text-m3-sys-onSurfaceVariant cursor-pointer"
           >
-            <span className="material-symbols-rounded text-lg leading-none">close</span>
+            <span className="material-symbols-rounded text-lg leading-none">
+              {isExporting ? 'stop_circle' : 'close'}
+            </span>
           </button>
         </div>
 
@@ -788,11 +832,21 @@ export const BatchExportModal: React.FC = () => {
         {/* Modal Footer */}
         <div className="p-4 border-t border-m3-sys-outlineVariant/30 flex items-center justify-between bg-m3-sys-surfaceContainer">
           <button
-            onClick={() => setIsBatchExportModalOpen(false)}
-            disabled={isExporting}
-            className="px-4 py-2 rounded-full border border-m3-sys-outlineVariant/50 text-xs font-semibold hover:bg-m3-sys-surfaceContainerHighest transition-all cursor-pointer disabled:opacity-40"
+            onClick={() => {
+              if (isExporting) {
+                abortExportRef.current = true;
+                showSnackbar("Arrêt de l'export en cours...", 'info');
+              } else {
+                setIsBatchExportModalOpen(false);
+              }
+            }}
+            className={`px-4 py-2 rounded-full border text-xs font-semibold transition-all cursor-pointer ${
+              isExporting
+                ? 'border-m3-sys-error text-m3-sys-error hover:bg-m3-sys-errorContainer/20'
+                : 'border-m3-sys-outlineVariant/50 hover:bg-m3-sys-surfaceContainerHighest text-m3-sys-onSurface'
+            }`}
           >
-            {isCompleted ? 'Fermer' : 'Annuler'}
+            {isCompleted ? 'Fermer' : isExporting ? "Arrêter l'export" : 'Annuler'}
           </button>
 
           <button

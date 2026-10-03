@@ -242,26 +242,31 @@ export function resolveComposition(
     imageBlurEnable: false,
     imageBlur: 1,
     imageOverlayEnable: false,
-    imageOverlayColor: '#FFFFFF11'
-  };
-
-  const defaultZone: ExportZone = {
-    x: 50,
-    y: 40,
-    width: 700,
-    height: 525,
-    preset: 'custom',
-    ratio: 700 / 525,
-    targetWidth: 1200,
-    targetHeight: 900,
-    lockRatio: true
+    imageOverlayColor: '#FFFFFF11',
+    zoomBlurEnable: false,
+    zoomBlurIntensity: 25,
+    zoomBlurOrigin: 'auto-device',
+    zoomBlurOriginX: 50,
+    zoomBlurOriginY: 50
   };
 
   // Base canvas dimensions from master or inferred from exportZone / default 800x600
-  const initialExportZone = deepClone(master.exportZone ? { ...defaultZone, ...master.exportZone } : defaultZone);
-
   const initialCanvasW = master.canvasWidth || master.width || master.exportZone?.width || 800;
   const initialCanvasH = master.canvasHeight || master.height || master.exportZone?.height || 600;
+
+  const defaultZone: ExportZone = {
+    x: 0,
+    y: 0,
+    width: initialCanvasW,
+    height: initialCanvasH,
+    preset: 'full',
+    ratio: initialCanvasW / initialCanvasH,
+    targetWidth: initialCanvasW,
+    targetHeight: initialCanvasH,
+    lockRatio: true
+  };
+
+  const initialExportZone = deepClone(master.exportZone ? { ...defaultZone, ...master.exportZone } : defaultZone);
 
   const composition = {
     background: deepClone(master.background ? { ...defaultBg, ...master.background } : defaultBg),

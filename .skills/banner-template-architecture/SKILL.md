@@ -77,9 +77,9 @@ Chaque fois qu'un attribut ou un paramètre est ajouté à l'application, **5 é
   npm run build
   ```
 
-### Étape 6 : Documentation Synchrone & Impérative
+### Étape 6 : Documentation Synchrone du Système de Templates
 - Fichier : `docs/DOCUMENTATION.md`
-- **Règle** : Conformément à la skill `documentation-maintenance`, toute modification ou ajout de fonctionnalité, contrôle UI, attribut de template, syntaxe YAML ou raccourci DOIT être immédiatement et fidèlement documenté dans [docs/DOCUMENTATION.md](file:///home/avianey/workspace/FrameMyApp-Banner/docs/DOCUMENTATION.md). Vérifier le sommaire et le rendu dans la page de documentation intégrée (`DocumentationModal.tsx`).
+- **Règle** : Conformément à la skill `documentation-maintenance`, toute modification de syntaxe YAML, du moteur en cascade, des correspondances d'attributs ou de la structure des bundles DOIT être immédiatement et fidèlement documentée dans [docs/DOCUMENTATION.md](file:///home/avianey/workspace/FrameMyApp-Banner/docs/DOCUMENTATION.md).
 
 ---
 

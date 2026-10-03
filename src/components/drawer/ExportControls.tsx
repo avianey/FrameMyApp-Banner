@@ -31,6 +31,7 @@ export const ExportControls: React.FC = () => {
     updateExportZone,
     setIsDrawingExportMode,
     selectElement,
+    setEditingImageElementId,
     showSnackbar,
     setZoom,
     openExportPreview,
@@ -320,6 +321,7 @@ export const ExportControls: React.FC = () => {
     const currentSelection = selectedElementId;
     const currentZoom = zoom;
     selectElement(null);
+    setEditingImageElementId(null);
     setZoom(1.0);
 
     // Court délai pour permettre à l'UI de désélectionner avant capture

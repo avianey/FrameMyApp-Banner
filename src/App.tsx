@@ -9,7 +9,6 @@ import { Snackbar } from './components/Snackbar';
 import { ConfirmModal } from './components/ConfirmModal';
 import { BatchExportModal } from './components/modal/BatchExportModal';
 import { ExportPreviewModal } from './components/modal/ExportPreviewModal';
-import { DocumentationModal } from './components/modal/DocumentationModal';
 import { SaveModal } from './components/modal/SaveModal';
 import { DiskPermissionModal } from './components/modal/DiskPermissionModal';
 
@@ -18,8 +17,6 @@ export const AppContent: React.FC = () => {
     isConfirmModalOpen,
     setIsConfirmModalOpen,
     clearAll,
-    isDocOpen,
-    setIsDocOpen,
     isPermissionModalOpen,
     permissionTargetName,
     permissionDetectedAssets,
@@ -51,10 +48,6 @@ export const AppContent: React.FC = () => {
       <SaveModal />
       <BatchExportModal />
       <ExportPreviewModal />
-      <DocumentationModal
-        isOpen={isDocOpen}
-        onClose={() => setIsDocOpen(false)}
-      />
       <DiskPermissionModal
         isOpen={isPermissionModalOpen}
         targetName={permissionTargetName}

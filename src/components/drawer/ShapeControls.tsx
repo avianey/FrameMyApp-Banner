@@ -4,6 +4,7 @@ import { ShapeElementModel, ShapeType, FillType, GradientStop } from '../../type
 import { ColorAlphaPicker } from '../common/ColorAlphaPicker';
 import { ImageUploadField } from '../common/ImageUploadField';
 import { assetManager } from '../../utils/assetManager';
+import { resolveAsset } from '../../utils/templateEngine';
 import { LayerOrderControls } from './LayerOrderControls';
 import { SceneAlignmentControls } from './SceneAlignmentControls';
 import EffectsControls from './EffectsControls';

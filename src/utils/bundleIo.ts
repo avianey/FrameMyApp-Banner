@@ -79,16 +79,25 @@ export async function buildBundleFromEntries(
       if (entry.getBlob) {
         const blob = await entry.getBlob();
         const objectUrl = URL.createObjectURL(blob);
+        const normalizedP = p.replace(/\\/g, '/').replace(/^\/+/, '');
         assets[p] = objectUrl;
-        const cleanPath = p.startsWith('assets/') ? p : `assets/${p}`;
-        const filename = p.split('/').pop();
+        assets[normalizedP] = objectUrl;
 
-        assets[cleanPath] = objectUrl;
-        if (filename) {
-          assets[filename] = objectUrl;
-          assets[`assets/${filename}`] = objectUrl;
-          assetManager.registerExistingAsset(`assets/${filename}`, blob, objectUrl);
+        // Register both relative subpath and full assets/ path for flexible lookup
+        if (normalizedP.startsWith('assets/')) {
+          const subPath = normalizedP.substring(7);
+          assets[subPath] = objectUrl;
+        } else {
+          assets[`assets/${normalizedP}`] = objectUrl;
         }
+
+        const filename = normalizedP.split('/').pop();
+        if (filename && !assets[filename]) {
+          assets[filename] = objectUrl;
+        }
+
+        // Register in assetManager strictly with its canonical path preserving subdirectories
+        const cleanPath = normalizedP.startsWith('assets/') ? normalizedP : `assets/${normalizedP}`;
         assetManager.registerExistingAsset(cleanPath, blob, objectUrl);
       }
       continue;
@@ -326,24 +335,32 @@ export async function createBundleZip(
   // 4. assets/
   const assetsFolder = root.folder('assets');
   if (assetsFolder) {
-    if (bundle.assets && Object.keys(bundle.assets).length > 0) {
-      for (const [assetPath, assetUrl] of Object.entries(bundle.assets)) {
-        const cleanName = assetPath.replace(/^assets\//, '');
-        try {
-          const resp = await fetch(assetUrl);
-          const blob = await resp.blob();
-          assetsFolder.file(cleanName, blob);
-        } catch (e) {
-          console.warn('Could not fetch asset blob for zip:', assetPath, e);
+    const writtenZipAssets = new Set<string>();
+
+    const allAssets = assetManager.getAllAssets();
+    for (const [assetKey, entry] of allAssets.entries()) {
+      if (assetKey === entry.assetPath && entry.assetPath.startsWith('assets/')) {
+        const cleanName = entry.assetPath.replace(/^assets\//, '');
+        if (!writtenZipAssets.has(cleanName)) {
+          assetsFolder.file(cleanName, entry.blob);
+          writtenZipAssets.add(cleanName);
         }
       }
     }
 
-    const allAssets = assetManager.getAllAssets();
-    for (const [assetKey, entry] of allAssets.entries()) {
-      if (assetKey.startsWith('assets/')) {
-        const cleanName = assetKey.replace(/^assets\//, '');
-        assetsFolder.file(cleanName, entry.blob);
+    if (bundle.assets && Object.keys(bundle.assets).length > 0) {
+      for (const [assetPath, assetUrl] of Object.entries(bundle.assets)) {
+        if (!assetPath.startsWith('assets/')) continue;
+        const cleanName = assetPath.replace(/^assets\//, '');
+        if (writtenZipAssets.has(cleanName)) continue;
+        try {
+          const resp = await fetch(assetUrl);
+          const blob = await resp.blob();
+          assetsFolder.file(cleanName, blob);
+          writtenZipAssets.add(cleanName);
+        } catch (e) {
+          console.warn('Could not fetch asset blob for zip:', assetPath, e);
+        }
       }
     }
   }

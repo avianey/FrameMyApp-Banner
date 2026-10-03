@@ -59,6 +59,8 @@ export interface EditorContextType {
   syncToDisk: () => Promise<boolean>;
   selectSyncDirectory: () => Promise<boolean>;
   selectSyncFile: () => Promise<boolean>;
+  pauseDiskSync: () => void;
+  resumeDiskSync: () => void;
 
   isConfirmModalOpen: boolean;
   setIsConfirmModalOpen: (open: boolean) => void;
@@ -69,8 +71,6 @@ export interface EditorContextType {
   exportPreviewData: ExportPreviewData | null;
   isGeneratingPreview: boolean;
   openExportPreview: () => Promise<void>;
-  isDocOpen: boolean;
-  setIsDocOpen: (open: boolean) => void;
   isLeftSidebarOpen: boolean;
   setIsLeftSidebarOpen: (open: boolean) => void;
   activeLeftTab: 'templates' | 'customIds';
@@ -125,7 +125,8 @@ export interface EditorContextType {
   loadedBundle: LoadedBundle | null;
   setLoadedBundle: (bundle: LoadedBundle | null) => void;
   activeBundleItemId: string | null;
-  applyBundleItem: (item: BundleItem) => void;
+  applyBundleItem: (item: BundleItem, bundleOverride?: LoadedBundle) => void;
+  detachBundleAndResetToBlank: () => void;
   applyCompositionDirectly: (
     comp: {
       background: BackgroundConfig;
@@ -175,7 +176,12 @@ const initialBackground: BackgroundConfig = {
   imageBlurEnable: false,
   imageBlur: 1,
   imageOverlayEnable: false,
-  imageOverlayColor: '#FFFFFF11'
+  imageOverlayColor: '#FFFFFF11',
+  zoomBlurEnable: false,
+  zoomBlurIntensity: 25,
+  zoomBlurOrigin: 'auto-device',
+  zoomBlurOriginX: 50,
+  zoomBlurOriginY: 50
 };
 
 const initialElements: CanvasElement[] = [
@@ -244,14 +250,14 @@ const initialElements: CanvasElement[] = [
 ];
 
 const initialExportZone: ExportZone = {
-  x: 50,
-  y: 40,
-  width: 700,
-  height: 525,
-  preset: 'custom',
-  ratio: 700 / 525,
-  targetWidth: 1200,
-  targetHeight: 900,
+  x: 0,
+  y: 0,
+  width: 800,
+  height: 600,
+  preset: 'full',
+  ratio: 800 / 600,
+  targetWidth: 800,
+  targetHeight: 600,
   lockRatio: true
 };
 
@@ -359,7 +365,6 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isExportPreviewOpen, setIsExportPreviewOpen] = useState<boolean>(false);
   const [exportPreviewData, setExportPreviewData] = useState<ExportPreviewData | null>(null);
   const [isGeneratingPreview, setIsGeneratingPreview] = useState<boolean>(false);
-  const [isDocOpen, setIsDocOpen] = useState<boolean>(false);
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState<boolean>(false);
   const [activeLeftTab, setActiveLeftTab] = useState<'templates' | 'customIds'>('templates');
 
@@ -486,6 +491,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Forward declaration of bundle manager helpers
   const markItemSavedRef = useRef<(id: string) => void>(() => {});
   const loadedBundleRef = useRef<LoadedBundle | null>(null);
+  const activeBundleItemIdRef = useRef<string | null>(null);
   const setLoadedBundleRef = useRef<React.Dispatch<React.SetStateAction<LoadedBundle | null>>>(() => {});
 
   // Hook 4: Disk Sync (Handles, Auto-Save, Renaming, Startup Restore)
@@ -496,7 +502,9 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     elements,
     exportZone: navigation.exportZone,
     loadedBundle: loadedBundleRef.current,
-    activeBundleItemId: null,
+    loadedBundleRef,
+    activeBundleItemId: activeBundleItemIdRef.current,
+    activeBundleItemIdRef,
     setCanvasWidth: navigation.setCanvasWidth,
     setCanvasHeight: navigation.setCanvasHeight,
     setBackground: setBackgroundState,
@@ -558,6 +566,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   });
 
   loadedBundleRef.current = bundleManager.loadedBundle;
+  activeBundleItemIdRef.current = bundleManager.activeBundleItemId;
   setLoadedBundleRef.current = bundleManager.setLoadedBundle;
   markItemSavedRef.current = bundleManager.markItemSaved;
 
@@ -793,7 +802,16 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, []);
 
-  const clearAll = useCallback(() => {
+  const detachBundleAndResetToBlank = useCallback(() => {
+    // 1. Annuler immédiatement l'auto-sync pour empêcher toute écriture sur le disque
+    diskSync.cancelAutoSync();
+
+    // 2. Dissocier le bundle et la synchronisation disque
+    bundleManager.detachBundle();
+    diskSync.detachDiskSync();
+    assetManager.clear();
+
+    // 3. Réinitialiser l'état du canvas à un template vierge
     history.recordHistory();
     navigation.setCanvasWidth(800);
     navigation.setCanvasHeight(600);
@@ -801,14 +819,26 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setBackgroundState(initialBackground);
     setSelectedElementIds([]);
     setActivePanelState(null);
-    bundleManager.setActiveBundleItemId(null);
     navigation.setExportZoneState(initialExportZone);
     navigation.resetZoom();
+    navigation.centerCanvas?.(800, 600, true);
+
     try {
       localStorage.removeItem('framemyapp_draft_project');
+      localStorage.removeItem('framemyapp_sync_file_path');
+      localStorage.removeItem('framemyapp_sync_dir_name');
+      localStorage.removeItem('framemyapp_project_name');
+      localStorage.removeItem('framemyapp_required_assets');
     } catch {}
-    showSnackbar('Projet réinitialisé', 'delete_sweep');
-  }, [history, navigation, bundleManager, showSnackbar]);
+
+    diskSync.setProjectName('Nouveau template');
+
+    showSnackbar('Projet dissocié et réinitialisé', 'delete_sweep');
+  }, [diskSync, bundleManager, history, navigation, showSnackbar]);
+
+  const clearAll = useCallback(() => {
+    detachBundleAndResetToBlank();
+  }, [detachBundleAndResetToBlank]);
 
   const [pendingYamlImport, setPendingYamlImport] = useState<{
     item: BundleItem;
@@ -872,7 +902,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           diskSync.setSyncFilePath(pendingYamlImport.filename);
           await saveDirectoryHandleToIdb(dirHandle, 'sync_dir_handle');
           await saveDirectoryHandleToIdb(dirHandle, 'root_bundle_dir');
-          bundleManager.applyBundleItem(bundle.master || pendingYamlImport.item);
+          bundleManager.applyBundleItem(bundle.master || pendingYamlImport.item, bundle);
           setPendingYamlImport(null);
           setPermissionModalError(null);
           showSnackbar(`Template et dossier connectés : ${dirHandle.name}`, 'folder_open');
@@ -936,6 +966,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const currentSelection = selectedElementId;
     const currentZoom = navigation.zoom;
     selectElement(null);
+    setEditingImageElementId(null);
     navigation.setZoom(1.0);
 
     // Court délai pour permettre à l'UI de désélectionner avant capture
@@ -992,8 +1023,6 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         exportPreviewData,
         isGeneratingPreview,
         openExportPreview,
-        isDocOpen,
-        setIsDocOpen,
         isLeftSidebarOpen,
         setIsLeftSidebarOpen,
         activeLeftTab,
@@ -1041,6 +1070,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setLoadedBundle: bundleManager.setLoadedBundle,
         activeBundleItemId: bundleManager.activeBundleItemId,
         applyBundleItem: bundleManager.applyBundleItem,
+        detachBundleAndResetToBlank,
         applyCompositionDirectly,
         exportCanvasAsTemplateYaml: bundleManager.exportCanvasAsTemplateYaml,
         exportCanvasAsBundleZip: bundleManager.exportCanvasAsBundleZip,
@@ -1067,6 +1097,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         syncToDisk: diskSync.syncToDisk,
         selectSyncDirectory: diskSync.selectSyncDirectory,
         selectSyncFile: diskSync.selectSyncFile,
+        pauseDiskSync: diskSync.pauseDiskSync,
+        resumeDiskSync: diskSync.resumeDiskSync,
         isPermissionModalOpen: diskSync.isPermissionModalOpen || Boolean(pendingYamlImport),
         permissionTargetName: pendingYamlImport ? pendingYamlImport.filename : diskSync.permissionTargetName,
         permissionDetectedAssets: pendingYamlImport ? pendingYamlImport.detectedAssets : diskSync.permissionDetectedAssets,

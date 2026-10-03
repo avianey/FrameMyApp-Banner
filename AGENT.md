@@ -36,7 +36,7 @@ L'agent doit impérativement respecter les compétences locales définies dans `
      6. Documentation (`docs/DOCUMENTATION.md`)
 
 3. **`documentation-maintenance` (`.skills/documentation-maintenance/SKILL.md`)** :
-   - Maintenir systématiquement `docs/DOCUMENTATION.md` synchronisé avec chaque évolution de fonctionnalités, polices, contrôles UI ou templates.
+   - Maintenir systématiquement `docs/DOCUMENTATION.md` synchronisé avec chaque évolution du système de templates (syntaxe YAML, cascade Master/Overrides/Variants, customId, résolution d'assets, batch export).
 
 ---
 

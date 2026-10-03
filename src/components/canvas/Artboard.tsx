@@ -41,6 +41,28 @@ export const Artboard: React.FC = () => {
     (background.imageUrl && loadedBundle?.assets ? resolveAsset(background.imageUrl, undefined, loadedBundle.assets) : undefined) ||
     background.imageUrl;
 
+  // Calcul du centre d'émanation pour le flou de zoom cinétique
+  const deviceElement = elements.find(el => el.type === 'device');
+  let zoomBlurCenterX = canvasWidth / 2;
+  let zoomBlurCenterY = canvasHeight / 2;
+
+  if (background.zoomBlurOrigin === 'custom') {
+    zoomBlurCenterX = ((background.zoomBlurOriginX ?? 50) / 100) * canvasWidth;
+    zoomBlurCenterY = ((background.zoomBlurOriginY ?? 50) / 100) * canvasHeight;
+  } else if (background.zoomBlurOrigin === 'canvas-center') {
+    zoomBlurCenterX = canvasWidth / 2;
+    zoomBlurCenterY = canvasHeight / 2;
+  } else {
+    // 'auto-device' par défaut : focalisation sur le smartphone s'il existe
+    if (deviceElement) {
+      zoomBlurCenterX = deviceElement.x + deviceElement.width / 2;
+      zoomBlurCenterY = deviceElement.y + deviceElement.height / 2;
+    } else {
+      zoomBlurCenterX = canvasWidth / 2;
+      zoomBlurCenterY = canvasHeight / 2;
+    }
+  }
+
   // Background style computation
   const getBackgroundStyle = (): React.CSSProperties => {
     if (background.type === 'solid') {
@@ -169,7 +191,11 @@ export const Artboard: React.FC = () => {
       >
         {/* Fond dynamique */}
         {background.type === 'image' && background.imageUrl ? (
-          <div id="artboard-bg" className="absolute inset-0 w-full h-full rounded-none overflow-hidden z-0">
+          <div
+            id="artboard-bg"
+            className="absolute inset-0 w-full h-full rounded-none overflow-hidden z-0"
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%' }}
+          >
             <InPlaceImageCropper
               containerWidth={canvasWidth}
               containerHeight={canvasHeight}
@@ -188,6 +214,10 @@ export const Artboard: React.FC = () => {
               imageBlur={background.imageBlurEnable ? (background.imageBlur ?? 1) : undefined}
               overlayEnable={background.imageOverlayEnable}
               overlayColor={background.imageOverlayColor}
+              zoomBlurEnable={background.zoomBlurEnable}
+              zoomBlurIntensity={background.zoomBlurIntensity ?? 25}
+              zoomBlurCenterX={zoomBlurCenterX}
+              zoomBlurCenterY={zoomBlurCenterY}
             />
           </div>
         ) : (
@@ -219,7 +249,11 @@ export const Artboard: React.FC = () => {
         )}
 
         {/* Objets (Textes, Formes & Mockups) */}
-        <div id="artboard-elements" className="absolute inset-0 w-full h-full overflow-visible z-10">
+        <div
+          id="artboard-elements"
+          className="absolute inset-0 w-full h-full overflow-visible z-10"
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%' }}
+        >
           {elements.map(el => {
             const isSelected = selectedElementIds.includes(el.id);
             const selectionIndex = isSelected ? selectedElementIds.indexOf(el.id) + 1 : undefined;

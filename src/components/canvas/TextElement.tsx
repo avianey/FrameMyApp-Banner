@@ -43,6 +43,7 @@ export const TextElement: React.FC<TextElementProps> = ({
   const combinedShadow = getCombinedTextShadow(element.glow, element.shadow);
 
   const minHeightPx = (element.minLines || 1) * element.fontSize * (element.lineHeight || 1.2);
+  const effectiveHeight = Math.max(element.height || 0, minHeightPx);
 
   const handleFocus = () => {
     if (isMultiSelected) return;
@@ -120,7 +121,7 @@ export const TextElement: React.FC<TextElementProps> = ({
         left: `${element.x}px`,
         top: `${element.y}px`,
         width: `${element.width}px`,
-        height: `${element.height}px`,
+        height: `${effectiveHeight}px`,
         transform: `rotate(${element.rotation || 0}deg)`,
         display: 'flex',
         flexDirection: 'column',
@@ -129,7 +130,8 @@ export const TextElement: React.FC<TextElementProps> = ({
             ? 'flex-end'
             : element.verticalAlign === 'middle'
             ? 'center'
-            : 'flex-start'
+            : 'flex-start',
+        boxSizing: 'border-box'
       }}
       onPointerDown={handlePointerDown}
     >
@@ -138,8 +140,12 @@ export const TextElement: React.FC<TextElementProps> = ({
         contentEditable
         suppressContentEditableWarning
         spellCheck={false}
-        className="editable-text-content w-full p-2 outline-none break-words cursor-text rounded focus:ring-2 focus:ring-m3-sys-primary"
+        className="editable-text-content w-full outline-none break-words cursor-text rounded focus:ring-2 focus:ring-m3-sys-primary"
         style={{
+          width: '100%',
+          boxSizing: 'border-box',
+          margin: 0,
+          padding: 0,
           fontFamily: `'${element.fontFamily}', 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif`,
           fontWeight: element.fontWeight || 400,
           fontSize: `${element.fontSize}px`,
@@ -149,7 +155,6 @@ export const TextElement: React.FC<TextElementProps> = ({
           overflowWrap: 'anywhere',
           wordBreak: 'break-word',
           textShadow: combinedShadow,
-          minHeight: `${minHeightPx}px`,
           textAlign: element.textAlign || 'left'
         }}
         onInput={handleInput}

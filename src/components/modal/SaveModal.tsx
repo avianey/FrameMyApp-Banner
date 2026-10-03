@@ -21,11 +21,17 @@ export const SaveModal: React.FC = () => {
     exportCanvasAsTemplateYaml,
     exportCanvasAsBundleZip,
     loadedBundle,
-    setIsBatchExportModalOpen
+    setIsBatchExportModalOpen,
+    detachBundleAndResetToBlank
   } = useEditor();
 
   const [localName, setLocalName] = useState(projectName);
   const [isSaving, setIsSaving] = useState(false);
+
+  const handleDetachAndNew = () => {
+    detachBundleAndResetToBlank();
+    setIsSavePanelOpen(false);
+  };
 
   // Synchronise le nom local lorsque projectName change depuis l'extérieur
   useEffect(() => {
@@ -168,14 +174,24 @@ export const SaveModal: React.FC = () => {
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => selectSyncDirectory()}
-                    title="Changer le dossier de synchronisation"
-                    className="px-2.5 py-1.5 rounded-xl bg-m3-sys-surfaceContainerHighest hover:bg-m3-sys-primary/10 hover:text-m3-sys-primary text-xs font-semibold text-m3-sys-onSurfaceVariant transition-all cursor-pointer flex-shrink-0 flex items-center space-x-1"
-                  >
-                    <span className="material-symbols-rounded text-sm">edit</span>
-                    <span>Modifier</span>
-                  </button>
+                  <div className="flex items-center space-x-1.5 flex-shrink-0">
+                    <button
+                      onClick={() => selectSyncDirectory()}
+                      title="Changer le dossier de synchronisation"
+                      className="px-2.5 py-1.5 rounded-xl bg-m3-sys-surfaceContainerHighest hover:bg-m3-sys-primary/10 hover:text-m3-sys-primary text-xs font-semibold text-m3-sys-onSurfaceVariant transition-all cursor-pointer flex items-center space-x-1"
+                    >
+                      <span className="material-symbols-rounded text-sm">edit</span>
+                      <span>Modifier</span>
+                    </button>
+                    <button
+                      onClick={handleDetachAndNew}
+                      title="Dissocier ce dossier/bundle et repartir sur un template vide"
+                      className="px-2.5 py-1.5 rounded-xl bg-m3-sys-surfaceContainerHighest hover:bg-m3-sys-errorContainer/20 hover:text-m3-sys-error text-xs font-semibold text-m3-sys-onSurfaceVariant transition-all cursor-pointer flex items-center space-x-1"
+                    >
+                      <span className="material-symbols-rounded text-sm">link_off</span>
+                      <span>Dissocier</span>
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -353,7 +369,16 @@ export const SaveModal: React.FC = () => {
         </div>
 
         {/* Pied de page */}
-        <div className="p-3 sm:p-4 bg-m3-sys-surfaceContainer border-t border-m3-sys-outlineVariant/30 flex justify-end">
+        <div className="p-3 sm:p-4 bg-m3-sys-surfaceContainer border-t border-m3-sys-outlineVariant/30 flex items-center justify-between">
+          <button
+            onClick={handleDetachAndNew}
+            title="Dissocier le fichier/bundle chargé et réinitialiser sur un template vierge"
+            className="px-3.5 py-2 rounded-full border border-m3-sys-outlineVariant/50 bg-m3-sys-surfaceContainerLow hover:bg-m3-sys-errorContainer/20 hover:border-m3-sys-error/50 hover:text-m3-sys-error text-xs font-semibold text-m3-sys-onSurfaceVariant transition-all active:scale-95 cursor-pointer flex items-center space-x-1.5"
+          >
+            <span className="material-symbols-rounded text-base">link_off</span>
+            <span>Dissocier & Nouveau template</span>
+          </button>
+
           <button
             onClick={() => setIsSavePanelOpen(false)}
             className="px-4 py-2 rounded-full bg-m3-sys-surfaceContainerHighest hover:bg-m3-sys-outlineVariant/30 text-xs font-bold text-m3-sys-onSurface active:scale-95 transition-all cursor-pointer"

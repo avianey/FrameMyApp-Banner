@@ -201,7 +201,9 @@ interface UseDiskSyncOptions {
   elements: CanvasElement[];
   exportZone: ExportZone;
   loadedBundle: LoadedBundle | null;
+  loadedBundleRef?: React.MutableRefObject<LoadedBundle | null>;
   activeBundleItemId: string | null;
+  activeBundleItemIdRef?: React.MutableRefObject<string | null>;
   setCanvasWidth: (w: number) => void;
   setCanvasHeight: (h: number) => void;
   setBackground: (bg: BackgroundConfig) => void;
@@ -222,7 +224,9 @@ export function useDiskSync({
   elements,
   exportZone,
   loadedBundle,
+  loadedBundleRef,
   activeBundleItemId,
+  activeBundleItemIdRef,
   setCanvasWidth,
   setCanvasHeight,
   setBackground,
@@ -324,7 +328,14 @@ export function useDiskSync({
         localStorage.setItem('framemyapp_project_name', val);
       } catch {}
 
-      if (loadedBundle) {
+      const effectiveBundle = loadedBundleRef?.current ?? loadedBundle;
+      const activeId = activeBundleItemIdRef?.current ?? activeBundleItemId;
+
+      const isBundleSubItem = Boolean(
+        effectiveBundle && activeId && effectiveBundle.master?.id !== activeId
+      );
+
+      if (effectiveBundle && !isBundleSubItem) {
         setLoadedBundleState(prev => {
           if (!prev) return null;
           return {
@@ -335,10 +346,8 @@ export function useDiskSync({
         });
       }
 
-      const isBundleSubItem = Boolean(
-        loadedBundle && activeBundleItemId && loadedBundle.master?.id !== activeBundleItemId
-      );
-      if (!isBundleSubItem) {
+      // If standalone project (no active bundle), sync file path tracks the project name
+      if (!effectiveBundle && !isBundleSubItem) {
         const newFilename = `${slugifyFilename(val)}.yml`;
         setSyncFilePathState(currentPath => {
           if (currentPath && currentPath !== newFilename && currentPath !== 'master.yml') {
@@ -356,7 +365,7 @@ export function useDiskSync({
 
       setSyncStatus('dirty');
     },
-    [loadedBundle, activeBundleItemId, setLoadedBundleState]
+    [loadedBundle, loadedBundleRef, activeBundleItemId, activeBundleItemIdRef, setLoadedBundleState]
   );
 
   const loadFromDiskHandle = useCallback(
@@ -700,6 +709,7 @@ export function useDiskSync({
       localStorage.removeItem('framemyapp_sync_dir_name');
       localStorage.removeItem('framemyapp_sync_file_path');
       localStorage.removeItem('framemyapp_draft_project');
+      localStorage.removeItem('framemyapp_required_assets');
     } catch {}
     // Reset canvas to blank
     setBackground(initialBackground);
@@ -722,6 +732,56 @@ export function useDiskSync({
     setSyncFilePath,
     showSnackbar
   ]);
+
+  const cancelAutoSync = useCallback(() => {
+    if (autoSyncTimerRef.current) {
+      clearTimeout(autoSyncTimerRef.current);
+      autoSyncTimerRef.current = null;
+    }
+  }, []);
+
+  const detachDiskSync = useCallback(() => {
+    cancelAutoSync();
+    syncDirHandleRef.current = null;
+    syncFileHandleRef.current = null;
+    pendingDiskHandleRef.current = null;
+    setSyncDirectoryHandleState(null);
+    setSyncDirectoryName(null);
+    setSyncFileHandleState(null);
+    setSyncFilePathState(null);
+    setSyncStatus('synced');
+    removeDirectoryHandleFromIdb('sync_dir_handle');
+    removeDirectoryHandleFromIdb('root_bundle_dir');
+    removeDirectoryHandleFromIdb('sync_file_handle');
+    try {
+      localStorage.removeItem('framemyapp_sync_dir_name');
+      localStorage.removeItem('framemyapp_sync_file_path');
+      localStorage.removeItem('framemyapp_draft_project');
+      localStorage.removeItem('framemyapp_required_assets');
+    } catch {}
+  }, [cancelAutoSync, setSyncDirectoryName, setSyncStatus]);
+
+  const isSyncPausedRef = useRef<boolean>(false);
+
+  const pauseDiskSync = useCallback(() => {
+    isSyncPausedRef.current = true;
+    cancelAutoSync();
+  }, [cancelAutoSync]);
+
+  const resumeDiskSync = useCallback(() => {
+    cancelAutoSync();
+    isSyncPausedRef.current = false;
+    const currentSig = computeCanvasSignature(
+      background,
+      elements,
+      exportZone,
+      canvasWidth,
+      canvasHeight,
+      projectName
+    );
+    lastSavedSignatureRef.current = currentSig;
+    setSyncStatus('synced');
+  }, [background, elements, exportZone, canvasWidth, canvasHeight, projectName, cancelAutoSync]);
 
   const selectSyncDirectory = useCallback(async (): Promise<boolean> => {
     const hasFsSupport = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
@@ -829,30 +889,38 @@ export function useDiskSync({
   }, [setProjectName, setSyncFileHandle, setSyncFilePath, showSnackbar, loadFromDiskHandle]);
 
   const syncToDisk = useCallback(async (): Promise<boolean> => {
+    if (isSyncPausedRef.current) {
+      return false;
+    }
+
     setSyncStatus('syncing');
 
     try {
       let yamlContent = '';
       let targetFilename = syncFilePath;
 
-      if (loadedBundle && activeBundleItemId) {
-        const item =
-          (loadedBundle.master?.id === activeBundleItemId ? loadedBundle.master : null) ||
-          loadedBundle.overrides[activeBundleItemId] ||
-          loadedBundle.variants.find(v => v.id === activeBundleItemId);
+      const effectiveBundle = loadedBundleRef?.current ?? loadedBundle;
+      const activeId = activeBundleItemIdRef?.current ?? activeBundleItemId;
+
+      if (effectiveBundle && activeId) {
+        const overridesList = Object.values(effectiveBundle.overrides || {});
+        const item: BundleItem | undefined =
+          (effectiveBundle.master?.id === activeId ? effectiveBundle.master : undefined) ||
+          overridesList.find(o => o.id === activeId || o.slug === activeId) ||
+          effectiveBundle.variants?.find(v => v.id === activeId || v.slug === activeId);
 
         if (item) {
           if (item.type === 'master') {
             const masterConfig = convertUrlsToRelativeAssetPaths(
               serializeCanvasToMaster(
-                projectName || item.name || 'Master',
+                item.name || projectName || 'Master',
                 background,
                 elements,
                 exportZone,
                 canvasWidth,
                 canvasHeight
               ),
-              loadedBundle?.assets
+              effectiveBundle.assets
             );
             yamlContent = stringifyYaml(masterConfig);
             item.config = masterConfig;
@@ -864,22 +932,23 @@ export function useDiskSync({
                 background,
                 elements,
                 exportZone,
-                loadedBundle.master?.config as BannerMasterConfig | undefined
+                effectiveBundle.master?.config as BannerMasterConfig | undefined
               ),
-              loadedBundle?.assets
+              effectiveBundle.assets
             );
             yamlContent = stringifyYaml(overrideConfig);
             item.config = overrideConfig;
             item.rawContent = yamlContent;
           } else {
+            const matchingOverride = effectiveBundle.overrides ? effectiveBundle.overrides[item.slug] : undefined;
             const variantConfig = convertUrlsToRelativeAssetPaths(
               serializeCanvasToVariant(
                 item,
                 elements,
-                loadedBundle.master?.config as BannerMasterConfig | undefined,
-                loadedBundle.overrides[item.slug]?.config as BannerOverrideConfig | undefined
+                effectiveBundle.master?.config as BannerMasterConfig | undefined,
+                matchingOverride?.config as BannerOverrideConfig | undefined
               ),
-              loadedBundle?.assets
+              effectiveBundle.assets
             );
             yamlContent = stringifyYaml(variantConfig);
             item.config = variantConfig;
@@ -899,11 +968,11 @@ export function useDiskSync({
             canvasWidth,
             canvasHeight
           ),
-          loadedBundle?.assets
+          effectiveBundle?.assets
         );
         yamlContent = stringifyYaml(masterConfig);
         if (!targetFilename) {
-          targetFilename = `${slugifyFilename(projectName)}.yml`;
+          targetFilename = effectiveBundle?.master?.path || `${slugifyFilename(projectName)}.yml`;
           setSyncFilePath(targetFilename);
         }
       }
@@ -912,7 +981,7 @@ export function useDiskSync({
       let targetDirHandle =
         syncDirHandleRef.current ||
         syncDirectoryHandle ||
-        loadedBundle?.directoryHandle;
+        effectiveBundle?.directoryHandle;
 
       const hasFsSupport = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 
@@ -937,7 +1006,7 @@ export function useDiskSync({
 
       if (targetDirHandle) {
         await verifyDirectoryPermission(targetDirHandle, true, true);
-        await assetManager.saveAllToDirectory(targetDirHandle);
+        await assetManager.saveAllToDirectory(targetDirHandle, true);
       }
 
       if (targetFileHandle) {
@@ -961,7 +1030,7 @@ export function useDiskSync({
         await verifyDirectoryPermission(targetDirHandle, true);
         await writeTextToDirectory(targetDirHandle, targetFilename || 'banner_template.yml', yamlContent);
 
-        if (previousSyncFilePath && previousSyncFilePath !== targetFilename && previousSyncFilePath !== 'master.yml') {
+        if (!effectiveBundle && previousSyncFilePath && previousSyncFilePath !== targetFilename && previousSyncFilePath !== 'master.yml') {
           try {
             if (typeof targetDirHandle.removeEntry === 'function') {
               await targetDirHandle.removeEntry(previousSyncFilePath);
@@ -990,8 +1059,8 @@ export function useDiskSync({
         projectName
       );
       lastSavedSignatureRef.current = currentSig;
-      if (activeBundleItemId) {
-        markItemSaved(activeBundleItemId);
+      if (activeId) {
+        markItemSaved(activeId);
       }
       setLastSyncTime(new Date());
       setSyncStatus('synced');
@@ -1006,7 +1075,9 @@ export function useDiskSync({
     syncFilePath,
     previousSyncFilePath,
     loadedBundle,
+    loadedBundleRef,
     activeBundleItemId,
+    activeBundleItemIdRef,
     projectName,
     background,
     elements,
@@ -1015,15 +1086,18 @@ export function useDiskSync({
     canvasHeight,
     syncFileHandle,
     syncDirectoryHandle,
+    setSyncFilePath,
     setSyncDirectoryHandle,
     setSyncDirectoryName,
-    setSyncFilePath,
     markItemSaved,
     showSnackbar
   ]);
 
   // Persistance continue du brouillon local de travail (cache navigateur avec sanitization des URLs)
   useEffect(() => {
+    if (isSyncPausedRef.current) {
+      return;
+    }
     try {
       const sanitized = convertUrlsToRelativeAssetPaths(
         {
@@ -1045,7 +1119,7 @@ export function useDiskSync({
 
   // Canvas change detection & debounced auto-sync
   useEffect(() => {
-    if (!isInitialLoadCompleteRef.current) {
+    if (!isInitialLoadCompleteRef.current || isSyncPausedRef.current) {
       return;
     }
 
@@ -1134,6 +1208,10 @@ export function useDiskSync({
     permissionErrorMessage,
     authorizeDiskAccess,
     dismissPermissionModal,
-    dismissDiskAccessAndStartNew
+    dismissDiskAccessAndStartNew,
+    cancelAutoSync,
+    detachDiskSync,
+    pauseDiskSync,
+    resumeDiskSync
   };
 }

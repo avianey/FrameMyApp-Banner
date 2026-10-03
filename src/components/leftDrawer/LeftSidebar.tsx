@@ -22,8 +22,8 @@ export const LeftSidebar: React.FC = () => {
     setLoadedBundle,
     activeBundleItemId,
     applyBundleItem,
+    detachBundleAndResetToBlank,
     setIsBatchExportModalOpen,
-    setIsDocOpen,
     state,
     selectElement,
     updateElementCustomId,
@@ -61,7 +61,7 @@ export const LeftSidebar: React.FC = () => {
         setSyncDirectoryName(bundle.name);
         setSyncFilePath(bundle.master?.path || 'master.yml');
         if (bundle.master) {
-          applyBundleItem(bundle.master);
+          applyBundleItem(bundle.master, bundle);
         }
         showSnackbar(`Bundle chargé depuis ZIP : ${bundle.name}`, 'folder_zip');
       } else if (ext === 'yml' || ext === 'yaml' || ext === 'json') {
@@ -83,16 +83,17 @@ export const LeftSidebar: React.FC = () => {
           return;
         }
 
-        setLoadedBundle({
+        const newBundle: LoadedBundle = {
           name: templateName,
           master: item,
           overrides: {},
           variants: [],
           assets: {}
-        });
+        };
+        setLoadedBundle(newBundle);
         setProjectName(templateName);
         setSyncFilePath(file.name);
-        applyBundleItem(item);
+        applyBundleItem(item, newBundle);
         showSnackbar(`Template YAML chargé : ${templateName}`, 'auto_stories');
       }
     } catch (err: any) {
@@ -158,7 +159,7 @@ export const LeftSidebar: React.FC = () => {
           setSyncDirectoryHandle(bundle.directoryHandle);
         }
         if (bundle.master) {
-          applyBundleItem(bundle.master);
+          applyBundleItem(bundle.master, bundle);
         }
         showSnackbar(`Dossier de bundle chargé : ${bundle.name}`, 'folder');
         return;
@@ -182,7 +183,7 @@ export const LeftSidebar: React.FC = () => {
       setSyncDirectoryName(bundle.name);
       setSyncFilePath(bundle.master?.path || 'master.yml');
       if (bundle.master) {
-        applyBundleItem(bundle.master);
+        applyBundleItem(bundle.master, bundle);
       }
       showSnackbar(`Dossier chargé : ${bundle.name}`, 'folder');
     } catch (err: any) {
@@ -234,7 +235,7 @@ export const LeftSidebar: React.FC = () => {
               setSyncFilePath(bundle.master?.path || 'master.yml');
               setSyncDirectoryHandle(handle);
               if (bundle.master) {
-                applyBundleItem(bundle.master);
+                applyBundleItem(bundle.master, bundle);
               }
               showSnackbar(`Dossier déposé et connecté : ${bundle.name}`, 'folder');
               return;
@@ -280,7 +281,7 @@ export const LeftSidebar: React.FC = () => {
           setSyncDirectoryName(bundle.name);
           setSyncFilePath(bundle.master?.path || 'master.yml');
           if (bundle.master) {
-            applyBundleItem(bundle.master);
+            applyBundleItem(bundle.master, bundle);
           }
           showSnackbar(`Dossier déposé et chargé : ${bundle.name}`, 'folder');
           return;
@@ -370,13 +371,6 @@ export const LeftSidebar: React.FC = () => {
 
             <div className="flex items-center space-x-1">
               <button
-                onClick={() => setIsDocOpen(true)}
-                title="Consulter la documentation des templates et identifiants"
-                className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-m3-sys-surfaceContainerHighest text-m3-sys-onSurfaceVariant hover:text-m3-sys-primary transition-all cursor-pointer"
-              >
-                <span className="material-symbols-rounded text-lg leading-none">help_outline</span>
-              </button>
-              <button
                 onClick={() => setIsLeftSidebarOpen(false)}
                 title="Réduire le volet gauche"
                 className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-m3-sys-surfaceContainerHighest text-m3-sys-onSurfaceVariant hover:text-m3-sys-onSurface transition-all cursor-pointer"
@@ -455,6 +449,18 @@ export const LeftSidebar: React.FC = () => {
               </button>
             </div>
 
+            {/* Nouveau Template (Vierge) / Dissocier */}
+            <button
+              onClick={detachBundleAndResetToBlank}
+              title="Dissocier le fichier ou bundle chargé et repartir sur un template vierge"
+              className="w-full py-2.5 px-3 rounded-2xl bg-m3-sys-surfaceContainer hover:bg-m3-sys-surfaceContainerHighest border border-m3-sys-outlineVariant/30 flex items-center justify-center space-x-2 transition-all active:scale-95 cursor-pointer text-xs font-semibold text-m3-sys-onSurface shadow-sm"
+            >
+              <span className="material-symbols-rounded text-base text-m3-sys-primary">
+                note_add
+              </span>
+              <span>Nouveau template (vierge)</span>
+            </button>
+
             {/* Drag & Drop Zone */}
             <div
               className={`p-3.5 rounded-2xl border-2 border-dashed transition-all flex items-center justify-center text-center ${
@@ -499,6 +505,16 @@ export const LeftSidebar: React.FC = () => {
                   >
                     <span className="material-symbols-rounded text-base leading-none">bolt</span>
                     <span>Batch Export (Export par lot)</span>
+                  </button>
+
+                  {/* Bouton pour dissocier le bundle et repartir sur un template vide */}
+                  <button
+                    onClick={detachBundleAndResetToBlank}
+                    title="Dissocier ce bundle et repartir sur un template vide sans modifier les fichiers sur le disque"
+                    className="w-full py-2 px-3 rounded-xl border border-m3-sys-outlineVariant/40 bg-m3-sys-surfaceContainerHighest/40 hover:bg-m3-sys-errorContainer/20 hover:border-m3-sys-error/50 hover:text-m3-sys-error text-m3-sys-onSurfaceVariant text-xs font-semibold transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+                  >
+                    <span className="material-symbols-rounded text-base leading-none">link_off</span>
+                    <span>Dissocier & Repartir à zéro</span>
                   </button>
                 </div>
 

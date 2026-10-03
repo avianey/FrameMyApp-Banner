@@ -39,7 +39,8 @@ export const BackgroundControls: React.FC = () => {
     loadedBundle
   } = useEditor();
 
-  const { background, canvasWidth = 800, canvasHeight = 600 } = state;
+  const { background, canvasWidth = 800, canvasHeight = 600, elements = [] } = state;
+  const hasDevice = elements.some(el => el.type === 'device');
 
   // État local des chaînes pour la saisie libre sans forcer de clamp à chaque touche
   const [widthStr, setWidthStr] = useState<string>(String(canvasWidth));
@@ -83,6 +84,16 @@ export const BackgroundControls: React.FC = () => {
     setCanvasDimensions(p.width, p.height);
     setWidthStr(String(p.width));
     setHeightStr(String(p.height));
+    updateExportZone({
+      x: 0,
+      y: 0,
+      width: p.width,
+      height: p.height,
+      targetWidth: p.width,
+      targetHeight: p.height,
+      ratio: p.width / p.height,
+      preset: p.id
+    });
     showSnackbar(`Dimensions de la scène : ${p.name} (${p.width} × ${p.height} px)`, 'aspect_ratio');
   };
 
@@ -425,6 +436,142 @@ export const BackgroundControls: React.FC = () => {
                         <span>25 px</span>
                         <span>50 px</span>
                       </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Option Flou Cinétique (Zoom Blur / Rayons depuis le device) */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-m3-sys-onSurfaceVariant flex items-center space-x-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(background.zoomBlurEnable)}
+                        onChange={e => {
+                          const enable = e.target.checked;
+                          setBackground({
+                            zoomBlurEnable: enable,
+                            zoomBlurIntensity: background.zoomBlurIntensity ?? 25,
+                            zoomBlurOrigin: background.zoomBlurOrigin ?? 'auto-device'
+                          });
+                        }}
+                        className="w-4 h-4 rounded text-m3-sys-primary focus:ring-m3-sys-primary accent-m3-sys-primary cursor-pointer"
+                      />
+                      <span>Flou cinétique radial (Zoom)</span>
+                    </label>
+                    {background.zoomBlurEnable && (
+                      <span className="text-[11px] font-mono font-bold text-m3-sys-primary bg-m3-sys-primaryContainer px-2 py-0.5 rounded-full">
+                        {background.zoomBlurIntensity ?? 25} %
+                      </span>
+                    )}
+                  </div>
+
+                  {background.zoomBlurEnable && (
+                    <div className="bg-m3-sys-surfaceContainerHighest p-3 rounded-xl space-y-3">
+                      {/* Intensité du zoom */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs text-m3-sys-onSurfaceVariant">
+                          <span>Intensité de l'effet</span>
+                          <span className="font-mono font-bold">{background.zoomBlurIntensity ?? 25} %</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="1"
+                          max="100"
+                          step="1"
+                          value={background.zoomBlurIntensity ?? 25}
+                          onChange={e => setBackground({ zoomBlurIntensity: parseInt(e.target.value, 10) || 1 })}
+                          className="w-full accent-m3-sys-primary cursor-pointer"
+                        />
+                        <div className="flex justify-between text-[10px] text-m3-sys-outline font-mono">
+                          <span>Subtil (1%)</span>
+                          <span>Moyen (50%)</span>
+                          <span>Explosif (100%)</span>
+                        </div>
+                      </div>
+
+                      {/* Choix de l'origine du centre */}
+                      <div className="space-y-1.5 pt-1 border-t border-m3-sys-outlineVariant/30">
+                        <span className="text-[11px] font-semibold text-m3-sys-onSurfaceVariant block">
+                          Centre d'émanation des rayons
+                        </span>
+                        <div className="grid grid-cols-3 gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setBackground({ zoomBlurOrigin: 'auto-device' })}
+                            className={`px-2 py-1.5 rounded-lg text-[10px] font-medium transition-colors flex flex-col items-center justify-center text-center ${
+                              (background.zoomBlurOrigin ?? 'auto-device') === 'auto-device'
+                                ? 'bg-m3-sys-primary text-m3-sys-onPrimary font-bold shadow-sm'
+                                : 'bg-m3-sys-surface text-m3-sys-onSurfaceVariant hover:bg-m3-sys-surfaceContainer'
+                            }`}
+                          >
+                            <span>📱 Smartphone</span>
+                            <span className="text-[8px] opacity-80">
+                              {hasDevice ? 'Détecté' : 'Défaut'}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setBackground({ zoomBlurOrigin: 'canvas-center' })}
+                            className={`px-2 py-1.5 rounded-lg text-[10px] font-medium transition-colors flex flex-col items-center justify-center text-center ${
+                              background.zoomBlurOrigin === 'canvas-center'
+                                ? 'bg-m3-sys-primary text-m3-sys-onPrimary font-bold shadow-sm'
+                                : 'bg-m3-sys-surface text-m3-sys-onSurfaceVariant hover:bg-m3-sys-surfaceContainer'
+                            }`}
+                          >
+                            <span>🎯 Centre</span>
+                            <span className="text-[8px] opacity-80">Scène</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setBackground({ zoomBlurOrigin: 'custom' })}
+                            className={`px-2 py-1.5 rounded-lg text-[10px] font-medium transition-colors flex flex-col items-center justify-center text-center ${
+                              background.zoomBlurOrigin === 'custom'
+                                ? 'bg-m3-sys-primary text-m3-sys-onPrimary font-bold shadow-sm'
+                                : 'bg-m3-sys-surface text-m3-sys-onSurfaceVariant hover:bg-m3-sys-surfaceContainer'
+                            }`}
+                          >
+                            <span>⚙️ Manuel</span>
+                            <span className="text-[8px] opacity-80">X / Y</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Coordonnées manuelles si mode 'custom' */}
+                      {background.zoomBlurOrigin === 'custom' && (
+                        <div className="space-y-2 pt-1 border-t border-m3-sys-outlineVariant/30">
+                          <div>
+                            <div className="flex justify-between text-[11px] text-m3-sys-onSurfaceVariant">
+                              <span>Origine X</span>
+                              <span className="font-mono font-bold">{background.zoomBlurOriginX ?? 50} %</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              step="1"
+                              value={background.zoomBlurOriginX ?? 50}
+                              onChange={e => setBackground({ zoomBlurOriginX: parseInt(e.target.value, 10) || 0 })}
+                              className="w-full accent-m3-sys-primary cursor-pointer"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-[11px] text-m3-sys-onSurfaceVariant">
+                              <span>Origine Y</span>
+                              <span className="font-mono font-bold">{background.zoomBlurOriginY ?? 50} %</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              step="1"
+                              value={background.zoomBlurOriginY ?? 50}
+                              onChange={e => setBackground({ zoomBlurOriginY: parseInt(e.target.value, 10) || 0 })}
+                              className="w-full accent-m3-sys-primary cursor-pointer"
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

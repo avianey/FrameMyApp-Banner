@@ -8,6 +8,8 @@ export interface ColorRgba {
 
 export type BackgroundType = 'solid' | 'linear' | 'radial' | 'image';
 
+export type ZoomBlurOriginType = 'auto-device' | 'canvas-center' | 'custom';
+
 export interface BackgroundConfig {
   type: BackgroundType;
   solidColor: string;
@@ -28,6 +30,11 @@ export interface BackgroundConfig {
   imageBlur?: number;
   imageOverlayEnable?: boolean;
   imageOverlayColor?: string;
+  zoomBlurEnable?: boolean;
+  zoomBlurIntensity?: number;
+  zoomBlurOrigin?: ZoomBlurOriginType;
+  zoomBlurOriginX?: number;
+  zoomBlurOriginY?: number;
 }
 
 export type ShapeType = 'rectangle' | 'rounded-rect' | 'circle' | 'pill' | 'star' | 'hexagon';

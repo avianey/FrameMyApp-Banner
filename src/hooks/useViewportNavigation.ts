@@ -11,14 +11,14 @@ interface UseViewportNavigationOptions {
 }
 
 const defaultExportZone: ExportZone = {
-  x: 50,
-  y: 40,
-  width: 700,
-  height: 525,
-  preset: 'custom',
-  ratio: 700 / 525,
-  targetWidth: 1200,
-  targetHeight: 900,
+  x: 0,
+  y: 0,
+  width: 800,
+  height: 600,
+  preset: 'full',
+  ratio: 800 / 600,
+  targetWidth: 800,
+  targetHeight: 600,
   lockRatio: true
 };
 
@@ -136,6 +136,31 @@ export function useViewportNavigation({
       recordHistory();
       setCanvasWidth(width);
       setCanvasHeight(height);
+
+      // Synchroniser la zone d'exportation si elle couvrait le plein canevas ou dépasse les nouvelles bornes
+      setExportZoneState(prevZone => {
+        const wasFull =
+          prevZone.preset === 'full' ||
+          (prevZone.x === 0 &&
+            prevZone.y === 0 &&
+            Math.abs(prevZone.width - canvasWidth) < 2 &&
+            Math.abs(prevZone.height - canvasHeight) < 2);
+        if (wasFull || prevZone.x + prevZone.width > width || prevZone.y + prevZone.height > height) {
+          const newRatio = width / height;
+          return {
+            ...prevZone,
+            x: 0,
+            y: 0,
+            width,
+            height,
+            targetWidth: wasFull ? width : prevZone.targetWidth,
+            targetHeight: wasFull ? height : Math.round(prevZone.targetWidth / newRatio),
+            ratio: newRatio,
+            preset: wasFull ? 'full' : prevZone.preset
+          };
+        }
+        return prevZone;
+      });
 
       // Adapter le zoom et centrer la scène dans le viewport si nécessaire
       if (viewportRef.current) {

@@ -466,7 +466,22 @@ export const DeviceElement: React.FC<DeviceElementProps> = ({
 
         {/* ================= CHÂSSIS / COQUE EXTERNE (BODY COLOR + MÉTAL BROSSÉ) ================= */}
         <div
-          className="w-full h-full relative overflow-hidden"
+          className="device-chassis w-full h-full relative overflow-hidden"
+          data-element-type="device"
+          data-glow-enable={element.glow?.enable ? 'true' : 'false'}
+          data-glow-color={element.glow?.color || ''}
+          data-glow-blur={element.glow?.blur ?? 0}
+          data-glow-x={element.glow?.x ?? 0}
+          data-glow-y={element.glow?.y ?? 0}
+          data-shadow-enable={element.shadow?.enable ? 'true' : 'false'}
+          data-shadow-color={element.shadow?.color || ''}
+          data-shadow-blur={element.shadow?.blur ?? 0}
+          data-shadow-x={element.shadow?.x ?? 0}
+          data-shadow-y={element.shadow?.y ?? 0}
+          data-border-radius={borderRadius}
+          data-shape-type="rounded-rect"
+          data-width={element.width}
+          data-height={element.height}
           style={{
             backgroundColor: element.bodyColor || '#1e2022',
             borderRadius: `${borderRadius}px`,
