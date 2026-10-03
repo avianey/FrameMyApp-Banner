@@ -36,6 +36,7 @@ export const BackgroundControls: React.FC = () => {
     showSnackbar,
     editingImageElementId,
     setEditingImageElementId,
+    selectElement,
     loadedBundle
   } = useEditor();
 
@@ -360,7 +361,13 @@ export const BackgroundControls: React.FC = () => {
               {/* Bouton de recadrage interactif */}
               <div className="pt-1 space-y-2">
                 <button
-                  onClick={() => setEditingImageElementId(editingImageElementId === 'background' ? null : 'background')}
+                  onClick={() => {
+                    const next = editingImageElementId === 'background' ? null : 'background';
+                    setEditingImageElementId(next);
+                    if (next === 'background') {
+                      selectElement(null);
+                    }
+                  }}
                   className={`w-full py-2 px-3 rounded-xl border flex items-center justify-center space-x-2 text-xs font-bold transition-all cursor-pointer shadow-sm ${
                     editingImageElementId === 'background'
                       ? 'bg-indigo-500 text-white border-indigo-600'

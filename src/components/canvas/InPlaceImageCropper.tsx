@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { computeImageCropGeometry, clampImageOffset, applyRubberBandOffset } from '../../utils/imageCropHelper';
 import { renderZoomBlur } from '../../utils/zoomBlurHelper';
 
@@ -32,6 +33,7 @@ export interface InPlaceImageCropperProps {
   zoomBlurIntensity?: number;
   zoomBlurCenterX?: number;
   zoomBlurCenterY?: number;
+  overlayPortalTarget?: HTMLElement | null;
 }
 
 export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
@@ -55,7 +57,8 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
   zoomBlurEnable = false,
   zoomBlurIntensity = 25,
   zoomBlurCenterX,
-  zoomBlurCenterY
+  zoomBlurCenterY,
+  overlayPortalTarget
 }) => {
   const [natWidth, setNatWidth] = useState<number>(imageNaturalWidth || 0);
   const [natHeight, setNatHeight] = useState<number>(imageNaturalHeight || 0);
@@ -68,13 +71,19 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
   const imgRef = useRef<HTMLImageElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Sync natural dimensions if prop changes or on image load
+  // Sync natural dimensions if prop changes or on image load / complete
   useEffect(() => {
     if (imageNaturalWidth && imageNaturalHeight) {
       setNatWidth(imageNaturalWidth);
       setNatHeight(imageNaturalHeight);
+    } else if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
+      const nw = imgRef.current.naturalWidth;
+      const nh = imgRef.current.naturalHeight;
+      setNatWidth(nw);
+      setNatHeight(nh);
+      onUpdate({ imageNaturalWidth: nw, imageNaturalHeight: nh });
     }
-  }, [imageNaturalWidth, imageNaturalHeight]);
+  }, [imageNaturalWidth, imageNaturalHeight, imageUrl, onUpdate]);
 
   // Synchronise le dragOffset lorsque imageOffsetX/Y change depuis l'extérieur (hors drag)
   useEffect(() => {
@@ -91,14 +100,25 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
     }
   }, [isEditing, isDragging, dragOffset, onUpdate]);
 
+  // Résolution synchrone prioritaire des dimensions naturelles pour garantir un ratio 100% fidèle dès le 1er rendu
+  const effectiveNatW =
+    (imageNaturalWidth && imageNaturalWidth > 0 ? imageNaturalWidth : 0) ||
+    (imgRef.current && imgRef.current.naturalWidth > 0 ? imgRef.current.naturalWidth : 0) ||
+    natWidth;
+
+  const effectiveNatH =
+    (imageNaturalHeight && imageNaturalHeight > 0 ? imageNaturalHeight : 0) ||
+    (imgRef.current && imgRef.current.naturalHeight > 0 ? imgRef.current.naturalHeight : 0) ||
+    natHeight;
+
   const currentScale = Math.max(imageFit === 'cover' ? 1.0 : 0.1, imageScale);
 
-  // Calcul géométrique
+  // Calcul géométrique avec préservation stricte du ratio d'aspect
   const geom = computeImageCropGeometry(
     containerWidth,
     containerHeight,
-    natWidth,
-    natHeight,
+    effectiveNatW,
+    effectiveNatH,
     currentScale,
     dragOffset.x,
     dragOffset.y,
@@ -155,10 +175,12 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const nw = e.currentTarget.naturalWidth;
     const nh = e.currentTarget.naturalHeight;
-    if (nw && nh && (nw !== natWidth || nh !== natHeight)) {
-      setNatWidth(nw);
-      setNatHeight(nh);
-      if (!imageNaturalWidth || !imageNaturalHeight) {
+    if (nw > 0 && nh > 0) {
+      if (nw !== natWidth || nh !== natHeight) {
+        setNatWidth(nw);
+        setNatHeight(nh);
+      }
+      if (imageNaturalWidth !== nw || imageNaturalHeight !== nh) {
         onUpdate({ imageNaturalWidth: nw, imageNaturalHeight: nh });
       }
     }
@@ -248,8 +270,8 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
       const localCursorX = (e.clientX - rect.left) / canvasZoom;
       const localCursorY = (e.clientY - rect.top) / canvasZoom;
 
-      const safeNatW = natWidth > 0 ? natWidth : containerWidth;
-      const safeNatH = natHeight > 0 ? natHeight : containerHeight;
+      const safeNatW = effectiveNatW > 0 ? effectiveNatW : containerWidth;
+      const safeNatH = effectiveNatH > 0 ? effectiveNatH : containerHeight;
 
       let baseScale: number;
       if (imageFit === 'contain') {
@@ -350,6 +372,7 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
                 height: `${geom.renderH}px`,
                 left: `${imgLeft}px`,
                 top: `${imgTop}px`,
+                objectFit: imageFit === 'contain' ? 'contain' : 'cover',
                 filter: imageBlur && imageBlur > 0 ? `blur(${imageBlur}px)` : undefined,
                 transform: imageBlur && imageBlur > 0 ? 'scale(1.04)' : undefined,
                 transition: isSpringing ? 'all 0.3s cubic-bezier(0.25, 1, 0.5, 1)' : 'none'
@@ -393,7 +416,8 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
             width: `${geom.renderW}px`,
             height: `${geom.renderH}px`,
             left: `${imgLeft}px`,
-            top: `${imgTop}px`
+            top: `${imgTop}px`,
+            objectFit: imageFit === 'contain' ? 'contain' : 'cover'
           }}
         />
       )}
@@ -406,19 +430,36 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
         />
       )}
 
-      {/* Mode interactif d'ajustement */}
-      {isEditing && (
-        <div
-          ref={cropperRef}
-          className={`absolute inset-0 z-30 touch-none select-none transition-colors border-2 border-indigo-500/80 ${
-            isDragging ? 'cursor-grabbing bg-indigo-500/10' : 'cursor-grab bg-indigo-500/5 hover:bg-indigo-500/10'
-          }`}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
-        />
-      )}
+      {/* Mode interactif d'ajustement (in-place ou rendu via Portal au-dessus des éléments) */}
+      {(() => {
+        if (!isEditing) return null;
+
+        const cropperOverlay = (
+          <div
+            ref={cropperRef}
+            data-testid="in-place-image-cropper-overlay"
+            className={`absolute inset-0 z-30 touch-none select-none transition-colors border-2 border-indigo-500/80 ${
+              isDragging ? 'cursor-grabbing bg-indigo-500/10' : 'cursor-grab bg-indigo-500/5 hover:bg-indigo-500/10'
+            }`}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              width: '100%',
+              height: '100%',
+              borderRadius: typeof borderRadius === 'number' ? `${borderRadius}px` : borderRadius
+            }}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+          />
+        );
+
+        return overlayPortalTarget ? createPortal(cropperOverlay, overlayPortalTarget) : cropperOverlay;
+      })()}
     </div>
   );
 };

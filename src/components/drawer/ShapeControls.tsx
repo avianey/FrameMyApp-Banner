@@ -483,7 +483,10 @@ export const ShapeControls: React.FC<ShapeControlsProps> = ({ element }) => {
                     handleUpdate({
                       imageUrl: finalUrl,
                       imageNaturalWidth: img.naturalWidth,
-                      imageNaturalHeight: img.naturalHeight
+                      imageNaturalHeight: img.naturalHeight,
+                      imageScale: 1.0,
+                      imageOffsetX: 0,
+                      imageOffsetY: 0
                     });
                     showSnackbar('Image appliquée sur la forme', 'image');
                   };

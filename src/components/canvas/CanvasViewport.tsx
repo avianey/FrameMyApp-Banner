@@ -48,6 +48,8 @@ export const CanvasViewport: React.FC = () => {
     return () => clearTimeout(timer);
   }, [centerCanvas, state.canvasWidth, state.canvasHeight]);
 
+  const handleToolbarZoomStepRef = useRef<(delta: number) => void>(() => {});
+
   // Wheel zoom event handler (non-passive to allow e.preventDefault)
   useEffect(() => {
     const viewportEl = viewportRef.current;
@@ -56,7 +58,14 @@ export const CanvasViewport: React.FC = () => {
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
 
-      // Si l'utilisateur est en train d'éditer ou recadrer une image, NE JAMAIS zoomer la scène
+      // Si l'utilisateur est en train d'éditer ou recadrer l'image de fond et que la molette tourne sur le viewport
+      if (editingImageElementIdRef.current === 'background') {
+        const zoomDelta = e.deltaY < 0 ? 0.08 : -0.08;
+        handleToolbarZoomStepRef.current(zoomDelta);
+        return;
+      }
+
+      // Si l'utilisateur est en train d'éditer ou recadrer une image d'une forme, NE JAMAIS zoomer la scène
       if (editingImageElementIdRef.current) {
         return;
       }
@@ -85,9 +94,14 @@ export const CanvasViewport: React.FC = () => {
     };
   }, [setZoom, viewportRef]);
 
-  // Space key detection for pan navigation (Inkscape style)
+  // Space key detection for pan navigation (Inkscape style) & Escape to exit editing
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && editingImageElementIdRef.current) {
+        e.preventDefault();
+        setEditingImageElementId(null);
+        return;
+      }
       if (e.code === 'Space' && !e.repeat) {
         const target = e.target as HTMLElement;
         if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
@@ -110,7 +124,7 @@ export const CanvasViewport: React.FC = () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, []);
+  }, [setEditingImageElementId]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     // Si l'utilisateur est en train de tracer la zone d'export, ne pas capturer le pan
@@ -123,6 +137,7 @@ export const CanvasViewport: React.FC = () => {
       if (state.background.type === 'image' && state.background.imageUrl) {
         e.preventDefault();
         e.stopPropagation();
+        selectElement(null);
         setEditingImageElementId('background');
         setActivePanel('bg');
         setIsPanning(false);
@@ -195,6 +210,7 @@ export const CanvasViewport: React.FC = () => {
       if (state.background.type === 'image' && state.background.imageUrl) {
         e.preventDefault();
         e.stopPropagation();
+        selectElement(null);
         setEditingImageElementId('background');
         setActivePanel('bg');
       }
@@ -259,6 +275,8 @@ export const CanvasViewport: React.FC = () => {
       });
     }
   };
+
+  handleToolbarZoomStepRef.current = handleToolbarZoomStep;
 
   const handleToolbarCenter = () => {
     if (isEditingBg) {

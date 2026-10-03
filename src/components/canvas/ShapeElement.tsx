@@ -80,7 +80,10 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
             fillType: 'image',
             imageUrl: displayUrl,
             imageNaturalWidth: img.naturalWidth,
-            imageNaturalHeight: img.naturalHeight
+            imageNaturalHeight: img.naturalHeight,
+            imageScale: 1.0,
+            imageOffsetX: 0,
+            imageOffsetY: 0
           });
           selectElement(element.id);
           setActivePanel('shape');

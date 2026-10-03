@@ -627,6 +627,19 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const applyBackgroundImage = useCallback(
     async (imageUrl: string, file?: File) => {
+      // 1. Lire immédiatement les dimensions naturelles de l'image (disponible en mémoire instantanément)
+      const probeImg = new Image();
+      const getDimsPromise = new Promise<{ width: number; height: number }>(resolve => {
+        probeImg.onload = () => {
+          resolve({
+            width: probeImg.naturalWidth > 0 ? probeImg.naturalWidth : 0,
+            height: probeImg.naturalHeight > 0 ? probeImg.naturalHeight : 0
+          });
+        };
+        probeImg.onerror = () => resolve({ width: 0, height: 0 });
+      });
+      probeImg.src = imageUrl;
+
       let finalUrl = imageUrl;
       if (file) {
         const { displayUrl } = await persistAsset(file);
@@ -634,32 +647,28 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         finalUrl = displayUrl;
       }
 
-      const img = new Image();
-      img.onload = () => {
-        const naturalWidth = img.naturalWidth || 800;
-        const naturalHeight = img.naturalHeight || 600;
+      const dims = await getDimsPromise;
+      const naturalWidth = dims.width > 0 ? dims.width : (probeImg.naturalWidth || 0);
+      const naturalHeight = dims.height > 0 ? dims.height : (probeImg.naturalHeight || 0);
 
-        history.recordHistory();
-        setBackgroundState(prev => ({
-          ...prev,
-          type: 'image',
-          imageUrl: finalUrl,
-          imageFit: prev.imageFit || 'cover',
-          imageOffsetX: 0,
-          imageOffsetY: 0,
-          imageScale: 1.0,
-          imageNaturalWidth: naturalWidth,
-          imageNaturalHeight: naturalHeight
-        }));
+      history.recordHistory();
+      setBackgroundState(prev => ({
+        ...prev,
+        type: 'image',
+        imageUrl: finalUrl,
+        imageFit: prev.imageFit === 'contain' ? 'contain' : 'cover',
+        imageOffsetX: 0,
+        imageOffsetY: 0,
+        imageScale: 1.0,
+        imageNaturalWidth: naturalWidth > 0 ? naturalWidth : undefined,
+        imageNaturalHeight: naturalHeight > 0 ? naturalHeight : undefined
+      }));
 
+      if (naturalWidth > 0 && naturalHeight > 0) {
         showSnackbar(`Image de fond appliquée (${naturalWidth} × ${naturalHeight} px)`, 'image');
-      };
-      img.onerror = () => {
-        history.recordHistory();
-        setBackgroundState(prev => ({ ...prev, type: 'image', imageUrl: finalUrl }));
+      } else {
         showSnackbar('Image de fond appliquée', 'image');
-      };
-      img.src = finalUrl;
+      }
     },
     [history, showSnackbar, persistAsset]
   );

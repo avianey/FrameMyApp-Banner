@@ -79,16 +79,7 @@ export const Artboard: React.FC = () => {
       };
     }
     if (background.type === 'image' && background.imageUrl) {
-      let bgSize = 'cover';
-      if (background.imageFit === 'contain') {
-        bgSize = 'contain';
-      } else if (background.imageFit === 'auto') {
-        bgSize = 'auto';
-      } else if (background.imageFit === 'cover') {
-        bgSize = 'cover';
-      } else if ((background.imageFit as any) === 'stretch' || (background.imageFit as any) === 'fill') {
-        bgSize = '100% 100%';
-      }
+      const bgSize = background.imageFit === 'contain' ? 'contain' : 'cover';
 
       return {
         backgroundImage: `url('${displayBgUrl}')`,
@@ -159,6 +150,7 @@ export const Artboard: React.FC = () => {
   const handleDoubleClick = (e: React.MouseEvent) => {
     if (background.type === 'image' && background.imageUrl) {
       e.stopPropagation();
+      selectElement(null);
       setEditingImageElementId('background');
       setActivePanel('bg');
     }
@@ -218,6 +210,7 @@ export const Artboard: React.FC = () => {
               zoomBlurIntensity={background.zoomBlurIntensity ?? 25}
               zoomBlurCenterX={zoomBlurCenterX}
               zoomBlurCenterY={zoomBlurCenterY}
+              overlayPortalTarget={artboardRef.current}
             />
           </div>
         ) : (
@@ -251,8 +244,19 @@ export const Artboard: React.FC = () => {
         {/* Objets (Textes, Formes & Mockups) */}
         <div
           id="artboard-elements"
-          className="absolute inset-0 w-full h-full overflow-visible z-10"
-          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%' }}
+          className={`absolute inset-0 w-full h-full overflow-visible z-10 ${
+            editingImageElementId === 'background' ? 'pointer-events-none select-none' : ''
+          }`}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: '100%',
+            height: '100%',
+            pointerEvents: editingImageElementId === 'background' ? 'none' : 'auto'
+          }}
         >
           {elements.map(el => {
             const isSelected = selectedElementIds.includes(el.id);
