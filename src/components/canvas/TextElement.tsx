@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { TextElementModel } from '../../types';
 import { useEditor } from '../../context/EditorContext';
 import { SelectionHandles } from './SelectionHandles';
@@ -20,7 +20,15 @@ export const TextElement: React.FC<TextElementProps> = ({
   const { selectElement, updateElement, state, recordHistory } = useEditor();
   const nodeRef = useRef<HTMLDivElement>(null);
   const textInnerRef = useRef<HTMLDivElement>(null);
+  const [isEditing, setIsEditing] = useState(false);
   const currentZoom = state.zoom || 1;
+
+  // Exit editing mode when deselected or multi-selected
+  useEffect(() => {
+    if (!isSelected || isMultiSelected) {
+      setIsEditing(false);
+    }
+  }, [isSelected, isMultiSelected]);
 
   // Synchronize innerText when element.text updates externally (e.g. from drawer)
   const setRef = (node: HTMLDivElement | null) => {
@@ -45,10 +53,17 @@ export const TextElement: React.FC<TextElementProps> = ({
   const minHeightPx = (element.minLines || 1) * element.fontSize * (element.lineHeight || 1.2);
   const effectiveHeight = Math.max(element.height || 0, minHeightPx);
 
-  const handleFocus = () => {
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (isMultiSelected) return;
     recordHistory();
-    selectElement(element.id);
+    selectElement(element.id, false);
+    setIsEditing(true);
+    requestAnimationFrame(() => {
+      if (textInnerRef.current) {
+        textInnerRef.current.focus();
+      }
+    });
   };
 
   const handleInput = () => {
@@ -57,9 +72,33 @@ export const TextElement: React.FC<TextElementProps> = ({
     }
   };
 
+  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const plainText = e.clipboardData.getData('text/plain');
+    if (!plainText) return;
+    if (typeof document.execCommand === 'function') {
+      document.execCommand('insertText', false, plainText);
+    } else {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        range.deleteContents();
+        range.insertNode(document.createTextNode(plainText));
+        range.collapse(false);
+      }
+      handleInput();
+    }
+  };
+
   const handlePointerDown = (e: React.PointerEvent) => {
     const target = e.target as HTMLElement;
     if (target.closest('.handle-resize') || target.closest('.handle-rotate-anchor') || target.closest('.drag-pill-handle')) {
+      return;
+    }
+
+    // In editing mode, let the user move the text cursor / select characters naturally
+    if (isEditing) {
+      e.stopPropagation();
       return;
     }
 
@@ -74,42 +113,48 @@ export const TextElement: React.FC<TextElementProps> = ({
 
     if (!isSelected) {
       selectElement(element.id, false);
-      return;
     }
 
-    // Si sélection multiple, permettre de glisser-déplacer toute la sélection
-    if (isMultiSelected) {
-      e.preventDefault();
-      recordHistory();
-      const startX = e.clientX;
-      const startY = e.clientY;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let hasMoved = false;
 
-      const idsToMove = state.selectedElementIds;
-      const initPositions = idsToMove.map(id => {
-        const el = state.elements.find(item => item.id === id);
-        return { id, x: el?.x || 0, y: el?.y || 0 };
-      });
+    const idsToMove = isSelected && isMultiSelected
+      ? state.selectedElementIds
+      : [element.id];
 
-      const onMove = (moveEvent: PointerEvent) => {
-        const dx = (moveEvent.clientX - startX) / currentZoom;
-        const dy = (moveEvent.clientY - startY) / currentZoom;
+    const initPositions = idsToMove.map(id => {
+      const el = state.elements.find(item => item.id === id);
+      return { id, x: el?.x || 0, y: el?.y || 0 };
+    });
 
-        initPositions.forEach(pos => {
-          updateElement(pos.id, {
-            x: Math.round(pos.x + dx),
-            y: Math.round(pos.y + dy)
-          });
+    const onMove = (moveEvent: PointerEvent) => {
+      const dx = (moveEvent.clientX - startX) / currentZoom;
+      const dy = (moveEvent.clientY - startY) / currentZoom;
+      if (!hasMoved && Math.abs(moveEvent.clientX - startX) < 2 && Math.abs(moveEvent.clientY - startY) < 2) {
+        return;
+      }
+      if (!hasMoved) {
+        hasMoved = true;
+        recordHistory();
+      }
+
+      initPositions.forEach(pos => {
+        updateElement(pos.id, {
+          x: Math.round(pos.x + dx),
+          y: Math.round(pos.y + dy)
         });
-      };
+      });
+    };
 
-      const onUp = () => {
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
-      };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
 
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onUp);
-    }
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
   };
 
   return (
@@ -134,13 +179,16 @@ export const TextElement: React.FC<TextElementProps> = ({
         boxSizing: 'border-box'
       }}
       onPointerDown={handlePointerDown}
+      onDoubleClick={handleDoubleClick}
     >
       <div
         ref={setRef}
-        contentEditable
+        contentEditable={isEditing}
         suppressContentEditableWarning
         spellCheck={false}
-        className="editable-text-content w-full outline-none break-words cursor-text rounded focus:ring-2 focus:ring-m3-sys-primary"
+        className={`editable-text-content w-full outline-none break-words rounded ${
+          isEditing ? 'cursor-text ring-2 ring-m3-sys-primary select-text' : 'cursor-move select-none'
+        }`}
         style={{
           width: '100%',
           boxSizing: 'border-box',
@@ -158,15 +206,18 @@ export const TextElement: React.FC<TextElementProps> = ({
           textAlign: element.textAlign || 'left'
         }}
         onInput={handleInput}
-        onFocus={handleFocus}
+        onPaste={handlePaste}
         onBlur={() => {
           if (textInnerRef.current) {
             updateElement(element.id, { text: textInnerRef.current.innerText });
           }
+          setIsEditing(false);
         }}
         onKeyDown={e => {
           if (e.key === 'Escape') {
+            e.stopPropagation();
             textInnerRef.current?.blur();
+            setIsEditing(false);
           }
         }}
       />
