@@ -2,6 +2,7 @@ import React from 'react';
 import { CanvasElement, DeviceElementModel } from '../../types';
 import { useEditor } from '../../context/EditorContext';
 import { computeDeviceHeightFromWidth, computeDeviceWidthFromHeight } from '../../utils/deviceHelper';
+import { computeSnapPosition, emitSnapGuides } from '../../utils/alignment';
 
 interface SelectionHandlesProps {
   element: CanvasElement;
@@ -63,13 +64,32 @@ export const SelectionHandles: React.FC<SelectionHandlesProps> = ({ element, ele
       }
       const dx = (moveEvent.clientX - startX) / currentZoom;
       const dy = (moveEvent.clientY - startY) / currentZoom;
-      updateElement(element.id, {
-        x: Math.round(initX + dx),
-        y: Math.round(initY + dy)
-      });
+      const candidateX = Math.round(initX + dx);
+      const candidateY = Math.round(initY + dy);
+
+      if (moveEvent.altKey) {
+        emitSnapGuides(null);
+        updateElement(element.id, { x: candidateX, y: candidateY });
+      } else {
+        const snapped = computeSnapPosition(
+          {
+            id: element.id,
+            x: candidateX,
+            y: candidateY,
+            width: element.width,
+            height: element.height || 0,
+            rotation: element.rotation
+          },
+          state.elements,
+          { width: state.canvasWidth || 800, height: state.canvasHeight || 600 }
+        );
+        emitSnapGuides(snapped.guides);
+        updateElement(element.id, { x: snapped.x, y: snapped.y });
+      }
     };
 
     const onUp = () => {
+      emitSnapGuides(null);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };

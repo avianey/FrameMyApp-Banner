@@ -6,6 +6,7 @@ import { InPlaceImageCropper } from './InPlaceImageCropper';
 import { assetManager } from '../../utils/assetManager';
 import { resolveAsset } from '../../utils/templateEngine';
 import { getCombinedBoxShadow, getCombinedDropShadowFilter } from '../../utils/effectsHelper';
+import { computeSnapPosition, emitSnapGuides } from '../../utils/alignment';
 
 interface ShapeElementProps {
   element: ShapeElementModel;
@@ -118,12 +119,10 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
       selectElement(element.id, false);
     }
 
-    recordHistory();
-
     const startX = e.clientX;
     const startY = e.clientY;
+    let hasMoved = false;
 
-    // Déterminer les éléments à déplacer ensemble
     const idsToMove = isSelected && isMultiSelected
       ? state.selectedElementIds
       : [element.id];
@@ -136,16 +135,43 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
     const onMove = (moveEvent: PointerEvent) => {
       const dx = (moveEvent.clientX - startX) / currentZoom;
       const dy = (moveEvent.clientY - startY) / currentZoom;
+      if (!hasMoved && Math.abs(moveEvent.clientX - startX) < 2 && Math.abs(moveEvent.clientY - startY) < 2) {
+        return;
+      }
+      if (!hasMoved) {
+        hasMoved = true;
+        recordHistory();
+      }
 
-      initPositions.forEach(pos => {
-        updateElement(pos.id, {
-          x: Math.round(pos.x + dx),
-          y: Math.round(pos.y + dy)
+      if (idsToMove.length === 1 && !moveEvent.altKey) {
+        const pos = initPositions[0];
+        const snapped = computeSnapPosition(
+          {
+            id: element.id,
+            x: Math.round(pos.x + dx),
+            y: Math.round(pos.y + dy),
+            width: element.width,
+            height: element.height,
+            rotation: element.rotation
+          },
+          state.elements,
+          { width: state.canvasWidth || 800, height: state.canvasHeight || 600 }
+        );
+        emitSnapGuides(snapped.guides);
+        updateElement(element.id, { x: snapped.x, y: snapped.y });
+      } else {
+        emitSnapGuides(null);
+        initPositions.forEach(pos => {
+          updateElement(pos.id, {
+            x: Math.round(pos.x + dx),
+            y: Math.round(pos.y + dy)
+          });
         });
-      });
+      }
     };
 
     const onUp = () => {
+      emitSnapGuides(null);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };

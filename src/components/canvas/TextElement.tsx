@@ -3,6 +3,7 @@ import { TextElementModel } from '../../types';
 import { useEditor } from '../../context/EditorContext';
 import { SelectionHandles } from './SelectionHandles';
 import { getCombinedTextShadow } from '../../utils/effectsHelper';
+import { computeSnapPosition, emitSnapGuides } from '../../utils/alignment';
 
 interface TextElementProps {
   element: TextElementModel;
@@ -140,15 +141,35 @@ export const TextElement: React.FC<TextElementProps> = ({
         recordHistory();
       }
 
-      initPositions.forEach(pos => {
-        updateElement(pos.id, {
-          x: Math.round(pos.x + dx),
-          y: Math.round(pos.y + dy)
+      if (idsToMove.length === 1 && !moveEvent.altKey) {
+        const pos = initPositions[0];
+        const snapped = computeSnapPosition(
+          {
+            id: element.id,
+            x: Math.round(pos.x + dx),
+            y: Math.round(pos.y + dy),
+            width: element.width,
+            height: effectiveHeight,
+            rotation: element.rotation
+          },
+          state.elements,
+          { width: state.canvasWidth || 800, height: state.canvasHeight || 600 }
+        );
+        emitSnapGuides(snapped.guides);
+        updateElement(element.id, { x: snapped.x, y: snapped.y });
+      } else {
+        emitSnapGuides(null);
+        initPositions.forEach(pos => {
+          updateElement(pos.id, {
+            x: Math.round(pos.x + dx),
+            y: Math.round(pos.y + dy)
+          });
         });
-      });
+      }
     };
 
     const onUp = () => {
+      emitSnapGuides(null);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };
