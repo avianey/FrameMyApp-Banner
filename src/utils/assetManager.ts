@@ -143,9 +143,18 @@ class AssetManager {
   }
 
   /**
-   * Resets all cached assets and URL mappings.
+   * Resets all cached assets and URL mappings, revoking any blob: ObjectURLs.
    */
   clear() {
+    const revoked = new Set<string>();
+    for (const entry of this.assets.values()) {
+      if (entry.url && entry.url.startsWith('blob:') && !revoked.has(entry.url)) {
+        revoked.add(entry.url);
+        try {
+          URL.revokeObjectURL(entry.url);
+        } catch {}
+      }
+    }
     this.assets.clear();
     this.urlToPath.clear();
   }

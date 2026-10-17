@@ -888,11 +888,14 @@ export function useDiskSync({
     return false;
   }, [setProjectName, setSyncFileHandle, setSyncFilePath, showSnackbar, loadFromDiskHandle]);
 
-  const syncToDisk = useCallback(async (): Promise<boolean> => {
-    if (isSyncPausedRef.current) {
+  const isSyncingRef = useRef(false);
+
+  const syncToDisk = useCallback(async (options?: { silent?: boolean; isAuto?: boolean }): Promise<boolean> => {
+    if (isSyncPausedRef.current || isSyncingRef.current) {
       return false;
     }
 
+    isSyncingRef.current = true;
     setSyncStatus('syncing');
 
     try {
@@ -1044,10 +1047,15 @@ export function useDiskSync({
           } catch {}
         }
 
-        showSnackbar(`Synchronisé dans ${targetDirHandle.name}/${targetFilename || 'banner_template.yml'}`, 'cloud_done');
-      } else {
+        if (!options?.silent) {
+          showSnackbar(`Synchronisé dans ${targetDirHandle.name}/${targetFilename || 'banner_template.yml'}`, 'cloud_done');
+        }
+      } else if (!options?.isAuto) {
         downloadFile(targetFilename?.split('/').pop() || 'banner_template.yml', yamlContent, 'text/yaml');
         showSnackbar(`Fichier téléchargé : ${targetFilename || 'banner_template.yml'}`, 'download');
+      } else {
+        setSyncStatus('dirty');
+        return false;
       }
 
       const currentSig = computeCanvasSignature(
@@ -1070,6 +1078,8 @@ export function useDiskSync({
       setSyncStatus('error');
       showSnackbar(`Erreur de synchronisation : ${err.message || 'Échec'}`, 'error');
       return false;
+    } finally {
+      isSyncingRef.current = false;
     }
   }, [
     syncFilePath,
@@ -1153,7 +1163,7 @@ export function useDiskSync({
           clearTimeout(autoSyncTimerRef.current);
         }
         autoSyncTimerRef.current = setTimeout(() => {
-          syncToDisk();
+          syncToDisk({ silent: true, isAuto: true });
         }, 1500);
       }
     } else {
@@ -1178,6 +1188,17 @@ export function useDiskSync({
     loadedBundle,
     syncToDisk
   ]);
+
+  // Garde-fou beforeunload en cas de modifications non synchronisées sur disque
+  useEffect(() => {
+    if (syncStatus !== 'dirty') return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [syncStatus]);
 
   return {
     projectName,
