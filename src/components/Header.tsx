@@ -4,8 +4,8 @@ import { useEditor } from '../context/EditorContext';
 export const Header: React.FC = () => {
   const {
     state,
-    setActivePanel,
     resetZoom,
+    centerCanvas,
     zoomIn,
     zoomOut,
     toggleTheme,
@@ -166,13 +166,14 @@ export const Header: React.FC = () => {
           </button>
         </div>
 
-        {/* Recentrer la vue */}
+        {/* Ajuster à l'écran (Fit) */}
         <button
-          onClick={resetZoom}
-          title="Recentrer la vue (100%)"
+          onClick={() => centerCanvas(state.canvasWidth || 800, state.canvasHeight || 600, true)}
+          title="Ajuster le canevas à l'écran (Fit)"
+          aria-label="Ajuster le canevas à l'écran"
           className="w-10 h-10 rounded-full flex items-center justify-center border border-m3-sys-outlineVariant/40 bg-m3-sys-surfaceContainerLow hover:bg-m3-sys-surfaceContainerHighest hover:border-m3-sys-primary text-m3-sys-onSurface active:scale-95 shadow-sm transition-all cursor-pointer"
         >
-          <span className="material-symbols-rounded text-xl leading-none">filter_center_focus</span>
+          <span className="material-symbols-rounded text-xl leading-none">fit_screen</span>
         </button>
 
         {/* Aperçu du rendu exporté (Lightbox) */}
@@ -198,23 +199,13 @@ export const Header: React.FC = () => {
         {/* Panneau de sauvegarde et synchronisation */}
         <button
           onClick={() => setIsSavePanelOpen(true)}
-          title="Sauvegarder et exporter le projet (Nom, Disque, Exports)"
+          title="Sauvegarder et exporter le projet (Ctrl+S)"
+          aria-label="Sauvegarder et exporter le projet"
           className={`w-10 h-10 rounded-full flex items-center justify-center border border-m3-sys-outlineVariant/40 bg-m3-sys-surfaceContainerLow hover:bg-m3-sys-surfaceContainerHighest hover:border-m3-sys-primary text-m3-sys-onSurface active:scale-95 shadow-sm transition-all cursor-pointer ${
             isSavePanelOpen ? 'ring-2 ring-m3-sys-primary bg-m3-sys-primaryContainer/20 text-m3-sys-primary' : ''
           }`}
         >
           <span className="material-symbols-rounded text-xl leading-none">save</span>
-        </button>
-
-        {/* Modifier le fond */}
-        <button
-          onClick={() => setActivePanel('bg')}
-          title="Modifier le fond"
-          className={`w-10 h-10 rounded-full flex items-center justify-center border border-m3-sys-outlineVariant/40 bg-m3-sys-surfaceContainerLow hover:bg-m3-sys-surfaceContainerHighest hover:border-m3-sys-primary text-m3-sys-onSurface active:scale-95 shadow-sm transition-all cursor-pointer ${
-            state.activePanel === 'bg' ? 'ring-2 ring-m3-sys-primary bg-m3-sys-primaryContainer/20 text-m3-sys-primary' : ''
-          }`}
-        >
-          <span className="material-symbols-rounded text-xl leading-none">wallpaper</span>
         </button>
 
         {/* Séparateur */}
