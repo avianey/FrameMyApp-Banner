@@ -12,7 +12,34 @@ import {
 } from '../types';
 
 function deepClone<T>(obj: T): T {
+  if (obj === undefined || obj === null) return obj;
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(obj);
+    } catch {
+      // Fallback for non-cloneable references
+    }
+  }
   return JSON.parse(JSON.stringify(obj));
+}
+
+function computeElementDiff(
+  baseEl: CanvasElement,
+  currentEl: CanvasElement,
+  ignoreText: boolean
+): Record<string, any> {
+  const diff: Record<string, any> = {};
+  const ignoredKeys = new Set(['id', 'customId', 'type']);
+  if (ignoreText) ignoredKeys.add('text');
+
+  for (const [k, val] of Object.entries(currentEl)) {
+    if (ignoredKeys.has(k)) continue;
+    const baseVal = (baseEl as any)[k];
+    if (JSON.stringify(val) !== JSON.stringify(baseVal)) {
+      diff[k] = deepClone(val);
+    }
+  }
+  return diff;
 }
 
 function deepMerge<T extends Record<string, any>>(target: T, source: Partial<T>): T {
@@ -358,21 +385,40 @@ export function serializeCanvasToVariant(
     newConfig.content = newContent;
   }
 
-  // 2. Elements fine-tuning (if variant had custom element properties)
-  if (newConfig.elements && typeof newConfig.elements === 'object' && !Array.isArray(newConfig.elements)) {
-    const updatedElements: Record<string, Partial<CanvasElement>> = { ...newConfig.elements };
-    for (const [key, props] of Object.entries(updatedElements)) {
-      const matchingEl = currentElements.find(e => e.customId === key || e.id === key);
-      if (matchingEl && props) {
-        const newProps: Record<string, any> = { ...props };
-        for (const propKey of Object.keys(props)) {
-          if (propKey in matchingEl) {
-            newProps[propKey] = (matchingEl as any)[propKey];
-          }
+  // 2. Elements fine-tuning (existing keys + diff against parent when masterConfig is provided)
+  const parentComposition = masterConfig ? resolveComposition(masterConfig, overrideConfig) : undefined;
+  const updatedElements: Record<string, Partial<CanvasElement>> =
+    newConfig.elements && typeof newConfig.elements === 'object' && !Array.isArray(newConfig.elements)
+      ? { ...newConfig.elements }
+      : {};
+
+  for (const [key, props] of Object.entries(updatedElements)) {
+    const matchingEl = currentElements.find(e => e.customId === key || e.id === key);
+    if (matchingEl && props) {
+      const newProps: Record<string, any> = { ...props };
+      for (const propKey of Object.keys(props)) {
+        if (propKey in matchingEl) {
+          newProps[propKey] = deepClone((matchingEl as any)[propKey]);
         }
-        updatedElements[key] = newProps;
+      }
+      updatedElements[key] = newProps;
+    }
+  }
+
+  if (parentComposition && !Array.isArray(newConfig.elements)) {
+    for (const currentEl of currentElements) {
+      const key = currentEl.customId || currentEl.id;
+      const baseEl = parentComposition.elements.find(e => (e.customId || e.id) === key || e.id === currentEl.id);
+      if (baseEl && key) {
+        const diff = computeElementDiff(baseEl, currentEl, true);
+        if (Object.keys(diff).length > 0) {
+          updatedElements[key] = { ...(updatedElements[key] || {}), ...diff };
+        }
       }
     }
+  }
+
+  if (Object.keys(updatedElements).length > 0 && !Array.isArray(newConfig.elements)) {
     newConfig.elements = updatedElements;
   }
 
@@ -396,32 +442,61 @@ export function serializeCanvasToOverride(
     newConfig.name = overrideItem.name;
   }
 
-  // Update background if it was configured in the override
-  if (newConfig.background || existingConfig.background) {
+  const parentComposition = masterConfig ? resolveComposition(masterConfig) : undefined;
+
+  // Update background if it was configured in the override or differs from master
+  if (
+    newConfig.background ||
+    existingConfig.background ||
+    (parentComposition && JSON.stringify(currentBackground) !== JSON.stringify(parentComposition.background))
+  ) {
     newConfig.background = deepClone(currentBackground);
   }
 
-  // Update exportZone if it was configured in the override
-  if (newConfig.exportZone || existingConfig.exportZone) {
+  // Update exportZone if it was configured in the override or differs from master
+  if (
+    newConfig.exportZone ||
+    existingConfig.exportZone ||
+    (parentComposition && JSON.stringify(currentExportZone) !== JSON.stringify(parentComposition.exportZone))
+  ) {
     newConfig.exportZone = deepClone(currentExportZone);
   }
 
-  // Update elements mapping
-  if (newConfig.elements && typeof newConfig.elements === 'object' && !Array.isArray(newConfig.elements)) {
-    const updatedElements: Record<string, Partial<CanvasElement>> = { ...newConfig.elements };
+  // Update elements mapping (existing keys + diff against master when masterConfig is provided)
+  if (!Array.isArray(newConfig.elements)) {
+    const updatedElements: Record<string, Partial<CanvasElement>> =
+      newConfig.elements && typeof newConfig.elements === 'object' ? { ...newConfig.elements } : {};
+
     for (const [key, props] of Object.entries(updatedElements)) {
       const matchingEl = currentElements.find(e => e.customId === key || e.id === key);
       if (matchingEl && props) {
         const newProps: Record<string, any> = { ...props };
         for (const propKey of Object.keys(props)) {
           if (propKey in matchingEl) {
-            newProps[propKey] = (matchingEl as any)[propKey];
+            newProps[propKey] = deepClone((matchingEl as any)[propKey]);
           }
         }
         updatedElements[key] = newProps;
       }
     }
-    newConfig.elements = updatedElements;
+
+    if (parentComposition) {
+      for (const currentEl of currentElements) {
+        const key = currentEl.customId || currentEl.id;
+        const baseEl = parentComposition.elements.find(e => (e.customId || e.id) === key || e.id === currentEl.id);
+        if (baseEl && key) {
+          const ignoreText = Boolean(newConfig.content && key in newConfig.content);
+          const diff = computeElementDiff(baseEl, currentEl, ignoreText);
+          if (Object.keys(diff).length > 0) {
+            updatedElements[key] = { ...(updatedElements[key] || {}), ...diff };
+          }
+        }
+      }
+    }
+
+    if (Object.keys(updatedElements).length > 0) {
+      newConfig.elements = updatedElements;
+    }
   }
 
   // Also update content mapping if override had content
