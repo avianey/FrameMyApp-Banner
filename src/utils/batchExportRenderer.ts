@@ -10,7 +10,7 @@ import { ExportZone } from '../types';
 export async function captureZoneToBlob(
   artboardElement: HTMLElement,
   zone: ExportZone
-): Promise<{ blob: Blob; dataUrl: string }> {
+): Promise<{ blob: Blob; dataUrl: string; thumbnailUrl: string }> {
   // 1. Locate container and save display state
   const container = document.getElementById('artboard-container');
   const prevTransform = container?.style.transform ?? '';
@@ -20,9 +20,9 @@ export async function captureZoneToBlob(
   const prevShadow = artboardElement.style.boxShadow ?? '';
   const prevOverflow = artboardElement.style.overflow ?? '';
 
-  // Hide UI handles, in-place cropper overlays and export overlay
+  // Hide UI handles and export overlay
   const hiddenElements: { el: HTMLElement; prevDisplay: string }[] = [];
-  document.querySelectorAll('.selection-ui-handle, #export-overlay, [class*="border-indigo-500"]').forEach((el: any) => {
+  document.querySelectorAll('.selection-ui-handle, #export-overlay').forEach((el: any) => {
     hiddenElements.push({ el, prevDisplay: el.style.display });
     el.style.display = 'none';
   });
@@ -84,9 +84,9 @@ export async function captureZoneToBlob(
     const targetW = zone.targetWidth || 1200;
     const targetH = zone.targetHeight || 900;
 
-    // Calculate an optimal capture scale (avoid extreme downscaling that causes blur)
+    // Calculate an optimal capture scale (up to 4x for high-DPI / 4K targets)
     const idealScale = (targetW / (zone.width || artboardW)) * 1.5;
-    const neededScale = Math.max(1.2, Math.min(2.0, idealScale));
+    const neededScale = Math.max(1.2, Math.min(4.0, idealScale));
 
     const capturedCanvas = await htmlToImage.toCanvas(artboardElement, {
       width: artboardW,
@@ -147,6 +147,23 @@ export async function captureZoneToBlob(
       finalCanvas.height
     );
 
+    // Release intermediate captured canvas memory immediately
+    capturedCanvas.width = 0;
+    capturedCanvas.height = 0;
+
+    // Lightweight 64px thumbnail for batch export list (prevents RAM saturation on 50+ items)
+    const thumbCanvas = document.createElement('canvas');
+    thumbCanvas.width = 64;
+    thumbCanvas.height = 64;
+    const thumbCtx = thumbCanvas.getContext('2d');
+    let thumbnailUrl = '';
+    if (thumbCtx) {
+      thumbCtx.drawImage(finalCanvas, 0, 0, 64, 64);
+      thumbnailUrl = thumbCanvas.toDataURL('image/webp', 0.7);
+      thumbCanvas.width = 0;
+      thumbCanvas.height = 0;
+    }
+
     const dataUrl = finalCanvas.toDataURL('image/png', 0.98);
 
     const blob = await new Promise<Blob>((resolve, reject) => {
@@ -159,7 +176,10 @@ export async function captureZoneToBlob(
       }, 'image/png', 0.98);
     });
 
-    return { blob, dataUrl };
+    finalCanvas.width = 0;
+    finalCanvas.height = 0;
+
+    return { blob, dataUrl, thumbnailUrl: thumbnailUrl || dataUrl };
   } finally {
     // Restore UI state immediately
     if (container) {
