@@ -90,8 +90,10 @@ export interface EditorContextType {
   updateElement: (id: string, updates: Partial<CanvasElement>) => void;
   deleteElement: (id: string) => void;
   deleteSelectedElements: () => void;
+  duplicateSelectedElements: () => void;
   moveSelectedElements: (dx: number, dy: number, isRepeat?: boolean) => void;
   selectElement: (id: string | null, multi?: boolean) => void;
+  selectElements: (ids: string[]) => void;
   setActivePanel: (panel: ActivePanel) => void;
   editingImageElementId: string | 'background' | null;
   setEditingImageElementId: (id: string | 'background' | null) => void;
@@ -455,6 +457,45 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     []
   );
 
+  const clipboardElementsRef = useRef<CanvasElement[]>([]);
+  const syncToDiskRef = useRef<() => Promise<boolean>>(async () => false);
+
+  const duplicateElementsByIds = useCallback(
+    (sourceElements: CanvasElement[]) => {
+      if (sourceElements.length === 0) return;
+      recordHistoryRef.current();
+      const now = Date.now();
+      const cloned = sourceElements.map((el, idx) => {
+        const copy: CanvasElement = JSON.parse(JSON.stringify(el));
+        copy.id = `${el.type}-${now}-${idx}`;
+        copy.x = Math.round(el.x + 24);
+        copy.y = Math.round(el.y + 24);
+        if (copy.customId) {
+          copy.customId = `${copy.customId}_copy`;
+        }
+        return copy;
+      });
+      setElements(prev => [...prev, ...cloned]);
+      const newIds = cloned.map(c => c.id);
+      setSelectedElementIds(newIds);
+      if (newIds.length > 1) {
+        setActivePanelState('align');
+      } else if (cloned[0]) {
+        setActivePanelState(cloned[0].type as ActivePanel);
+      }
+      showSnackbar(
+        cloned.length > 1 ? `${cloned.length} éléments dupliqués` : 'Élément dupliqué',
+        'content_copy'
+      );
+    },
+    [showSnackbar]
+  );
+
+  const duplicateSelectedElements = useCallback(() => {
+    const selected = elements.filter(e => selectedElementIdsRef.current.includes(e.id));
+    duplicateElementsByIds(selected);
+  }, [elements, duplicateElementsByIds]);
+
   // Hook 3: Canvas History (Undo / Redo & Shortcuts)
   const history = useCanvasHistory({
     canvasWidth: navigation.canvasWidth,
@@ -483,6 +524,33 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     },
     onMoveSelected: moveSelectedElements,
     onExitImageEditing: () => setEditingImageElementId(null),
+    onDuplicateSelected: duplicateSelectedElements,
+    onCopySelected: () => {
+      const selected = elements.filter(e => selectedElementIdsRef.current.includes(e.id));
+      if (selected.length > 0) {
+        clipboardElementsRef.current = JSON.parse(JSON.stringify(selected));
+        showSnackbar(
+          selected.length > 1 ? `${selected.length} éléments copiés` : 'Élément copié',
+          'content_copy'
+        );
+      }
+    },
+    onPaste: () => {
+      if (clipboardElementsRef.current.length > 0) {
+        duplicateElementsByIds(clipboardElementsRef.current);
+      }
+    },
+    onSelectAll: () => {
+      if (elements.length > 0) {
+        const allIds = elements.map(e => e.id);
+        setSelectedElementIds(allIds);
+        setActivePanelState(allIds.length > 1 ? 'align' : (elements[0].type as ActivePanel));
+        showSnackbar(`${allIds.length} élément(s) sélectionné(s)`, 'select_all');
+      }
+    },
+    onSave: () => {
+      syncToDiskRef.current();
+    },
     showSnackbar
   });
 
@@ -569,6 +637,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   activeBundleItemIdRef.current = bundleManager.activeBundleItemId;
   setLoadedBundleRef.current = bundleManager.setLoadedBundle;
   markItemSavedRef.current = bundleManager.markItemSaved;
+  syncToDiskRef.current = () => diskSync.syncToDisk();
 
   // Element Actions
   const setBackground = useCallback(
@@ -804,6 +873,23 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [elements]);
 
+  const selectElements = useCallback(
+    (ids: string[]) => {
+      setSelectedElementIds(ids);
+      if (ids.length > 1) {
+        setActivePanelState('align');
+      } else if (ids.length === 1) {
+        const singleEl = elements.find(e => e.id === ids[0]);
+        if (singleEl) {
+          setActivePanelState(singleEl.type as ActivePanel);
+        }
+      } else {
+        setActivePanelState(null);
+      }
+    },
+    [elements]
+  );
+
   const setActivePanel = useCallback((panel: ActivePanel) => {
     setActivePanelState(panel);
     if (panel === 'bg' || panel === 'export') {
@@ -1036,8 +1122,10 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       updateElement,
       deleteElement,
       deleteSelectedElements,
+      duplicateSelectedElements,
       moveSelectedElements,
       selectElement,
+      selectElements,
       setActivePanel,
       editingImageElementId,
       setEditingImageElementId,
@@ -1134,8 +1222,10 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       updateElement,
       deleteElement,
       deleteSelectedElements,
+      duplicateSelectedElements,
       moveSelectedElements,
       selectElement,
+      selectElements,
       setActivePanel,
       editingImageElementId,
       showSnackbar,

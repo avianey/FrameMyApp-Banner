@@ -21,6 +21,11 @@ interface UseCanvasHistoryOptions {
   onDeleteSelected?: () => void;
   onMoveSelected?: (dx: number, dy: number, isRepeat: boolean) => void;
   onExitImageEditing?: () => void;
+  onDuplicateSelected?: () => void;
+  onCopySelected?: () => void;
+  onPaste?: () => void;
+  onSelectAll?: () => void;
+  onSave?: () => void;
   showSnackbar: (message: string, icon?: string) => void;
 }
 
@@ -47,6 +52,11 @@ export function useCanvasHistory({
   onDeleteSelected,
   onMoveSelected,
   onExitImageEditing,
+  onDuplicateSelected,
+  onCopySelected,
+  onPaste,
+  onSelectAll,
+  onSave,
   showSnackbar
 }: UseCanvasHistoryOptions) {
   const pastRef = useRef<HistorySnapshot[]>([]);
@@ -154,8 +164,43 @@ export function useCanvasHistory({
     onExitImageEditingRef.current = onExitImageEditing;
   }, [onExitImageEditing]);
 
+  const onDuplicateSelectedRef = useRef(onDuplicateSelected);
+  useEffect(() => {
+    onDuplicateSelectedRef.current = onDuplicateSelected;
+  }, [onDuplicateSelected]);
+
+  const onCopySelectedRef = useRef(onCopySelected);
+  useEffect(() => {
+    onCopySelectedRef.current = onCopySelected;
+  }, [onCopySelected]);
+
+  const onPasteRef = useRef(onPaste);
+  useEffect(() => {
+    onPasteRef.current = onPaste;
+  }, [onPaste]);
+
+  const onSelectAllRef = useRef(onSelectAll);
+  useEffect(() => {
+    onSelectAllRef.current = onSelectAll;
+  }, [onSelectAll]);
+
+  const onSaveRef = useRef(onSave);
+  useEffect(() => {
+    onSaveRef.current = onSave;
+  }, [onSave]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      // Allow Ctrl/Cmd+S even when focused inside an input
+      if (cmdOrCtrl && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        onSaveRef.current?.();
+        return;
+      }
+
       const activeEl = document.activeElement;
       const isInput =
         activeEl?.tagName === 'INPUT' ||
@@ -201,17 +246,27 @@ export function useCanvasHistory({
         }
       }
 
-      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
-
       if (!cmdOrCtrl) return;
 
-      if (e.key === 'z' && !e.shiftKey) {
+      const key = e.key.toLowerCase();
+      if (key === 'z' && !e.shiftKey) {
         e.preventDefault();
         undo();
-      } else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
+      } else if ((key === 'z' && e.shiftKey) || key === 'y') {
         e.preventDefault();
         redo();
+      } else if (key === 'd') {
+        e.preventDefault();
+        onDuplicateSelectedRef.current?.();
+      } else if (key === 'c') {
+        e.preventDefault();
+        onCopySelectedRef.current?.();
+      } else if (key === 'v') {
+        e.preventDefault();
+        onPasteRef.current?.();
+      } else if (key === 'a') {
+        e.preventDefault();
+        onSelectAllRef.current?.();
       }
     };
 
