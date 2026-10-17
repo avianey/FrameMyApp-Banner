@@ -24,6 +24,17 @@ interface UseCanvasHistoryOptions {
   showSnackbar: (message: string, icon?: string) => void;
 }
 
+function cloneSnapshotData<T>(data: T): T {
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(data);
+    } catch {
+      // Fallback
+    }
+  }
+  return JSON.parse(JSON.stringify(data));
+}
+
 export function useCanvasHistory({
   canvasWidth,
   canvasHeight,
@@ -40,6 +51,7 @@ export function useCanvasHistory({
 }: UseCanvasHistoryOptions) {
   const pastRef = useRef<HistorySnapshot[]>([]);
   const futureRef = useRef<HistorySnapshot[]>([]);
+  const lastRecordTimeRef = useRef<number>(0);
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [canRedo, setCanRedo] = useState<boolean>(false);
 
@@ -49,12 +61,20 @@ export function useCanvasHistory({
   }, []);
 
   const recordHistory = useCallback(() => {
+    const now = Date.now();
+    // Coalesce rapid snapshots during continuous slider/color-picker dragging
+    if (now - lastRecordTimeRef.current < 350 && pastRef.current.length > 0) {
+      lastRecordTimeRef.current = now;
+      return;
+    }
+    lastRecordTimeRef.current = now;
+
     pastRef.current.push({
       canvasWidth,
       canvasHeight,
-      background: JSON.parse(JSON.stringify(background)),
-      elements: JSON.parse(JSON.stringify(elements)),
-      exportZone: JSON.parse(JSON.stringify(exportZone))
+      background: cloneSnapshotData(background),
+      elements: cloneSnapshotData(elements),
+      exportZone: cloneSnapshotData(exportZone)
     });
     if (pastRef.current.length > 50) {
       pastRef.current.shift();
@@ -65,13 +85,14 @@ export function useCanvasHistory({
 
   const undo = useCallback(() => {
     if (pastRef.current.length === 0) return;
+    lastRecordTimeRef.current = 0;
 
     const currentSnapshot: HistorySnapshot = {
       canvasWidth,
       canvasHeight,
-      background: JSON.parse(JSON.stringify(background)),
-      elements: JSON.parse(JSON.stringify(elements)),
-      exportZone: JSON.parse(JSON.stringify(exportZone))
+      background: cloneSnapshotData(background),
+      elements: cloneSnapshotData(elements),
+      exportZone: cloneSnapshotData(exportZone)
     };
     futureRef.current.push(currentSnapshot);
 
@@ -86,13 +107,14 @@ export function useCanvasHistory({
 
   const redo = useCallback(() => {
     if (futureRef.current.length === 0) return;
+    lastRecordTimeRef.current = 0;
 
     const currentSnapshot: HistorySnapshot = {
       canvasWidth,
       canvasHeight,
-      background: JSON.parse(JSON.stringify(background)),
-      elements: JSON.parse(JSON.stringify(elements)),
-      exportZone: JSON.parse(JSON.stringify(exportZone))
+      background: cloneSnapshotData(background),
+      elements: cloneSnapshotData(elements),
+      exportZone: cloneSnapshotData(exportZone)
     };
     pastRef.current.push(currentSnapshot);
 

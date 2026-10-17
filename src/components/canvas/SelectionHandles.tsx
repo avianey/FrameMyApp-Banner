@@ -50,13 +50,17 @@ export const SelectionHandles: React.FC<SelectionHandlesProps> = ({ element, ele
 
   const handleStartDrag = (e: React.PointerEvent) => {
     e.stopPropagation();
-    recordHistory();
     const startX = e.clientX;
     const startY = e.clientY;
     const initX = element.x;
     const initY = element.y;
+    let hasMoved = false;
 
     const onMove = (moveEvent: PointerEvent) => {
+      if (!hasMoved) {
+        hasMoved = true;
+        recordHistory();
+      }
       const dx = (moveEvent.clientX - startX) / currentZoom;
       const dy = (moveEvent.clientY - startY) / currentZoom;
       updateElement(element.id, {
@@ -81,9 +85,9 @@ export const SelectionHandles: React.FC<SelectionHandlesProps> = ({ element, ele
   ) => {
     e.stopPropagation();
     e.preventDefault();
-    recordHistory();
     const startX = e.clientX;
     const startY = e.clientY;
+    let hasMoved = false;
     const initW = element.width;
     const initH = element.height;
     const initX = element.x;
@@ -106,6 +110,10 @@ export const SelectionHandles: React.FC<SelectionHandlesProps> = ({ element, ele
       element.type === 'device' && Boolean((element as DeviceElementModel).screenImageUrl);
 
     const onMove = (moveEvent: PointerEvent) => {
+      if (!hasMoved) {
+        hasMoved = true;
+        recordHistory();
+      }
       const screenDx = (moveEvent.clientX - startX) / currentZoom;
       const screenDy = (moveEvent.clientY - startY) / currentZoom;
 
@@ -209,19 +217,26 @@ export const SelectionHandles: React.FC<SelectionHandlesProps> = ({ element, ele
   const handleStartRotate = (e: React.PointerEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    recordHistory();
 
     if (!elementRef.current) return;
     const rect = elementRef.current.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
     const centerY = rect.top + rect.height / 2;
+    let hasMoved = false;
 
     const onMove = (me: PointerEvent) => {
+      if (!hasMoved) {
+        hasMoved = true;
+        recordHistory();
+      }
       const dx = me.clientX - centerX;
       const dy = me.clientY - centerY;
       let deg = Math.round(Math.atan2(dy, dx) * (180 / Math.PI)) + 90;
       if (deg > 180) deg -= 360;
       if (deg < -180) deg += 360;
+      if (me.shiftKey) {
+        deg = Math.round(deg / 15) * 15;
+      }
 
       updateElement(element.id, { rotation: deg });
     };
