@@ -581,11 +581,11 @@ export const DeviceElement: React.FC<DeviceElementProps> = ({
                     <div
                       className="absolute left-1/2 -translate-x-1/2 z-20 pointer-events-none"
                       style={{
-                        top: '8px',
-                        width: '74px',
-                        height: '21px',
+                        top: `${Math.round(8 * scale)}px`,
+                        width: `${Math.round(74 * scale)}px`,
+                        height: `${Math.round(21 * scale)}px`,
                         backgroundColor: '#000000',
-                        borderRadius: '16px'
+                        borderRadius: `${Math.round(16 * scale)}px`
                       }}
                     />
                   )}

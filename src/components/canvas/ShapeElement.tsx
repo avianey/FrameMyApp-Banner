@@ -320,6 +320,7 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
             onUpdate={updates => updateElement(element.id, updates)}
             onClose={() => setEditingImageElementId(null)}
             canvasZoom={currentZoom}
+            rotation={element.rotation || 0}
             borderRadius={shapeStyle.borderRadius}
             clipPath={shapeStyle.clipPath}
             title="Recadrer l'image"
