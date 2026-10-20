@@ -8,6 +8,7 @@ interface ImageUploadFieldProps {
   sublabel?: string;
   previewHeight?: string;
   objectFit?: 'cover' | 'contain';
+  belowDropzone?: React.ReactNode;
   children?: React.ReactNode;
 }
 
@@ -19,6 +20,7 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
   sublabel,
   previewHeight = 'h-32',
   objectFit = 'cover',
+  belowDropzone,
   children
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -91,25 +93,28 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
       />
 
       {!imageUrl ? (
-        <div
-          onClick={() => fileInputRef.current?.click()}
-          onDragEnter={handleDragEnter}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all ${
-            isDragging
-              ? 'border-m3-sys-primary bg-m3-sys-primary/15 scale-[1.01]'
-              : 'border-m3-sys-outlineVariant hover:border-m3-sys-primary hover:bg-m3-sys-surfaceContainerHighest/40'
-          }`}
-        >
-          <span className="material-symbols-rounded text-3xl text-m3-sys-primary mb-1 block">
-            cloud_upload
-          </span>
-          <p className="text-xs font-medium text-m3-sys-onSurfaceVariant">{placeholder}</p>
-          {sublabel && (
-            <p className="text-[10px] text-m3-sys-onSurfaceVariant/70 mt-1">{sublabel}</p>
-          )}
+        <div className="space-y-3">
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all ${
+              isDragging
+                ? 'border-m3-sys-primary bg-m3-sys-primary/15 scale-[1.01]'
+                : 'border-m3-sys-outlineVariant hover:border-m3-sys-primary hover:bg-m3-sys-surfaceContainerHighest/40'
+            }`}
+          >
+            <span className="material-symbols-rounded text-3xl text-m3-sys-primary mb-1 block">
+              cloud_upload
+            </span>
+            <p className="text-xs font-medium text-m3-sys-onSurfaceVariant">{placeholder}</p>
+            {sublabel && (
+              <p className="text-[10px] text-m3-sys-onSurfaceVariant/70 mt-1">{sublabel}</p>
+            )}
+          </div>
+          {belowDropzone}
         </div>
       ) : (
         <div className="space-y-3">
@@ -151,9 +156,12 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
             </button>
           </div>
 
+          {belowDropzone}
+
           {children}
         </div>
       )}
     </div>
   );
 };
+

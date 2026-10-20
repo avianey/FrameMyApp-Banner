@@ -18,6 +18,11 @@ npm install
 ```bash
 npm run dev
 ```
+
+Pour activer la **génération d'arrière-plan par IA** (Google Gemini, modèles configurés dans `config.ia.yaml`), démarrez le serveur avec la variable d'environnement `GEMINI_API_KEY` :
+```bash
+GEMINI_API_KEY="..." npm run dev
+```
 L'application s'ouvre automatiquement sur `http://localhost:3000`.
 
 ### Build de production

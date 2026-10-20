@@ -37,8 +37,19 @@ export const BackgroundControls: React.FC = () => {
     editingImageElementId,
     setEditingImageElementId,
     selectElement,
-    loadedBundle
+    loadedBundle,
+    syncDirectoryHandle,
+    setIsAiModalOpen,
+    isGeneratingAiBg,
+    aiHasApiKey
   } = useEditor();
+
+  const isProjectSyncedToDisk = Boolean(syncDirectoryHandle || loadedBundle?.directoryHandle);
+  const isAiButtonDisabled = !aiHasApiKey || !isProjectSyncedToDisk;
+  const aiDisabledReasons: string[] = [];
+  if (!aiHasApiKey) aiDisabledReasons.push('api key manquante');
+  if (!isProjectSyncedToDisk) aiDisabledReasons.push('projet non synchronisé');
+  const aiDisabledReasonText = aiDisabledReasons.join(' • ');
 
   const { background, canvasWidth = 800, canvasHeight = 600, elements = [] } = state;
   const hasDevice = elements.some(el => el.type === 'device');
@@ -322,12 +333,51 @@ export const BackgroundControls: React.FC = () => {
               (background.imageUrl && loadedBundle?.assets ? resolveAsset(background.imageUrl, undefined, loadedBundle.assets) : undefined) ||
               background.imageUrl;
 
+            const aiGeneratorSection = (
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  disabled={isAiButtonDisabled}
+                  onClick={() => setIsAiModalOpen(true)}
+                  className={`w-full py-2 px-3 rounded-xl border flex flex-col items-center justify-center text-xs font-bold transition-all shadow-sm overflow-hidden relative ${
+                    isAiButtonDisabled
+                      ? 'bg-m3-sys-surfaceContainerHighest/50 text-m3-sys-onSurfaceVariant/50 border-m3-sys-outlineVariant/30 cursor-not-allowed opacity-60'
+                      : 'bg-gradient-to-r from-indigo-500/15 to-purple-500/15 hover:from-indigo-500/25 hover:to-purple-500/25 text-indigo-400 border-indigo-500/30 cursor-pointer active:scale-98'
+                  }`}
+                >
+                  <div className="flex items-center justify-center space-x-2">
+                    <span
+                      className={`material-symbols-rounded text-base leading-none ${
+                        isGeneratingAiBg ? 'animate-spin' : ''
+                      }`}
+                    >
+                      {isGeneratingAiBg ? 'progress_activity' : 'auto_awesome'}
+                    </span>
+                    <span>
+                      {isGeneratingAiBg ? 'Génération IA en cours...' : 'Générer par IA'}
+                    </span>
+                  </div>
+                  {isGeneratingAiBg && (
+                    <div className="w-full h-1 bg-indigo-950/40 rounded-full overflow-hidden mt-1.5">
+                      <div className="h-full w-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 animate-pulse" />
+                    </div>
+                  )}
+                </button>
+                {isAiButtonDisabled && aiDisabledReasonText && (
+                  <p className="text-[10px] text-amber-500/90 text-center font-medium">
+                    {aiDisabledReasonText}
+                  </p>
+                )}
+              </div>
+            );
+
             return (
               <ImageUploadField
                 imageUrl={displayBgUrl}
                 onImageLoaded={(result, file) => applyBackgroundImage(result, file)}
                 onDelete={() => setBackground({ imageUrl: '', type: 'solid' })}
                 objectFit={background.imageFit === 'contain' ? 'contain' : 'cover'}
+                belowDropzone={aiGeneratorSection}
               >
             {/* Options de remplissage */}
             <div className="space-y-1.5">

@@ -9,7 +9,8 @@ import {
   ActivePanel,
   LoadedBundle,
   BundleItem,
-  SyncStatus
+  SyncStatus,
+  AiModelConfig
 } from '../types';
 import {
   createTextElement,
@@ -21,7 +22,7 @@ import { useViewportNavigation } from '../hooks/useViewportNavigation';
 import { useElementHierarchy } from '../hooks/useElementHierarchy';
 import { useDiskSync, slugifyFilename, computeCanvasSignature } from '../hooks/useDiskSync';
 import { useBundleManager } from '../hooks/useBundleManager';
-import { assetManager } from '../utils/assetManager';
+import { assetManager, dataUrlToBlob } from '../utils/assetManager';
 import { verifyDirectoryPermission, saveDirectoryHandleToIdb, readDirectoryBundle, getLongestCommonDirectory } from '../utils/bundleIo';
 import { captureExportPreview, ExportPreviewData } from '../utils/export';
 
@@ -159,6 +160,20 @@ export interface EditorContextType {
   authorizeDiskAccess: () => Promise<void>;
   dismissDiskAccessAndStartNew: () => void;
   abortPendingImport: () => void;
+
+  // AI Background Generation
+  isAiModalOpen: boolean;
+  setIsAiModalOpen: (open: boolean) => void;
+  isGeneratingAiBg: boolean;
+  aiHasApiKey: boolean;
+  aiModels: AiModelConfig[];
+  selectedAiModel: string;
+  setSelectedAiModel: (model: string) => void;
+  aiPrompt: string;
+  setAiPrompt: (prompt: string) => void;
+  aiError: string | null;
+  setAiError: (err: string | null) => void;
+  generateAiBackground: () => Promise<void>;
 }
 
 const initialBackground: BackgroundConfig = {
@@ -1077,6 +1092,113 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [artboardRef, navigation.exportZone, showSnackbar]);
 
+  // AI Background Generation State & Actions
+  const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
+  const [isGeneratingAiBg, setIsGeneratingAiBg] = useState<boolean>(false);
+  const [aiHasApiKey, setAiHasApiKey] = useState<boolean>(false);
+  const [aiModels, setAiModels] = useState<AiModelConfig[]>([
+    { id: 'gemini-4-argon', name: 'Gemini 4 Argon', description: 'Modèle par défaut', default: true }
+  ]);
+  const [selectedAiModel, setSelectedAiModel] = useState<string>('gemini-4-argon');
+  const [aiPrompt, setAiPrompt] = useState<string>('');
+  const [aiError, setAiError] = useState<string | null>(null);
+  const hasWarnedMissingKeyRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function checkAiConfig() {
+      try {
+        const res = await fetch('/api/ai/status');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (cancelled) return;
+        const hasKey = Boolean(data.hasApiKey);
+        setAiHasApiKey(hasKey);
+        if (!hasKey && !hasWarnedMissingKeyRef.current) {
+          hasWarnedMissingKeyRef.current = true;
+          console.warn(
+            '[FrameMyApp AI] Variable d\'environnement GEMINI_API_KEY manquante ou vide sur le serveur. Le bouton "Générer par IA" est désactivé.'
+          );
+        }
+        if (Array.isArray(data.models) && data.models.length > 0) {
+          setAiModels(data.models);
+          const defaultModel = data.models.find((m: AiModelConfig) => m.default) || data.models[0];
+          if (defaultModel) {
+            setSelectedAiModel(defaultModel.id);
+          }
+        }
+      } catch (e) {
+        if (!cancelled && !hasWarnedMissingKeyRef.current) {
+          hasWarnedMissingKeyRef.current = true;
+          console.warn('[FrameMyApp AI] Impossible de vérifier GEMINI_API_KEY auprès du serveur :', e);
+        }
+      }
+    }
+    checkAiConfig();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const generateAiBackground = useCallback(async () => {
+    if (isGeneratingAiBg) return;
+    if (!aiPrompt.trim()) {
+      setAiError('Veuillez saisir un prompt descriptif.');
+      return;
+    }
+
+    const w = navigation.canvasWidth || 800;
+    const h = navigation.canvasHeight || 600;
+    const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+    const divisor = gcd(Math.round(w), Math.round(h)) || 1;
+    const rw = Math.round(w / divisor);
+    const rh = Math.round(h / divisor);
+    const ratioVal = w / h;
+    let aspectRatio = `${rw}:${rh}`;
+    if (Math.abs(ratioVal - 16 / 9) < 0.03) aspectRatio = '16:9';
+    else if (Math.abs(ratioVal - 9 / 16) < 0.03) aspectRatio = '9:16';
+    else if (Math.abs(ratioVal - 1) < 0.03) aspectRatio = '1:1';
+    else if (Math.abs(ratioVal - 4 / 3) < 0.03) aspectRatio = '4:3';
+    else if (Math.abs(ratioVal - 3 / 4) < 0.03) aspectRatio = '3:4';
+    else if (Math.abs(ratioVal - 3 / 1) < 0.05) aspectRatio = '3:1';
+
+    setIsGeneratingAiBg(true);
+    setAiError(null);
+
+    try {
+      const response = await fetch('/api/ai/generate-background', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: selectedAiModel,
+          prompt: aiPrompt.trim(),
+          width: w,
+          height: h,
+          aspectRatio
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.dataUrl) {
+        throw new Error(data.error || `Erreur lors de la génération (${response.status})`);
+      }
+
+      const { blob, ext } = dataUrlToBlob(data.dataUrl);
+      const filename = `ai_bg_${Date.now()}.${ext || 'png'}`;
+      const file = new File([blob], filename, { type: data.mimeType || 'image/png' });
+
+      await applyBackgroundImage(data.dataUrl, file);
+      setIsAiModalOpen(false);
+    } catch (err: any) {
+      console.error('[FrameMyApp AI] Échec de génération :', err);
+      const msg = err.message || 'Échec de la génération par IA';
+      setAiError(msg);
+      showSnackbar(`Erreur IA : ${msg}`, 'error');
+    } finally {
+      setIsGeneratingAiBg(false);
+    }
+  }, [isGeneratingAiBg, aiPrompt, navigation.canvasWidth, navigation.canvasHeight, selectedAiModel, applyBackgroundImage, showSnackbar]);
+
   const contextValue = useMemo(
     () => ({
       state: {
@@ -1193,7 +1315,19 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       requestYamlAssetsPermission,
       authorizeDiskAccess,
       dismissDiskAccessAndStartNew,
-      abortPendingImport
+      abortPendingImport,
+      isAiModalOpen,
+      setIsAiModalOpen,
+      isGeneratingAiBg,
+      aiHasApiKey,
+      aiModels,
+      selectedAiModel,
+      setSelectedAiModel,
+      aiPrompt,
+      setAiPrompt,
+      aiError,
+      setAiError,
+      generateAiBackground
     }),
     [
       navigation,
@@ -1244,7 +1378,15 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       requestYamlAssetsPermission,
       authorizeDiskAccess,
       dismissDiskAccessAndStartNew,
-      abortPendingImport
+      abortPendingImport,
+      isAiModalOpen,
+      isGeneratingAiBg,
+      aiHasApiKey,
+      aiModels,
+      selectedAiModel,
+      aiPrompt,
+      aiError,
+      generateAiBackground
     ]
   );
 

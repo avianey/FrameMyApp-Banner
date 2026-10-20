@@ -11,6 +11,7 @@ import { BatchExportModal } from './components/modal/BatchExportModal';
 import { ExportPreviewModal } from './components/modal/ExportPreviewModal';
 import { SaveModal } from './components/modal/SaveModal';
 import { DiskPermissionModal } from './components/modal/DiskPermissionModal';
+import { AiBackgroundModal } from './components/modal/AiBackgroundModal';
 
 export const AppContent: React.FC = () => {
   const {
@@ -24,7 +25,6 @@ export const AppContent: React.FC = () => {
     permissionConfirmLabel,
     permissionCancelLabel,
     permissionErrorMessage,
-    isSuggestedBlocked,
     authorizeDiskAccess,
     dismissDiskAccessAndStartNew,
     abortPendingImport
@@ -48,6 +48,7 @@ export const AppContent: React.FC = () => {
       <SaveModal />
       <BatchExportModal />
       <ExportPreviewModal />
+      <AiBackgroundModal />
       <DiskPermissionModal
         isOpen={isPermissionModalOpen}
         targetName={permissionTargetName}
