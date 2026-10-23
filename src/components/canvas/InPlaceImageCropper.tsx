@@ -49,6 +49,7 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
   imageNaturalHeight,
   isEditing,
   onUpdate,
+  onClose,
   canvasZoom = 1.0,
   borderRadius = 0,
   clipPath = 'none',
