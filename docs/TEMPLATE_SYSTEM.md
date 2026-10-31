@@ -144,7 +144,7 @@ elements:
     width: 380
     height: 90
     rotation: 0
-    fontFamily: "Space Grotesk" # Polices : "Roboto", "Inter", "Poppins", "Montserrat", "Playfair Display", "DM Serif Display", "Space Grotesk", "Noto Sans JP", "Oswald", "Pacifico", "Lobster", "Dancing Script", "Caveat", "Cinzel"
+    fontFamily: "Space Grotesk" # Polices : "Baloo 2", "Caveat", "Cinzel", "Dancing Script", "DM Serif Display", "Inter", "Lobster", "Montserrat", "Noto Sans JP", "Oswald", "Pacifico", "Playfair Display", "Poppins", "Roboto", "Space Grotesk"
     fontWeight: 700             # 100 à 900
     fontSize: 42
     color: "rgba(255, 255, 255, 1)"

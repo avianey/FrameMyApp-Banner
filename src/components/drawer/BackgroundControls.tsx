@@ -54,6 +54,11 @@ export const BackgroundControls: React.FC = () => {
   const { background, canvasWidth = 800, canvasHeight = 600, elements = [] } = state;
   const hasDevice = elements.some(el => el.type === 'device');
 
+  const displayBgUrl =
+    (background.imageUrl ? assetManager.getDisplayUrl(background.imageUrl) : undefined) ||
+    (background.imageUrl && loadedBundle?.assets ? resolveAsset(background.imageUrl, undefined, loadedBundle.assets) : undefined) ||
+    background.imageUrl;
+
   // État local des chaînes pour la saisie libre sans forcer de clamp à chaque touche
   const [widthStr, setWidthStr] = useState<string>(String(canvasWidth));
   const [heightStr, setHeightStr] = useState<string>(String(canvasHeight));
@@ -107,6 +112,36 @@ export const BackgroundControls: React.FC = () => {
       preset: p.id
     });
     showSnackbar(`Dimensions de la scène : ${p.name} (${p.width} × ${p.height} px)`, 'aspect_ratio');
+  };
+
+  const handleFitCanvasToBackgroundImage = () => {
+    const applyDims = (w: number, h: number) => {
+      const clampedW = Math.max(100, Math.min(8000, Math.round(w)));
+      const clampedH = Math.max(100, Math.min(8000, Math.round(h)));
+      setCanvasDimensions(clampedW, clampedH);
+      setWidthStr(String(clampedW));
+      setHeightStr(String(clampedH));
+      showSnackbar(`Scène ajustée à l'image de fond (${clampedW} × ${clampedH} px)`, 'photo_size_select_large');
+    };
+
+    if (background.imageNaturalWidth && background.imageNaturalHeight) {
+      applyDims(background.imageNaturalWidth, background.imageNaturalHeight);
+      return;
+    }
+
+    if (displayBgUrl) {
+      const img = new Image();
+      img.onload = () => {
+        if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+          setBackground({
+            imageNaturalWidth: img.naturalWidth,
+            imageNaturalHeight: img.naturalHeight
+          });
+          applyDims(img.naturalWidth, img.naturalHeight);
+        }
+      };
+      img.src = displayBgUrl;
+    }
   };
 
   const handleSyncExportZoneToCanvas = () => {
@@ -179,6 +214,18 @@ export const BackgroundControls: React.FC = () => {
             />
           </div>
         </div>
+
+        {/* Bouton pour ajuster la scène aux dimensions de l'image de fond */}
+        {background.type === 'image' && Boolean(background.imageUrl) && (
+          <button
+            onClick={handleFitCanvasToBackgroundImage}
+            title="Ajuster les dimensions de la scène aux dimensions naturelles de l'image de fond"
+            className="w-full py-1.5 px-3 rounded-xl bg-m3-sys-surfaceContainer hover:bg-m3-sys-surfaceContainerHighest text-m3-sys-primary text-[11px] font-semibold border border-m3-sys-outlineVariant/30 transition-all flex items-center justify-center space-x-1.5 cursor-pointer shadow-sm active:scale-98"
+          >
+            <span className="material-symbols-rounded text-sm">photo_size_select_large</span>
+            <span>Ajuster la scène à l'image de fond</span>
+          </button>
+        )}
 
         {/* Bouton pour caler le cadre d'export sur la scène */}
         <button
@@ -328,11 +375,6 @@ export const BackgroundControls: React.FC = () => {
           </div>
 
           {(() => {
-            const displayBgUrl =
-              (background.imageUrl ? assetManager.getDisplayUrl(background.imageUrl) : undefined) ||
-              (background.imageUrl && loadedBundle?.assets ? resolveAsset(background.imageUrl, undefined, loadedBundle.assets) : undefined) ||
-              background.imageUrl;
-
             const aiGeneratorSection = (
               <div className="space-y-1">
                 <button

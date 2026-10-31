@@ -476,4 +476,136 @@ assert.strictEqual(
 );
 console.log('✔ Asset subdirectory preservation & selective disk tracking verified');
 
+// 15. Override serialization with resolved blob: URLs on device screenImageUrl & clean background diff
+assetManager.clear();
+assetManager.registerExistingAsset('assets/default_screen.png', new Blob(['scr']), 'blob:http://localhost:3000/f6ddd75d-5a64-454f-867c-c9c238461de6');
+assetManager.registerExistingAsset('assets/bg_green.jpeg', new Blob(['bg']), 'blob:http://localhost:3000/bg-green-uuid');
+
+const masterForOverrideTest = {
+  name: 'Master With Device',
+  background: {
+    type: 'linear',
+    solidColor: 'rgba(79, 70, 229, 1)',
+    color1: 'rgba(99, 102, 241, 1)',
+    color2: 'rgba(236, 72, 153, 0.95)',
+    angle: 135,
+    radialShape: 'circle',
+    radialColor1: 'rgba(244, 63, 94, 1)',
+    radialColor2: 'rgba(30, 27, 75, 1)',
+    imageUrl: '',
+    imageFit: 'cover'
+  },
+  elements: [
+    {
+      id: 'dev-1',
+      customId: 'app_screen',
+      type: 'device',
+      deviceType: 'pixel_10',
+      x: 100,
+      y: 100,
+      width: 300,
+      height: 600,
+      rotation: 0,
+      screenImageUrl: 'assets/default_screen.png'
+    }
+  ]
+};
+
+const resolvedForCanvas = resolveComposition(
+  masterForOverrideTest,
+  undefined,
+  undefined,
+  { 'assets/default_screen.png': 'blob:http://localhost:3000/f6ddd75d-5a64-454f-867c-c9c238461de6' }
+);
+
+// Simulate user uploading a green background image in the override without touching app_screen
+const canvasBgWithGreenImage = {
+  ...resolvedForCanvas.background,
+  type: 'image',
+  imageUrl: 'blob:http://localhost:3000/bg-green-uuid',
+  imageNaturalWidth: 1080,
+  imageNaturalHeight: 1920
+};
+
+const overrideResult = convertUrlsToRelativeAssetPaths(
+  serializeCanvasToOverride(
+    {
+      id: 'override_green',
+      type: 'override',
+      path: 'overrides/green.yml',
+      slug: 'green',
+      name: 'Green Override',
+      rawContent: '',
+      config: { name: 'Green Override' }
+    },
+    canvasBgWithGreenImage,
+    resolvedForCanvas.elements,
+    resolvedForCanvas.exportZone,
+    masterForOverrideTest
+  )
+);
+
+assert.strictEqual(overrideResult.elements, undefined, 'Unmodified app_screen with resolved blob URL must not appear in override elements');
+assert.strictEqual(overrideResult.background.type, 'image');
+assert.strictEqual(overrideResult.background.imageUrl, 'assets/bg_green.jpeg');
+assert.strictEqual(overrideResult.background.solidColor, undefined, 'Unchanged master background properties must not pollute override');
+
+// Test Master -> Override -> Variant minimal diff serialization
+assetManager.registerExistingAsset('assets/fr/screen_fr.png', new Blob(['scr_fr']), 'blob:http://localhost:3000/screen-fr-uuid');
+const masterWithTextAndDevice = {
+  ...masterForOverrideTest,
+  elements: [
+    ...masterForOverrideTest.elements,
+    { id: 'txt-1', customId: 'title', type: 'text', text: 'Default Title', x: 50, y: 50, width: 300, height: 80, rotation: 0, fontSize: 40 },
+    { id: 'txt-2', customId: 'badge', type: 'text', text: 'PRO', x: 50, y: 150, width: 100, height: 40, rotation: 0, fontSize: 20 }
+  ]
+};
+
+const variantInitialConfig = {
+  name: 'FR Green Variant',
+  content: { title: 'Titre FR' },
+  images: { app_screen: 'screen_fr.png' }
+};
+
+const resolvedVariantCanvas = resolveComposition(
+  masterWithTextAndDevice,
+  overrideResult,
+  variantInitialConfig,
+  {
+    'assets/default_screen.png': 'blob:http://localhost:3000/f6ddd75d-5a64-454f-867c-c9c238461de6',
+    'assets/bg_green.jpeg': 'blob:http://localhost:3000/bg-green-uuid',
+    'assets/fr/screen_fr.png': 'blob:http://localhost:3000/screen-fr-uuid'
+  },
+  'variants/fr/green.yml'
+);
+
+const variantSerialized = convertUrlsToRelativeAssetPaths(
+  serializeCanvasToVariant(
+    {
+      id: 'variant_fr_green',
+      type: 'variant',
+      path: 'variants/fr/green.yml',
+      slug: 'green',
+      lang: 'fr',
+      name: 'FR Green Variant',
+      rawContent: '',
+      config: variantInitialConfig
+    },
+    resolvedVariantCanvas.elements,
+    masterWithTextAndDevice,
+    overrideResult,
+    resolvedVariantCanvas.background,
+    resolvedVariantCanvas.exportZone,
+    resolvedVariantCanvas.canvasWidth,
+    resolvedVariantCanvas.canvasHeight
+  )
+);
+
+assert.deepStrictEqual(variantSerialized.content, { title: 'Titre FR' }, 'Only text differing from Master+Override should be serialized in variant content');
+assert.strictEqual(variantSerialized.background, undefined, 'Background inherited from Override should not be duplicated in Variant');
+assert.strictEqual(variantSerialized.exportZone, undefined, 'Unchanged exportZone should not be duplicated in Variant');
+assert.strictEqual(variantSerialized.elements, undefined, 'Device image already mapped in variant.images should not leak into variant.elements');
+assert.deepStrictEqual(variantSerialized.images, { app_screen: 'screen_fr.png' }, 'Relative variant.images mapping should remain intact');
+console.log('✔ Clean Master -> Override -> Variant minimal diff serialization verified');
+
 console.log('\nAll tests passed successfully!');

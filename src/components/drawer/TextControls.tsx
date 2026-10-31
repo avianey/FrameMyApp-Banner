@@ -7,21 +7,22 @@ import { SceneAlignmentControls } from './SceneAlignmentControls';
 import EffectsControls from './EffectsControls';
 
 const fonts = [
-  'Roboto',
-  'Inter',
-  'Poppins',
-  'Montserrat',
-  'Playfair Display',
+  'Baloo 2',
+  'Caveat',
+  'Cinzel',
+  'Dancing Script',
   'DM Serif Display',
-  'Space Grotesk',
+  'Inter',
+  'Lobster',
+  'Montserrat',
   'Noto Sans JP',
   'Oswald',
   'Pacifico',
-  'Lobster',
-  'Dancing Script',
-  'Caveat',
-  'Cinzel'
-];
+  'Playfair Display',
+  'Poppins',
+  'Roboto',
+  'Space Grotesk'
+].sort((a, b) => a.localeCompare(b));
 
 const fontWeights = [
   { value: 100, label: '100 — Ultra Fin (Thin)' },

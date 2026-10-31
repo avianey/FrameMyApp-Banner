@@ -935,7 +935,9 @@ export function useDiskSync({
                 background,
                 elements,
                 exportZone,
-                effectiveBundle.master?.config as BannerMasterConfig | undefined
+                effectiveBundle.master?.config as BannerMasterConfig | undefined,
+                canvasWidth,
+                canvasHeight
               ),
               effectiveBundle.assets
             );
@@ -949,7 +951,11 @@ export function useDiskSync({
                 item,
                 elements,
                 effectiveBundle.master?.config as BannerMasterConfig | undefined,
-                matchingOverride?.config as BannerOverrideConfig | undefined
+                matchingOverride?.config as BannerOverrideConfig | undefined,
+                background,
+                exportZone,
+                canvasWidth,
+                canvasHeight
               ),
               effectiveBundle.assets
             );
