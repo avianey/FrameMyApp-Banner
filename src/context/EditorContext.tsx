@@ -23,7 +23,13 @@ import { useElementHierarchy } from '../hooks/useElementHierarchy';
 import { useDiskSync, slugifyFilename, computeCanvasSignature } from '../hooks/useDiskSync';
 import { useBundleManager } from '../hooks/useBundleManager';
 import { assetManager, dataUrlToBlob } from '../utils/assetManager';
-import { verifyDirectoryPermission, saveDirectoryHandleToIdb, readDirectoryBundle, getLongestCommonDirectory } from '../utils/bundleIo';
+import {
+  verifyDirectoryPermission,
+  saveDirectoryHandleToIdb,
+  readDirectoryBundle,
+  getLongestCommonDirectory,
+  checkSameFileExistsInDirectory
+} from '../utils/bundleIo';
 import { captureExportPreview, ExportPreviewData } from '../utils/export';
 
 export { slugifyFilename, computeCanvasSignature };
@@ -89,6 +95,7 @@ export interface EditorContextType {
   addShape: (shapeType?: ShapeType) => void;
   addDevice: (deviceType?: DeviceModelType) => void;
   updateElement: (id: string, updates: Partial<CanvasElement>) => void;
+  updateElements: (updatesById: Record<string, Partial<CanvasElement>>) => void;
   deleteElement: (id: string) => void;
   deleteSelectedElements: () => void;
   duplicateSelectedElements: () => void;
@@ -576,6 +583,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const loadedBundleRef = useRef<LoadedBundle | null>(null);
   const activeBundleItemIdRef = useRef<string | null>(null);
   const setLoadedBundleRef = useRef<React.Dispatch<React.SetStateAction<LoadedBundle | null>>>(() => {});
+  const setActiveBundleItemIdRef = useRef<(id: string | null) => void>(() => {});
 
   // Hook 4: Disk Sync (Handles, Auto-Save, Renaming, Startup Restore)
   const diskSync = useDiskSync({
@@ -595,6 +603,9 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setExportZone: navigation.setExportZoneState,
     setLoadedBundleState: updater => {
       setLoadedBundleRef.current(updater);
+    },
+    setActiveBundleItemId: id => {
+      setActiveBundleItemIdRef.current(id);
     },
     markItemSaved: id => markItemSavedRef.current(id),
     showSnackbar,
@@ -651,6 +662,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   loadedBundleRef.current = bundleManager.loadedBundle;
   activeBundleItemIdRef.current = bundleManager.activeBundleItemId;
   setLoadedBundleRef.current = bundleManager.setLoadedBundle;
+  setActiveBundleItemIdRef.current = bundleManager.setActiveBundleItemId;
   markItemSavedRef.current = bundleManager.markItemSaved;
   syncToDiskRef.current = () => diskSync.syncToDisk();
 
@@ -665,8 +677,21 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const persistAsset = useCallback(
     async (file: File): Promise<{ assetPath: string; displayUrl: string }> => {
-      const { assetPath, displayUrl } = assetManager.registerAsset(file.name, file);
+      const { assetPath, displayUrl, alreadyOnDisk } = assetManager.registerAsset(file.name, file);
       assetManager.registerUrlMapping(displayUrl, assetPath);
+
+      const cleanFilename = assetPath.split('/').pop() || assetPath;
+      bundleManager.setLoadedBundle(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          assets: {
+            ...prev.assets,
+            [assetPath]: displayUrl,
+            [cleanFilename]: displayUrl
+          }
+        };
+      });
 
       let dirHandle = diskSync.syncDirectoryHandle || bundleManager.loadedBundle?.directoryHandle;
 
@@ -693,9 +718,15 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (dirHandle) {
         try {
           await verifyDirectoryPermission(dirHandle, true, true);
-          await assetManager.saveAllToDirectory(dirHandle);
-          const cleanName = assetPath.split('/').pop();
-          showSnackbar(`Image copiée sur disque : assets/${cleanName}`, 'save');
+          const isSameOnDisk =
+            alreadyOnDisk || (await checkSameFileExistsInDirectory(dirHandle, assetPath, file));
+          if (isSameOnDisk) {
+            assetManager.markAssetExistsOnDisk(assetPath);
+            showSnackbar(`Image référencée depuis ${assetPath}`, 'image');
+          } else {
+            await assetManager.saveAllToDirectory(dirHandle);
+            showSnackbar(`Image enregistrée sur disque : ${assetPath}`, 'save');
+          }
         } catch (err: any) {
           console.warn('Erreur lors de la sauvegarde sur disque de l’asset:', err);
           showSnackbar(`Impossible d'écrire dans assets/ : ${err.message || ''}`, 'warning');
@@ -706,7 +737,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       return { assetPath, displayUrl };
     },
-    [diskSync, bundleManager.loadedBundle?.directoryHandle, showSnackbar]
+    [diskSync, bundleManager, showSnackbar]
   );
 
   const applyBackgroundImage = useCallback(
@@ -726,8 +757,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       let finalUrl = imageUrl;
       if (file) {
-        const { displayUrl } = await persistAsset(file);
-        assetManager.registerUrlMapping(imageUrl, displayUrl);
+        const { assetPath, displayUrl } = await persistAsset(file);
+        assetManager.registerUrlMapping(imageUrl, assetPath);
         finalUrl = displayUrl;
       }
 
@@ -801,6 +832,15 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const updateElement = useCallback((id: string, updates: Partial<CanvasElement>) => {
     setElements(prev => prev.map(el => (el.id === id ? ({ ...el, ...updates } as CanvasElement) : el)));
+  }, []);
+
+  const updateElements = useCallback((updatesById: Record<string, Partial<CanvasElement>>) => {
+    setElements(prev =>
+      prev.map(el => {
+        const updates = updatesById[el.id];
+        return updates ? ({ ...el, ...updates } as CanvasElement) : el;
+      })
+    );
   }, []);
 
   const updateElementCustomId = useCallback((id: string, customId: string) => {
@@ -1242,6 +1282,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       addShape,
       addDevice,
       updateElement,
+      updateElements,
       deleteElement,
       deleteSelectedElements,
       duplicateSelectedElements,
@@ -1354,6 +1395,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       addShape,
       addDevice,
       updateElement,
+      updateElements,
       deleteElement,
       deleteSelectedElements,
       duplicateSelectedElements,

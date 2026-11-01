@@ -474,8 +474,8 @@ export const ShapeControls: React.FC<ShapeControlsProps> = ({ element }) => {
                   recordHistory();
                   let finalUrl = result;
                   if (file) {
-                    const { displayUrl } = await persistAsset(file);
-                    assetManager.registerUrlMapping(result, displayUrl);
+                    const { assetPath, displayUrl } = await persistAsset(file);
+                    assetManager.registerUrlMapping(result, assetPath);
                     finalUrl = displayUrl;
                   }
                   const img = new Image();

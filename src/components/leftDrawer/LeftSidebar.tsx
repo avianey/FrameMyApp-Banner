@@ -11,6 +11,7 @@ import {
 import { serializeCanvasToMaster } from '../../utils/templateEngine';
 import { stringifyYaml } from '../../utils/yamlHelper';
 import { NewVariantModal } from '../modal/NewVariantModal';
+import { NewOverrideModal } from '../modal/NewOverrideModal';
 
 export const LeftSidebar: React.FC = () => {
   const {
@@ -45,6 +46,7 @@ export const LeftSidebar: React.FC = () => {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [isNewVariantModalOpen, setIsNewVariantModalOpen] = useState(false);
+  const [isNewOverrideModalOpen, setIsNewOverrideModalOpen] = useState(false);
 
   const hasFsSupport = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 
@@ -148,8 +150,27 @@ export const LeftSidebar: React.FC = () => {
           startIn: loadedBundle?.directoryHandle || 'documents'
         });
         const bundle = await readDirectoryBundle(dirHandle);
+        if (!bundle.master) {
+          const masterConfig = serializeCanvasToMaster(
+            dirHandle.name || 'Master',
+            state.background,
+            state.elements,
+            state.exportZone,
+            state.canvasWidth,
+            state.canvasHeight
+          );
+          bundle.master = {
+            id: 'master',
+            type: 'master',
+            path: 'master.yml',
+            slug: 'master',
+            name: masterConfig.name || 'Master',
+            rawContent: stringifyYaml(masterConfig),
+            config: masterConfig
+          };
+        }
         setLoadedBundle(bundle);
-        setProjectName(bundle.name);
+        setProjectName(bundle.master.name || bundle.name);
         setSyncDirectoryName(bundle.name);
         setSyncFilePath(bundle.master?.path || 'master.yml');
         if (bundle.directoryHandle) {
@@ -526,7 +547,7 @@ export const LeftSidebar: React.FC = () => {
                         <span>Master Preset</span>
                       </span>
                       <span className="text-[10px] font-mono lowercase text-m3-sys-onSurfaceVariant/70">
-                        master.yml
+                        {loadedBundle.master.path || 'master.yml'}
                       </span>
                     </div>
 
@@ -577,20 +598,25 @@ export const LeftSidebar: React.FC = () => {
                 )}
 
                 {/* 2. OVERRIDES */}
-                {Object.keys(loadedBundle.overrides).length > 0 && (
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-m3-sys-onSurfaceVariant px-1">
-                      <span className="flex items-center space-x-1">
-                        <span className="material-symbols-rounded text-sm text-amber-400">
-                          tune
-                        </span>
-                        <span>Overrides partagés</span>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-m3-sys-onSurfaceVariant px-1">
+                    <span className="flex items-center space-x-1">
+                      <span className="material-symbols-rounded text-sm text-amber-400">
+                        tune
                       </span>
-                      <span className="text-[10px] font-mono lowercase text-m3-sys-onSurfaceVariant/70">
-                        overrides/
-                      </span>
-                    </div>
+                      <span>Overrides partagés</span>
+                    </span>
+                    <button
+                      onClick={() => setIsNewOverrideModalOpen(true)}
+                      title="Créer un nouvel override partagé (overrides/<slug>.yml)"
+                      className="px-2 py-0.5 rounded-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 text-[10px] font-bold flex items-center space-x-1 transition-all cursor-pointer"
+                    >
+                      <span className="material-symbols-rounded text-xs">add</span>
+                      <span>Override</span>
+                    </button>
+                  </div>
 
+                  {Object.keys(loadedBundle.overrides).length > 0 ? (
                     <div className="space-y-1.5">
                       {Object.values(loadedBundle.overrides).map(override => (
                         <div
@@ -639,8 +665,21 @@ export const LeftSidebar: React.FC = () => {
                         </div>
                       ))}
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <div className="p-3 rounded-2xl border border-dashed border-m3-sys-outlineVariant/40 bg-m3-sys-surfaceContainer/40 text-center space-y-2">
+                      <p className="text-[11px] text-m3-sys-onSurfaceVariant">
+                        Aucun override défini dans ce bundle.
+                      </p>
+                      <button
+                        onClick={() => setIsNewOverrideModalOpen(true)}
+                        className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 text-xs font-semibold inline-flex items-center space-x-1 transition-all cursor-pointer"
+                      >
+                        <span className="material-symbols-rounded text-sm">add</span>
+                        <span>Créer le premier override</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
 
                 {/* 3. VARIANTS (Grouped by Language or Subfolder) */}
                 <div className="space-y-3">
@@ -948,6 +987,12 @@ export const LeftSidebar: React.FC = () => {
       <NewVariantModal
         isOpen={isNewVariantModalOpen}
         onClose={() => setIsNewVariantModalOpen(false)}
+      />
+
+      {/* Modal to create a new override */}
+      <NewOverrideModal
+        isOpen={isNewOverrideModalOpen}
+        onClose={() => setIsNewOverrideModalOpen(false)}
       />
     </>
   );

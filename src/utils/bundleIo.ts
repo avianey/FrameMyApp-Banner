@@ -7,7 +7,7 @@ import {
   BannerVariantConfig
 } from '../types';
 import { parseYaml, stringifyYaml } from './yamlHelper';
-import { assetManager } from './assetManager';
+import { assetManager, ensureBlobMimeType } from './assetManager';
 
 function getFileExtension(filename: string): string {
   return filename.split('.').pop()?.toLowerCase() || '';
@@ -77,7 +77,8 @@ export async function buildBundleFromEntries(
       /\.(png|jpe?g|webp|svg|gif)$/i.test(lower)
     ) {
       if (entry.getBlob) {
-        const blob = await entry.getBlob();
+        const rawBlob = await entry.getBlob();
+        const blob = ensureBlobMimeType(rawBlob, p);
         const objectUrl = URL.createObjectURL(blob);
         const normalizedP = p.replace(/\\/g, '/').replace(/^\/+/, '');
         assets[p] = objectUrl;
@@ -447,6 +448,42 @@ export function getLongestCommonDirectory(paths: string[]): string {
     }
   }
   return commonSegments.join('/');
+}
+
+/**
+ * Checks if a file already exists in rootDirHandle at relativePath with the exact same size and lastModified timestamp.
+ */
+export async function checkSameFileExistsInDirectory(
+  rootDirHandle: any,
+  relativePath: string,
+  file: Blob | File
+): Promise<boolean> {
+  if (!rootDirHandle) return false;
+  try {
+    let parts = relativePath.split('/').filter(Boolean);
+    if (rootDirHandle?.name && parts.length > 0 && parts[0].toLowerCase() === rootDirHandle.name.toLowerCase()) {
+      parts.shift();
+    }
+    const filename = parts.pop();
+    if (!filename) return false;
+
+    let currentDir = rootDirHandle;
+    for (const part of parts) {
+      currentDir = await currentDir.getDirectoryHandle(part, { create: false });
+    }
+
+    const fileHandle = await currentDir.getFileHandle(filename, { create: false });
+    const existingFile = await fileHandle.getFile();
+    if (existingFile.size === file.size) {
+      if (file instanceof File) {
+        return existingFile.lastModified === file.lastModified;
+      }
+      return true;
+    }
+  } catch {
+    // File or directory does not exist
+  }
+  return false;
 }
 
 /**

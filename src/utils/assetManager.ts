@@ -17,13 +17,69 @@ export function sanitizeAssetFilename(name: string, fallback = 'image.png'): str
   return `${cleanName}${ext}`;
 }
 
+export function getMimeTypeFromFilename(filename: string): string | undefined {
+  const ext = filename.split('.').pop()?.toLowerCase();
+  switch (ext) {
+    case 'svg':
+      return 'image/svg+xml';
+    case 'png':
+      return 'image/png';
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'webp':
+      return 'image/webp';
+    case 'gif':
+      return 'image/gif';
+    default:
+      return undefined;
+  }
+}
+
+export function isSupportedImageFile(file: File | null | undefined): file is File {
+  if (!file) return false;
+  if (file.type && file.type.startsWith('image/')) return true;
+  return Boolean(getMimeTypeFromFilename(file.name));
+}
+
+export function ensureBlobMimeType(blobOrFile: Blob | File, filename: string): Blob | File {
+  const expectedMime = getMimeTypeFromFilename(filename);
+  if (
+    expectedMime &&
+    (!blobOrFile.type || (expectedMime === 'image/svg+xml' && blobOrFile.type !== 'image/svg+xml'))
+  ) {
+    if (blobOrFile instanceof File) {
+      return new File([blobOrFile], blobOrFile.name, {
+        type: expectedMime,
+        lastModified: blobOrFile.lastModified
+      });
+    }
+    return new Blob([blobOrFile], { type: expectedMime });
+  }
+  return blobOrFile;
+}
+
 export function dataUrlToBlob(dataUrl: string): { blob: Blob; ext: string } {
   try {
-    const mimeMatch = dataUrl.match(/^data:([^;]+);/);
-    const mime = mimeMatch ? mimeMatch[1] : 'image/png';
-    const ext = mime.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
-    const base64Data = dataUrl.split(',')[1] || '';
-    const byteString = atob(base64Data);
+    const headerMatch = dataUrl.match(/^data:([^;,]+)(;base64)?,(.*)$/s);
+    if (!headerMatch) {
+      return { blob: new Blob([]), ext: 'png' };
+    }
+    const mime = headerMatch[1] || 'image/png';
+    const isBase64 = Boolean(headerMatch[2]);
+    const rawData = headerMatch[3] || '';
+    const ext =
+      mime
+        .split('/')[1]
+        ?.replace('jpeg', 'jpg')
+        .replace('svg+xml', 'svg') || 'png';
+
+    if (!isBase64) {
+      const decoded = decodeURIComponent(rawData);
+      return { blob: new Blob([decoded], { type: mime }), ext };
+    }
+
+    const byteString = atob(rawData);
     const ab = new ArrayBuffer(byteString.length);
     const ia = new Uint8Array(ab);
     for (let i = 0; i < byteString.length; i++) {
@@ -40,6 +96,7 @@ export interface AssetEntry {
   blob: Blob | File;
   url: string; // displayable URL (blob: or data:)
   isUploaded?: boolean; // true if added via the UI upload in this session
+  existsOnDisk?: boolean; // true if already present in target directory assets/
 }
 
 class AssetManager {
@@ -48,25 +105,38 @@ class AssetManager {
 
   /**
    * Registers a newly uploaded binary file or blob from the UI.
-   * Placed by default in assets/filename.ext and flagged as isUploaded: true.
+   * If an asset with the same path/filename was already loaded from disk and matches the file,
+   * preserves its existing disk flag so we don't unnecessarily overwrite it on disk.
    */
-  registerAsset(filename: string, blobOrFile: Blob | File): { assetPath: string; displayUrl: string } {
+  registerAsset(filename: string, blobOrFile: Blob | File): { assetPath: string; displayUrl: string; alreadyOnDisk: boolean } {
     const cleanFilename = sanitizeAssetFilename(filename);
-    const assetPath = `assets/${cleanFilename}`;
-    const displayUrl = URL.createObjectURL(blobOrFile);
+    const defaultAssetPath = `assets/${cleanFilename}`;
+    const existingEntry = this.assets.get(defaultAssetPath) || this.assets.get(cleanFilename);
+
+    const typedBlob = ensureBlobMimeType(blobOrFile, cleanFilename);
+    const displayUrl = URL.createObjectURL(typedBlob);
+
+    const targetAssetPath = existingEntry?.assetPath || defaultAssetPath;
+    const isSameExistingFile = Boolean(
+      existingEntry?.existsOnDisk &&
+      existingEntry.blob.size === typedBlob.size &&
+      (!(blobOrFile instanceof File && existingEntry.blob instanceof File) ||
+        blobOrFile.lastModified === existingEntry.blob.lastModified)
+    );
 
     const entry: AssetEntry = {
-      assetPath,
-      blob: blobOrFile,
+      assetPath: targetAssetPath,
+      blob: typedBlob,
       url: displayUrl,
-      isUploaded: true
+      isUploaded: !isSameExistingFile,
+      existsOnDisk: existingEntry?.existsOnDisk || false
     };
 
-    this.assets.set(assetPath, entry);
+    this.assets.set(targetAssetPath, entry);
     this.assets.set(cleanFilename, entry);
-    this.urlToPath.set(displayUrl, assetPath);
+    this.urlToPath.set(displayUrl, targetAssetPath);
 
-    return { assetPath, displayUrl };
+    return { assetPath: targetAssetPath, displayUrl, alreadyOnDisk: isSameExistingFile };
   }
 
   /**
@@ -82,7 +152,8 @@ class AssetManager {
       assetPath: cleanPath,
       blob,
       url: objectUrl,
-      isUploaded: false
+      isUploaded: false,
+      existsOnDisk: true
     };
 
     this.assets.set(cleanPath, entry);
@@ -108,6 +179,14 @@ class AssetManager {
 
   getDisplayUrl(assetPath: string | undefined): string | undefined {
     if (!assetPath) return undefined;
+    if (assetPath.startsWith('blob:') || assetPath.startsWith('data:')) {
+      const mappedPath = this.urlToPath.get(assetPath);
+      if (mappedPath) {
+        const mappedEntry = this.assets.get(mappedPath);
+        if (mappedEntry) return mappedEntry.url;
+      }
+      return assetPath;
+    }
     const normalized = assetPath.replace(/\\/g, '/').replace(/^\/+/, '');
     const cleanPath = normalized.startsWith('assets/') ? normalized : `assets/${normalized}`;
     const filename = cleanPath.split('/').pop() || cleanPath;
@@ -118,6 +197,16 @@ class AssetManager {
 
   getAllAssets(): Map<string, AssetEntry> {
     return this.assets;
+  }
+
+  markAssetExistsOnDisk(assetPath: string) {
+    const normalized = assetPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const cleanPath = normalized.startsWith('assets/') ? normalized : `assets/${normalized}`;
+    const entry = this.assets.get(cleanPath);
+    if (entry) {
+      entry.isUploaded = false;
+      entry.existsOnDisk = true;
+    }
   }
 
   /**
@@ -136,6 +225,7 @@ class AssetManager {
       try {
         await writeBlobToDirectory(dirHandle, entry.assetPath, entry.blob);
         entry.isUploaded = false;
+        entry.existsOnDisk = true;
       } catch (e) {
         console.warn(`Could not save asset ${entry.assetPath} to directory:`, e);
       }

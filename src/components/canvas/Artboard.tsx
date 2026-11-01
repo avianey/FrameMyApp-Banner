@@ -5,6 +5,7 @@ import { ShapeElement } from './ShapeElement';
 import { DeviceElement } from './DeviceElement';
 import { ExportOverlay } from './ExportOverlay';
 import { InPlaceImageCropper } from './InPlaceImageCropper';
+import { MultiSelectionHandles } from './MultiSelectionHandles';
 import { assetManager } from '../../utils/assetManager';
 import { resolveAsset } from '../../utils/templateEngine';
 import { SnapGuides } from '../../utils/alignment';
@@ -340,6 +341,8 @@ export const Artboard: React.FC = () => {
               />
             );
           })}
+
+          {selectedElementIds.length > 1 && <MultiSelectionHandles />}
         </div>
 
         {/* Lignes guides magnétiques (Smart Guides) */}

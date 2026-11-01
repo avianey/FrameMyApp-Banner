@@ -143,8 +143,8 @@ export const DeviceControls: React.FC<DeviceControlsProps> = ({ element }) => {
     recordHistory();
     let finalUrl = imageUrl;
     if (file) {
-      const { displayUrl } = await persistAsset(file);
-      assetManager.registerUrlMapping(imageUrl, displayUrl);
+      const { assetPath, displayUrl } = await persistAsset(file);
+      assetManager.registerUrlMapping(imageUrl, assetPath);
       finalUrl = displayUrl;
     }
 

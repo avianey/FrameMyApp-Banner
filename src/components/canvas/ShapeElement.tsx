@@ -3,7 +3,7 @@ import { ShapeElementModel } from '../../types';
 import { useEditor } from '../../context/EditorContext';
 import { SelectionHandles } from './SelectionHandles';
 import { InPlaceImageCropper } from './InPlaceImageCropper';
-import { assetManager } from '../../utils/assetManager';
+import { assetManager, isSupportedImageFile, ensureBlobMimeType } from '../../utils/assetManager';
 import { resolveAsset } from '../../utils/templateEngine';
 import { getCombinedBoxShadow, getCombinedDropShadowFilter } from '../../utils/effectsHelper';
 import { computeSnapPosition, emitSnapGuides } from '../../utils/alignment';
@@ -71,9 +71,9 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
     setIsDropTarget(false);
 
     const files = e.dataTransfer.files;
-    if (files && files[0] && files[0].type.startsWith('image/')) {
+    if (files && isSupportedImageFile(files[0])) {
       recordHistory();
-      const file = files[0];
+      const file = ensureBlobMimeType(files[0], files[0].name) as File;
       persistAsset(file).then(({ displayUrl }) => {
         const img = new Image();
         img.onload = () => {

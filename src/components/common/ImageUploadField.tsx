@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { isSupportedImageFile, ensureBlobMimeType } from '../../utils/assetManager';
 
 interface ImageUploadFieldProps {
   imageUrl?: string;
@@ -27,8 +28,9 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
 
-  const processFile = (file: File) => {
-    if (file && file.type.startsWith('image/')) {
+  const processFile = (rawFile: File) => {
+    if (isSupportedImageFile(rawFile)) {
+      const file = ensureBlobMimeType(rawFile, rawFile.name) as File;
       const reader = new FileReader();
       reader.onload = ev => {
         const result = ev.target?.result as string;
@@ -43,6 +45,9 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       processFile(e.target.files[0]);
+    }
+    if (e.target) {
+      e.target.value = '';
     }
   };
 
@@ -87,7 +92,7 @@ export const ImageUploadField: React.FC<ImageUploadFieldProps> = ({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,.svg"
         onChange={handleFileChange}
         className="hidden"
       />

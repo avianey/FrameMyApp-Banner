@@ -5,6 +5,7 @@ import {
   ExportZone,
   SyncStatus,
   LoadedBundle,
+  BundleItem,
   BannerMasterConfig,
   BannerOverrideConfig,
   TextElementModel,
@@ -210,6 +211,7 @@ interface UseDiskSyncOptions {
   setElements: (els: CanvasElement[]) => void;
   setExportZone: (zone: ExportZone) => void;
   setLoadedBundleState: React.Dispatch<React.SetStateAction<LoadedBundle | null>>;
+  setActiveBundleItemId?: (id: string | null) => void;
   markItemSaved: (itemId: string) => void;
   showSnackbar: (message: string, icon?: string) => void;
   centerCanvas?: (w?: number, h?: number, autoFit?: boolean) => void;
@@ -233,6 +235,7 @@ export function useDiskSync({
   setElements,
   setExportZone,
   setLoadedBundleState,
+  setActiveBundleItemId,
   markItemSaved,
   showSnackbar,
   centerCanvas,
@@ -335,15 +338,47 @@ export function useDiskSync({
         effectiveBundle && activeId && effectiveBundle.master?.id !== activeId
       );
 
+      const hasSubItems = Boolean(
+        effectiveBundle &&
+        (Object.keys(effectiveBundle.overrides || {}).length > 0 || (effectiveBundle.variants || []).length > 0)
+      );
+      const isCanonicalMasterFile =
+        effectiveBundle?.master?.path === 'master.yml' || effectiveBundle?.master?.path === 'master.yaml';
+
       if (effectiveBundle && !isBundleSubItem) {
+        const shouldRenameMasterPath = !hasSubItems && !isCanonicalMasterFile;
+        const newFilename = `${slugifyFilename(val)}.yml`;
+
         setLoadedBundleState(prev => {
           if (!prev) return null;
           return {
             ...prev,
-            name: val,
-            master: prev.master ? { ...prev.master, name: val } : null
+            name: prev.directoryHandle ? prev.name : val,
+            master: prev.master
+              ? {
+                  ...prev.master,
+                  name: val,
+                  path: shouldRenameMasterPath ? newFilename : prev.master.path,
+                  slug: shouldRenameMasterPath ? slugifyFilename(val) : prev.master.slug
+                }
+              : null
           };
         });
+
+        if (shouldRenameMasterPath) {
+          setSyncFilePathState(currentPath => {
+            if (currentPath && currentPath !== newFilename && currentPath !== 'master.yml') {
+              setPreviousSyncFilePath(currentPath);
+              try {
+                localStorage.setItem('framemyapp_prev_sync_file', currentPath);
+              } catch {}
+            }
+            try {
+              localStorage.setItem('framemyapp_sync_file_path', newFilename);
+            } catch {}
+            return newFilename;
+          });
+        }
       }
 
       // If standalone project (no active bundle), sync file path tracks the project name
@@ -382,8 +417,34 @@ export function useDiskSync({
         try {
           const targetFile = syncFilePath || (projectName ? `${slugifyFilename(projectName)}.yml` : undefined);
           bundle = await readDirectoryBundle(handle, targetFile);
-          if (bundle && bundle.master) {
+          if (bundle) {
+            if (!bundle.master) {
+              const defaultMasterPath = targetFile || `${slugifyFilename(projectName)}.yml`;
+              const masterConfig = convertUrlsToRelativeAssetPaths(
+                serializeCanvasToMaster(
+                  projectName || handle.name || 'Master',
+                  background,
+                  elements,
+                  exportZone,
+                  canvasWidth,
+                  canvasHeight
+                ),
+                bundle.assets
+              );
+              bundle.master = {
+                id: 'master',
+                type: 'master',
+                path: defaultMasterPath,
+                slug: defaultMasterPath.replace(/\.(ya?ml|json)$/i, ''),
+                name: masterConfig.name || projectName || 'Master',
+                rawContent: stringifyYaml(masterConfig),
+                config: masterConfig
+              };
+            }
             setLoadedBundleState(bundle);
+            if (bundle.master) {
+              setActiveBundleItemId?.(bundle.master.id);
+            }
             if (bundle.master.path) {
               setSyncFilePathState(bundle.master.path);
               try {
@@ -808,10 +869,52 @@ export function useDiskSync({
         syncDirHandleRef.current = handle;
         setSyncDirectoryHandle(handle);
         setSyncDirectoryName(handle.name);
+        saveDirectoryHandleToIdb(handle, 'sync_dir_handle');
+        saveDirectoryHandleToIdb(handle, 'root_bundle_dir');
+
+        const targetPath = syncFilePath || `${slugifyFilename(projectName)}.yml`;
         if (!syncFilePath) {
-          const defaultPath = `${slugifyFilename(projectName)}.yml`;
-          setSyncFilePath(defaultPath);
+          setSyncFilePath(targetPath);
         }
+
+        try {
+          const scannedBundle = await readDirectoryBundle(handle, targetPath);
+          if (!scannedBundle.master) {
+            const masterConfig = convertUrlsToRelativeAssetPaths(
+              serializeCanvasToMaster(
+                projectName || handle.name || 'Master',
+                background,
+                elements,
+                exportZone,
+                canvasWidth,
+                canvasHeight
+              ),
+              scannedBundle.assets
+            );
+            const rawYaml = stringifyYaml(masterConfig);
+            scannedBundle.master = {
+              id: 'master',
+              type: 'master',
+              path: targetPath,
+              slug: targetPath.replace(/\.(ya?ml|json)$/i, ''),
+              name: masterConfig.name || projectName || 'Master',
+              rawContent: rawYaml,
+              config: masterConfig
+            };
+            await assetManager.saveAllToDirectory(handle, true);
+            await writeTextToDirectory(handle, targetPath, rawYaml);
+          } else if (scannedBundle.master.path) {
+            setSyncFilePath(scannedBundle.master.path);
+          }
+
+          setLoadedBundleState(scannedBundle);
+          if (scannedBundle.master) {
+            setActiveBundleItemId?.(scannedBundle.master.id);
+          }
+        } catch (bundleErr) {
+          console.warn('Initial bundle creation on selectSyncDirectory failed:', bundleErr);
+        }
+
         showSnackbar(`Dossier de synchronisation connecté : ${handle.name}`, 'folder');
         return true;
       }
@@ -821,7 +924,21 @@ export function useDiskSync({
       showSnackbar(`Impossible d'accéder au dossier : ${err.message || ''}`, 'error');
     }
     return false;
-  }, [projectName, syncFilePath, setSyncDirectoryHandle, setSyncDirectoryName, setSyncFilePath, showSnackbar]);
+  }, [
+    projectName,
+    syncFilePath,
+    background,
+    elements,
+    exportZone,
+    canvasWidth,
+    canvasHeight,
+    setSyncDirectoryHandle,
+    setSyncDirectoryName,
+    setSyncFilePath,
+    setLoadedBundleState,
+    setActiveBundleItemId,
+    showSnackbar
+  ]);
 
   const selectSyncFile = useCallback(async (): Promise<boolean> => {
     const hasFsSupport = typeof window !== 'undefined' && 'showOpenFilePicker' in window;
@@ -1043,7 +1160,7 @@ export function useDiskSync({
         await verifyDirectoryPermission(targetDirHandle, true);
         await writeTextToDirectory(targetDirHandle, targetFilename || 'banner_template.yml', yamlContent);
 
-        if (!effectiveBundle && previousSyncFilePath && previousSyncFilePath !== targetFilename && previousSyncFilePath !== 'master.yml') {
+        if (previousSyncFilePath && previousSyncFilePath !== targetFilename && previousSyncFilePath !== 'master.yml') {
           try {
             if (typeof targetDirHandle.removeEntry === 'function') {
               await targetDirHandle.removeEntry(previousSyncFilePath);
@@ -1055,6 +1172,42 @@ export function useDiskSync({
           try {
             localStorage.removeItem('framemyapp_prev_sync_file');
           } catch {}
+        }
+
+        // Ensure loadedBundle is initialized and kept in sync when a directory is connected
+        if (!effectiveBundle) {
+          try {
+            const finalTarget = targetFilename || 'banner_template.yml';
+            const scannedBundle = await readDirectoryBundle(targetDirHandle, finalTarget);
+            if (!scannedBundle.master) {
+              const masterConfig = convertUrlsToRelativeAssetPaths(
+                serializeCanvasToMaster(
+                  projectName || targetDirHandle.name || 'Master',
+                  background,
+                  elements,
+                  exportZone,
+                  canvasWidth,
+                  canvasHeight
+                ),
+                scannedBundle.assets
+              );
+              scannedBundle.master = {
+                id: 'master',
+                type: 'master',
+                path: finalTarget,
+                slug: finalTarget.replace(/\.(ya?ml|json)$/i, ''),
+                name: masterConfig.name || projectName || 'Master',
+                rawContent: yamlContent,
+                config: masterConfig
+              };
+            }
+            setLoadedBundleState(scannedBundle);
+            if (scannedBundle.master) {
+              setActiveBundleItemId?.(scannedBundle.master.id);
+            }
+          } catch (e) {
+            console.warn('Failed to initialize bundle after syncToDisk:', e);
+          }
         }
 
         if (!options?.silent) {

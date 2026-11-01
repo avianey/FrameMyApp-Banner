@@ -3,6 +3,7 @@ import { useEditor } from '../../context/EditorContext';
 import { Artboard } from './Artboard';
 import { computeDeviceHeightFromWidth } from '../../utils/deviceHelper';
 import { computeImageCropGeometry, clampImageOffset } from '../../utils/imageCropHelper';
+import { isSupportedImageFile, ensureBlobMimeType } from '../../utils/assetManager';
 import { ShapeElementModel } from '../../types';
 
 export const CanvasViewport: React.FC = () => {
@@ -379,8 +380,8 @@ export const CanvasViewport: React.FC = () => {
     setIsDragOver(false);
 
     const files = e.dataTransfer.files;
-    if (files.length > 0 && files[0].type.startsWith('image/')) {
-      const file = files[0];
+    if (files.length > 0 && isSupportedImageFile(files[0])) {
+      const file = ensureBlobMimeType(files[0], files[0].name) as File;
       const reader = new FileReader();
       reader.onload = event => {
         const result = event.target?.result as string;

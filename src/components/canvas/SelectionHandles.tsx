@@ -144,9 +144,9 @@ export const SelectionHandles: React.FC<SelectionHandlesProps> = ({ element, ele
       const deltaW = dirX !== 0 ? dirX * dxLocal : 0;
       const deltaH = dirY !== 0 ? dirY * dyLocal : 0;
 
-      const isCtrl = moveEvent.ctrlKey || moveEvent.metaKey;
       const isShift = moveEvent.shiftKey;
-      const mustLockRatio = isCtrl || isDeviceWithImage;
+      const isCentered = moveEvent.ctrlKey || moveEvent.metaKey || moveEvent.altKey;
+      const mustLockRatio = isShift || isDeviceWithImage;
 
       let targetW: number;
       let targetH: number;
@@ -154,7 +154,7 @@ export const SelectionHandles: React.FC<SelectionHandlesProps> = ({ element, ele
       if (mustLockRatio) {
         if (dirX === 0) {
           // Vertical side handle (n or s)
-          const scaleFactor = Math.max(0.05, 1 + (isShift ? 2 : 1) * (deltaH / initH));
+          const scaleFactor = Math.max(0.05, 1 + (isCentered ? 2 : 1) * (deltaH / initH));
           targetH = Math.max(30, Math.round(initH * scaleFactor));
           if (element.type === 'device') {
             const dev = element as DeviceElementModel;
@@ -166,7 +166,7 @@ export const SelectionHandles: React.FC<SelectionHandlesProps> = ({ element, ele
           }
         } else if (dirY === 0) {
           // Horizontal side handle (e or w)
-          const scaleFactor = Math.max(0.05, 1 + (isShift ? 2 : 1) * (deltaW / initW));
+          const scaleFactor = Math.max(0.05, 1 + (isCentered ? 2 : 1) * (deltaW / initW));
           targetW = Math.max(30, Math.round(initW * scaleFactor));
           if (element.type === 'device') {
             const dev = element as DeviceElementModel;
@@ -180,7 +180,7 @@ export const SelectionHandles: React.FC<SelectionHandlesProps> = ({ element, ele
           // Corner handle (nw, ne, se, sw)
           const denom = initW * initW + initH * initH;
           const effectiveProj = denom > 0 ? (deltaW * initW + deltaH * initH) / denom : 0;
-          const scaleFactor = Math.max(0.05, 1 + (isShift ? 2 : 1) * effectiveProj);
+          const scaleFactor = Math.max(0.05, 1 + (isCentered ? 2 : 1) * effectiveProj);
           targetW = Math.max(30, Math.round(initW * scaleFactor));
           if (element.type === 'device') {
             const dev = element as DeviceElementModel;
@@ -193,7 +193,7 @@ export const SelectionHandles: React.FC<SelectionHandlesProps> = ({ element, ele
         }
       } else {
         // Free resize
-        const mult = isShift ? 2 : 1;
+        const mult = isCentered ? 2 : 1;
         targetW = dirX !== 0 ? Math.max(30, Math.round(initW + mult * deltaW)) : initW;
         targetH = dirY !== 0 ? Math.max(30, Math.round(initH + mult * deltaH)) : initH;
       }
@@ -201,7 +201,7 @@ export const SelectionHandles: React.FC<SelectionHandlesProps> = ({ element, ele
       let newX: number;
       let newY: number;
 
-      if (isShift) {
+      if (isCentered) {
         newX = Math.round(initCenterX - targetW / 2);
         newY = Math.round(initCenterY - targetH / 2);
       } else {
@@ -353,7 +353,7 @@ export const SelectionHandles: React.FC<SelectionHandlesProps> = ({ element, ele
         <div
           key={hd.type}
           onPointerDown={e => handleStartResize(e, hd.dirX, hd.dirY)}
-          title="Redimensionner (Glisser : libre, Ctrl : conserver ratio, Shift : ancrer le centre, Ctrl+Shift : conserver ratio et ancrer le centre)"
+          title="Redimensionner (Glisser : libre, Shift : conserver ratio, Ctrl : ancrer le centre, Shift+Ctrl : conserver ratio et ancrer le centre)"
           className="selection-ui-handle handle-resize"
           style={{
             left: `${hd.x}px`,
