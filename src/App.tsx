@@ -12,6 +12,7 @@ import { ExportPreviewModal } from './components/modal/ExportPreviewModal';
 import { SaveModal } from './components/modal/SaveModal';
 import { DiskPermissionModal } from './components/modal/DiskPermissionModal';
 import { AiBackgroundModal } from './components/modal/AiBackgroundModal';
+import { HeadlessExportBridge } from './components/HeadlessExportBridge';
 
 export const AppContent: React.FC = () => {
   const {
@@ -32,6 +33,7 @@ export const AppContent: React.FC = () => {
 
   return (
     <div className="h-full w-full bg-m3-sys-surface text-m3-sys-onSurface flex flex-col overflow-hidden font-sans">
+      <HeadlessExportBridge />
       <Header />
       <div className="flex-1 relative flex overflow-hidden">
         <LeftSidebar />

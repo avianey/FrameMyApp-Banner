@@ -522,3 +522,69 @@ elements:
   main_title:
     fontSize: 40
 ```
+
+---
+
+## 8. Génération Automatisée en CI/CD (Headless Browser CLI)
+
+Lorsqu'un dépôt tiers (ex. `XYZ`) contient un répertoire configuré comme bundle FrameMy.App (`master.yml`, `overrides/`, `variants/`, `assets/`), un pipeline CI/CD peut cloner FrameMyApp-Banner et générer tous les visuels PNG de manière déterministe via un navigateur Chromium headless (Playwright).
+
+### 8.1 Syntaxe de la Commande
+
+```bash
+{checkoutDir}/generateBatchForBundle.sh --in <bundleDirPath> --out <outputDirPath> [options]
+```
+
+### 8.2 Arguments & Options
+
+| Option | Description |
+| :--- | :--- |
+| `--in`, `-i <dir>` | **(Obligatoire)** Chemin vers le dossier du bundle FrameMyApp d'entrée (relatif au répertoire courant ou absolu). |
+| `--out`, `-o <dir>` | **(Obligatoire)** Chemin vers le dossier de destination où seront écrits les PNG générés. |
+| *(Par défaut)* | Génère uniquement les déclinaisons finales (`variants/<lang>/<slug>.png`) directement dans `<outputDirPath>`. Si le bundle ne comporte aucune variante (template simple), exporte `master.png`. |
+| `--all`, `-a` | Exporte l'intégralité du bundle : `master.png`, `overrides/<slug>.png` et `variants/<lang>/<slug>.png`. |
+| `--include-master` | Ajoute `master.png` à l'export. |
+| `--include-overrides` | Ajoute `overrides/<slug>.png` à l'export. |
+| `--no-variants` | Exclut `variants/<lang>/<slug>.png` de l'export. |
+| `--help`, `-h` | Affiche l'aide de la commande. |
+
+### 8.3 Fonctionnement Interne du Script
+
+1. **Autonomie CI** : Le script `generateBatchForBundle.sh` vérifie automatiquement la présence de `node_modules`, du package `playwright` et du binaire Chromium headless (les installe à la volée si absents). Il supporte également les variables d'environnement `CHROME_PATH` ou `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` si le runner CI fournit déjà son propre binaire Chromium.
+2. **Résolution des chemins** : Les chemins relatifs passés à `--in` et `--out` sont résolus par rapport au répertoire de travail de l'appelant (`pwd`).
+3. **Rendu 1:1** : Un serveur Vite local éphémère démarre sur un port libre (`127.0.0.1`) en mode `?headless=1` et pilote `window.__FRAMEMYAPP_CLI__.runBatchExport`, garantissant le même rendu typographique, CJK, dégradés, flous et mockups que l'interface interactive.
+
+### 8.4 Exemple d'Intégration GitHub Actions (dans le repo `XYZ`)
+
+```yaml
+jobs:
+  generate-promo-banners:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository XYZ
+        uses: actions/checkout@v4
+
+      - name: Checkout FrameMyApp-Banner engine
+        uses: actions/checkout@v4
+        with:
+          repository: org/FrameMyApp-Banner
+          path: .framemyapp-engine
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Generate promotional assets from bundle
+        run: |
+          ./.framemyapp-engine/generateBatchForBundle.sh \
+            --in ./marketing/framemyapp-bundle \
+            --out ./build/promo-assets
+
+      - name: Upload generated assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: promo-banners
+          path: ./build/promo-assets
+```
+

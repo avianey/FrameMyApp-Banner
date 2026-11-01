@@ -503,6 +503,10 @@ export function useDiskSync({
     let isCancelled = false;
 
     async function restoreFromDisk() {
+      if (typeof window !== 'undefined' && (window.location.search.includes('headless=1') || (window as any).__FRAMEMYAPP_HEADLESS__)) {
+        isInitialLoadCompleteRef.current = true;
+        return;
+      }
       try {
         const dirHandle =
           (await getDirectoryHandleFromIdb('sync_dir_handle')) ||
