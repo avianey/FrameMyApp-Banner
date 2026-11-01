@@ -1,0 +1,15 @@
+# Configuration des modèles IA pour la génération d'images (Google Gemini API)
+models:
+  - id: gemini-3.1-flash-image
+    name: Gemini 3.1 Flash Image (Nano Banana 2)
+    description: Génération d'image haute vitesse et haute fidélité (recommandé)
+    default: true
+  - id: gemini-3-pro-image
+    name: Gemini 3 Pro Image (Nano Banana Pro)
+    description: Qualité studio supérieure pour compositions visuelles complexes
+  - id: gemini-3.1-flash-lite-image
+    name: Gemini 3.1 Flash-Lite Image
+    description: Modèle ultra-rapide et économique
+  - id: gemini-2.5-flash-image
+    name: Gemini 2.5 Flash Image (Nano Banana)
+    description: Génération d'image native standard

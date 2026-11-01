@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useEditor } from '../../context/EditorContext';
 import { TextElement } from './TextElement';
 import { ShapeElement } from './ShapeElement';
@@ -7,6 +7,51 @@ import { ExportOverlay } from './ExportOverlay';
 import { InPlaceImageCropper } from './InPlaceImageCropper';
 import { assetManager } from '../../utils/assetManager';
 import { resolveAsset } from '../../utils/templateEngine';
+import { SnapGuides } from '../../utils/alignment';
+
+const SnapGuidesOverlay: React.FC<{ currentZoom: number }> = ({ currentZoom }) => {
+  const [guides, setGuides] = useState<SnapGuides | null>(null);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const customEvent = e as CustomEvent<SnapGuides | null>;
+      setGuides(customEvent.detail);
+    };
+    window.addEventListener('framemyapp:snap-guides', handler);
+    return () => window.removeEventListener('framemyapp:snap-guides', handler);
+  }, []);
+
+  if (!guides || (guides.x === undefined && guides.y === undefined)) {
+    return null;
+  }
+
+  const lineWidth = Math.max(1, 1.5 / currentZoom);
+
+  return (
+    <div className="selection-ui-handle absolute inset-0 pointer-events-none z-40 overflow-visible">
+      {guides.x !== undefined && (
+        <div
+          className="absolute top-0 bottom-0 bg-rose-500 shadow-[0_0_4px_rgba(244,63,94,0.8)]"
+          style={{
+            left: `${guides.x}px`,
+            width: `${lineWidth}px`,
+            transform: 'translateX(-50%)'
+          }}
+        />
+      )}
+      {guides.y !== undefined && (
+        <div
+          className="absolute left-0 right-0 bg-rose-500 shadow-[0_0_4px_rgba(244,63,94,0.8)]"
+          style={{
+            top: `${guides.y}px`,
+            height: `${lineWidth}px`,
+            transform: 'translateY(-50%)'
+          }}
+        />
+      )}
+    </div>
+  );
+};
 
 export const Artboard: React.FC = () => {
   const {
@@ -296,6 +341,9 @@ export const Artboard: React.FC = () => {
             );
           })}
         </div>
+
+        {/* Lignes guides magnétiques (Smart Guides) */}
+        <SnapGuidesOverlay currentZoom={zoom || 1} />
       </div>
 
       {/* Masque et boîte de sélection pour l'exportation */}

@@ -9,8 +9,139 @@ export interface CanvasBounds {
   height: number;
 }
 
+export interface ElementAABB {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  width: number;
+  height: number;
+  centerX: number;
+  centerY: number;
+}
+
+export function getElementAABB(el: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+}): ElementAABB {
+  const w = el.width || 0;
+  const h = el.height || 0;
+  const centerX = el.x + w / 2;
+  const centerY = el.y + h / 2;
+  const rot = el.rotation || 0;
+  if (!rot) {
+    return {
+      left: el.x,
+      right: el.x + w,
+      top: el.y,
+      bottom: el.y + h,
+      width: w,
+      height: h,
+      centerX,
+      centerY
+    };
+  }
+  const rad = (rot * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(rad));
+  const sin = Math.abs(Math.sin(rad));
+  const aabbW = w * cos + h * sin;
+  const aabbH = w * sin + h * cos;
+  return {
+    left: centerX - aabbW / 2,
+    right: centerX + aabbW / 2,
+    top: centerY - aabbH / 2,
+    bottom: centerY + aabbH / 2,
+    width: aabbW,
+    height: aabbH,
+    centerX,
+    centerY
+  };
+}
+
+export interface SnapGuides {
+  x?: number;
+  y?: number;
+}
+
+export function emitSnapGuides(guides: SnapGuides | null) {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('framemyapp:snap-guides', { detail: guides }));
+  }
+}
+
+export function computeSnapPosition(
+  target: { id: string; x: number; y: number; width: number; height: number; rotation?: number },
+  allElements: CanvasElement[],
+  canvasBounds: CanvasBounds,
+  threshold = 6
+): { x: number; y: number; guides: SnapGuides } {
+  const aabb = getElementAABB(target);
+  const offsetLeft = aabb.left - target.x;
+  const offsetRight = aabb.right - target.x;
+  const offsetCenterX = aabb.centerX - target.x;
+  const offsetTop = aabb.top - target.y;
+  const offsetBottom = aabb.bottom - target.y;
+  const offsetCenterY = aabb.centerY - target.y;
+
+  const xTargets: number[] = [0, canvasBounds.width / 2, canvasBounds.width];
+  const yTargets: number[] = [0, canvasBounds.height / 2, canvasBounds.height];
+
+  for (const other of allElements) {
+    if (other.id === target.id) continue;
+    const ob = getElementAABB(other);
+    xTargets.push(ob.left, ob.centerX, ob.right);
+    yTargets.push(ob.top, ob.centerY, ob.bottom);
+  }
+
+  let bestDx = Infinity;
+  let guideX: number | undefined;
+  const candidateXs = [
+    { val: aabb.left, offset: offsetLeft },
+    { val: aabb.centerX, offset: offsetCenterX },
+    { val: aabb.right, offset: offsetRight }
+  ];
+
+  for (const c of candidateXs) {
+    for (const tx of xTargets) {
+      const dist = Math.abs(c.val - tx);
+      if (dist <= threshold && dist < Math.abs(bestDx)) {
+        bestDx = tx - c.val;
+        guideX = Math.round(tx);
+      }
+    }
+  }
+
+  let bestDy = Infinity;
+  let guideY: number | undefined;
+  const candidateYs = [
+    { val: aabb.top, offset: offsetTop },
+    { val: aabb.centerY, offset: offsetCenterY },
+    { val: aabb.bottom, offset: offsetBottom }
+  ];
+
+  for (const c of candidateYs) {
+    for (const ty of yTargets) {
+      const dist = Math.abs(c.val - ty);
+      if (dist <= threshold && dist < Math.abs(bestDy)) {
+        bestDy = ty - c.val;
+        guideY = Math.round(ty);
+      }
+    }
+  }
+
+  return {
+    x: Math.round(target.x + (bestDx !== Infinity ? bestDx : 0)),
+    y: Math.round(target.y + (bestDy !== Infinity ? bestDy : 0)),
+    guides: { x: guideX, y: guideY }
+  };
+}
+
 /**
- * Aligne les éléments sélectionnés selon le type d'alignement et la cible de référence.
+ * Aligne les éléments sélectionnés selon le type d'alignement et la cible de référence,
+ * en prenant en compte la boîte englobante orientée (AABB) si rotation !== 0.
  */
 export function alignElements(
   elements: CanvasElement[],
@@ -28,8 +159,8 @@ export function alignElements(
 
   if (selectedElements.length === 0) return elements;
 
-  const firstElement = selectedElements[0];
-  const lastElement = selectedElements[selectedElements.length - 1];
+  const firstBox = getElementAABB(selectedElements[0]);
+  const lastBox = getElementAABB(selectedElements[selectedElements.length - 1]);
 
   let targetX = 0;
   let targetCenterX = 0;
@@ -48,48 +179,49 @@ export function alignElements(
     targetCenterY = canvasBounds.height / 2;
     targetBottom = canvasBounds.height;
   } else if (reference === 'first') {
-    targetX = firstElement.x;
-    targetCenterX = firstElement.x + firstElement.width / 2;
-    targetRight = firstElement.x + firstElement.width;
+    targetX = firstBox.left;
+    targetCenterX = firstBox.centerX;
+    targetRight = firstBox.right;
 
-    targetY = firstElement.y;
-    targetCenterY = firstElement.y + firstElement.height / 2;
-    targetBottom = firstElement.y + firstElement.height;
+    targetY = firstBox.top;
+    targetCenterY = firstBox.centerY;
+    targetBottom = firstBox.bottom;
   } else {
     // 'last'
-    targetX = lastElement.x;
-    targetCenterX = lastElement.x + lastElement.width / 2;
-    targetRight = lastElement.x + lastElement.width;
+    targetX = lastBox.left;
+    targetCenterX = lastBox.centerX;
+    targetRight = lastBox.right;
 
-    targetY = lastElement.y;
-    targetCenterY = lastElement.y + lastElement.height / 2;
-    targetBottom = lastElement.y + lastElement.height;
+    targetY = lastBox.top;
+    targetCenterY = lastBox.centerY;
+    targetBottom = lastBox.bottom;
   }
 
   return elements.map(el => {
     if (!selectedSet.has(el.id)) return el;
 
+    const box = getElementAABB(el);
     let newX = el.x;
     let newY = el.y;
 
     switch (alignType) {
       case 'left':
-        newX = Math.round(targetX);
+        newX = Math.round(el.x + (targetX - box.left));
         break;
       case 'center-h':
-        newX = Math.round(targetCenterX - el.width / 2);
+        newX = Math.round(el.x + (targetCenterX - box.centerX));
         break;
       case 'right':
-        newX = Math.round(targetRight - el.width);
+        newX = Math.round(el.x + (targetRight - box.right));
         break;
       case 'top':
-        newY = Math.round(targetY);
+        newY = Math.round(el.y + (targetY - box.top));
         break;
       case 'center-v':
-        newY = Math.round(targetCenterY - el.height / 2);
+        newY = Math.round(el.y + (targetCenterY - box.centerY));
         break;
       case 'bottom':
-        newY = Math.round(targetBottom - el.height);
+        newY = Math.round(el.y + (targetBottom - box.bottom));
         break;
     }
 

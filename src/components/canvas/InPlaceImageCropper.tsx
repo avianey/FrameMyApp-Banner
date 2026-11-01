@@ -34,6 +34,7 @@ export interface InPlaceImageCropperProps {
   zoomBlurCenterX?: number;
   zoomBlurCenterY?: number;
   overlayPortalTarget?: HTMLElement | null;
+  rotation?: number;
 }
 
 export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
@@ -48,6 +49,7 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
   imageNaturalHeight,
   isEditing,
   onUpdate,
+  onClose,
   canvasZoom = 1.0,
   borderRadius = 0,
   clipPath = 'none',
@@ -58,7 +60,8 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
   zoomBlurIntensity = 25,
   zoomBlurCenterX,
   zoomBlurCenterY,
-  overlayPortalTarget
+  overlayPortalTarget,
+  rotation = 0
 }) => {
   const [natWidth, setNatWidth] = useState<number>(imageNaturalWidth || 0);
   const [natHeight, setNatHeight] = useState<number>(imageNaturalHeight || 0);
@@ -204,11 +207,42 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
   };
 
+  const projectRotatedDelta = useCallback(
+    (screenDx: number, screenDy: number) => {
+      const dxZoom = screenDx / canvasZoom;
+      const dyZoom = screenDy / canvasZoom;
+      if (!rotation) return { dx: dxZoom, dy: dyZoom };
+      const rad = (-rotation * Math.PI) / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+      return {
+        dx: dxZoom * cos - dyZoom * sin,
+        dy: dxZoom * sin + dyZoom * cos
+      };
+    },
+    [canvasZoom, rotation]
+  );
+
+  // Fermeture par touche Escape en mode édition
+  useEffect(() => {
+    if (!isEditing || !onClose) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isEditing, onClose]);
+
   // Pointer move : applique la résistance élastique si l'utilisateur tire au-delà des limites
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isDragging || !dragStartRef.current) return;
-    const dx = (e.clientX - dragStartRef.current.startX) / canvasZoom;
-    const dy = (e.clientY - dragStartRef.current.startY) / canvasZoom;
+    const { dx, dy } = projectRotatedDelta(
+      e.clientX - dragStartRef.current.startX,
+      e.clientY - dragStartRef.current.startY
+    );
 
     const rawX = dragStartRef.current.initX + dx;
     const rawY = dragStartRef.current.initY + dy;
@@ -233,8 +267,10 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
       (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
     } catch {}
 
-    const dx = (e.clientX - dragStartRef.current.startX) / canvasZoom;
-    const dy = (e.clientY - dragStartRef.current.startY) / canvasZoom;
+    const { dx, dy } = projectRotatedDelta(
+      e.clientX - dragStartRef.current.startX,
+      e.clientY - dragStartRef.current.startY
+    );
     const rawX = dragStartRef.current.initX + dx;
     const rawY = dragStartRef.current.initY + dy;
 

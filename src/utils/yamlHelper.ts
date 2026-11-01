@@ -15,10 +15,24 @@ export function stringifyYaml(obj: any): string {
 }
 
 export function parseYaml<T = any>(str: string): T {
+  if (!str || typeof str !== 'string' || !str.trim()) {
+    return {} as T;
+  }
   try {
-    return (load(str) as T) || ({} as T);
+    const parsed = load(str);
+    if (parsed !== null && typeof parsed === 'object') {
+      return parsed as T;
+    }
+    return {} as T;
   } catch (err) {
-    console.error('Failed to parse YAML, fallback to JSON parse', err);
-    return JSON.parse(str) as T;
+    try {
+      const jsonParsed = JSON.parse(str);
+      if (jsonParsed !== null && typeof jsonParsed === 'object') {
+        return jsonParsed as T;
+      }
+    } catch {
+      console.error('Failed to parse YAML and JSON fallback', err);
+    }
+    return {} as T;
   }
 }

@@ -180,6 +180,13 @@ export type ActivePanel = 'bg' | 'text' | 'shape' | 'device' | 'export' | 'align
 
 export type SyncStatus = 'idle' | 'synced' | 'dirty' | 'syncing' | 'error';
 
+export interface AiModelConfig {
+  id: string;
+  name: string;
+  description?: string;
+  default?: boolean;
+}
+
 export interface EditorState {
   canvasWidth: number;
   canvasHeight: number;
@@ -198,4 +205,5 @@ export interface EditorState {
 }
 
 export * from './template';
+
 

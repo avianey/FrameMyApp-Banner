@@ -6,6 +6,7 @@ import { getDeviceEffectiveDimensions, computeDeviceHeightFromWidth } from '../.
 import { assetManager } from '../../utils/assetManager';
 import { resolveAsset } from '../../utils/templateEngine';
 import { getCombinedBoxShadow } from '../../utils/effectsHelper';
+import { computeSnapPosition, emitSnapGuides } from '../../utils/alignment';
 
 interface DeviceElementProps {
   element: DeviceElementModel;
@@ -155,10 +156,9 @@ export const DeviceElement: React.FC<DeviceElementProps> = ({
       selectElement(element.id, false);
     }
 
-    recordHistory();
-
     const startX = e.clientX;
     const startY = e.clientY;
+    let hasMoved = false;
 
     const idsToMove = isSelected && isMultiSelected
       ? state.selectedElementIds
@@ -172,16 +172,43 @@ export const DeviceElement: React.FC<DeviceElementProps> = ({
     const onMove = (moveEvent: PointerEvent) => {
       const dx = (moveEvent.clientX - startX) / currentZoom;
       const dy = (moveEvent.clientY - startY) / currentZoom;
+      if (!hasMoved && Math.abs(moveEvent.clientX - startX) < 2 && Math.abs(moveEvent.clientY - startY) < 2) {
+        return;
+      }
+      if (!hasMoved) {
+        hasMoved = true;
+        recordHistory();
+      }
 
-      initPositions.forEach(pos => {
-        updateElement(pos.id, {
-          x: Math.round(pos.x + dx),
-          y: Math.round(pos.y + dy)
+      if (idsToMove.length === 1 && !moveEvent.altKey) {
+        const pos = initPositions[0];
+        const snapped = computeSnapPosition(
+          {
+            id: element.id,
+            x: Math.round(pos.x + dx),
+            y: Math.round(pos.y + dy),
+            width: element.width,
+            height: element.height,
+            rotation: element.rotation
+          },
+          state.elements,
+          { width: state.canvasWidth || 800, height: state.canvasHeight || 600 }
+        );
+        emitSnapGuides(snapped.guides);
+        updateElement(element.id, { x: snapped.x, y: snapped.y });
+      } else {
+        emitSnapGuides(null);
+        initPositions.forEach(pos => {
+          updateElement(pos.id, {
+            x: Math.round(pos.x + dx),
+            y: Math.round(pos.y + dy)
+          });
         });
-      });
+      }
     };
 
     const onUp = () => {
+      emitSnapGuides(null);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };
@@ -581,11 +608,11 @@ export const DeviceElement: React.FC<DeviceElementProps> = ({
                     <div
                       className="absolute left-1/2 -translate-x-1/2 z-20 pointer-events-none"
                       style={{
-                        top: '8px',
-                        width: '74px',
-                        height: '21px',
+                        top: `${Math.round(8 * scale)}px`,
+                        width: `${Math.round(74 * scale)}px`,
+                        height: `${Math.round(21 * scale)}px`,
                         backgroundColor: '#000000',
-                        borderRadius: '16px'
+                        borderRadius: `${Math.round(16 * scale)}px`
                       }}
                     />
                   )}

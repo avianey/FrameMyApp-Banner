@@ -143,9 +143,18 @@ class AssetManager {
   }
 
   /**
-   * Resets all cached assets and URL mappings.
+   * Resets all cached assets and URL mappings, revoking any blob: ObjectURLs.
    */
   clear() {
+    const revoked = new Set<string>();
+    for (const entry of this.assets.values()) {
+      if (entry.url && entry.url.startsWith('blob:') && !revoked.has(entry.url)) {
+        revoked.add(entry.url);
+        try {
+          URL.revokeObjectURL(entry.url);
+        } catch {}
+      }
+    }
     this.assets.clear();
     this.urlToPath.clear();
   }
@@ -238,8 +247,12 @@ export function convertUrlsToRelativeAssetPaths<T extends Record<string, any>>(
   };
 
   // Convert background
-  if (cloned.background && cloned.background.imageUrl) {
-    cloned.background.imageUrl = sanitizeUrl(cloned.background.imageUrl, 'background');
+  if (cloned.background) {
+    delete cloned.background.imageNaturalWidth;
+    delete cloned.background.imageNaturalHeight;
+    if (cloned.background.imageUrl) {
+      cloned.background.imageUrl = sanitizeUrl(cloned.background.imageUrl, 'background');
+    }
   }
 
   // Convert images dictionary if present (in overrides/variants)
@@ -251,24 +264,35 @@ export function convertUrlsToRelativeAssetPaths<T extends Record<string, any>>(
     }
   }
 
-  // Convert elements
+  // Convert elements (Array in Master, or Record dictionary in Override/Variant)
   if (Array.isArray(cloned.elements)) {
     cloned.elements = cloned.elements.map((el: any) => {
-      const prefix = el.customId || `${el.type}_${el.id}`;
-      if (el.type === 'device' && el.screenImageUrl) {
-        return {
-          ...el,
-          screenImageUrl: sanitizeUrl(el.screenImageUrl, `screen_${prefix}`)
-        };
+      const copy = { ...el };
+      delete copy.imageNaturalWidth;
+      delete copy.imageNaturalHeight;
+      const prefix = copy.customId || `${copy.type}_${copy.id}`;
+      if (copy.type === 'device' && copy.screenImageUrl) {
+        copy.screenImageUrl = sanitizeUrl(copy.screenImageUrl, `screen_${prefix}`);
       }
-      if (el.type === 'shape' && el.imageUrl) {
-        return {
-          ...el,
-          imageUrl: sanitizeUrl(el.imageUrl, `texture_${prefix}`)
-        };
+      if (copy.type === 'shape' && copy.imageUrl) {
+        copy.imageUrl = sanitizeUrl(copy.imageUrl, `texture_${prefix}`);
       }
-      return el;
+      return copy;
     });
+  } else if (cloned.elements && typeof cloned.elements === 'object') {
+    for (const [key, elProps] of Object.entries(cloned.elements)) {
+      if (elProps && typeof elProps === 'object') {
+        const props = elProps as Record<string, any>;
+        delete props.imageNaturalWidth;
+        delete props.imageNaturalHeight;
+        if (typeof props.screenImageUrl === 'string' && props.screenImageUrl) {
+          props.screenImageUrl = sanitizeUrl(props.screenImageUrl, `screen_${key}`);
+        }
+        if (typeof props.imageUrl === 'string' && props.imageUrl) {
+          props.imageUrl = sanitizeUrl(props.imageUrl, `texture_${key}`);
+        }
+      }
+    }
   }
 
   return cloned;

@@ -9,7 +9,9 @@ export const Snackbar: React.FC = () => {
 
   return (
     <div
-      className={`fixed bottom-24 left-1/2 -translate-x-1/2 bg-m3-sys-onSurface text-m3-sys-surface px-5 py-3 rounded-full text-sm font-medium shadow-m3-3 flex items-center space-x-3 transition-all duration-300 z-40 ${
+      role="status"
+      aria-live="polite"
+      className={`fixed bottom-24 left-1/2 -translate-x-1/2 bg-m3-sys-onSurface text-m3-sys-surface px-5 py-3 rounded-full text-sm font-medium shadow-m3-3 flex items-center space-x-3 transition-all duration-300 z-[60] ${
         isVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
       }`}
     >

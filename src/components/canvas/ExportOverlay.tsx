@@ -166,15 +166,19 @@ export const ExportOverlay: React.FC = () => {
       {/* Cadre de sélection déplaçable et redimensionnable */}
       <div
         onPointerDown={handleStartDrag}
-        className="absolute border-2 border-dashed border-m3-sys-primary bg-m3-sys-primary/10 rounded pointer-events-auto cursor-move flex items-start justify-between p-1.5 shadow-m3-2 select-none"
+        className="absolute border-dashed border-m3-sys-primary bg-m3-sys-primary/10 rounded pointer-events-auto cursor-move flex items-start justify-between p-1.5 shadow-m3-2 select-none"
         style={{
           left: `${exportZone.x}px`,
           top: `${exportZone.y}px`,
           width: `${exportZone.width}px`,
-          height: `${exportZone.height}px`
+          height: `${exportZone.height}px`,
+          borderWidth: `${2 / currentZoom}px`
         }}
       >
-        <span className="bg-m3-sys-primary text-white text-[10px] font-bold px-2 py-0.5 rounded shadow flex items-center gap-1">
+        <span
+          className="bg-m3-sys-primary text-white text-[10px] font-bold px-2 py-0.5 rounded shadow flex items-center gap-1 origin-top-left"
+          style={{ transform: `scale(${1 / currentZoom})` }}
+        >
           <span className="material-symbols-rounded text-xs">
             {isLocked ? 'lock' : 'lock_open'}
           </span>
@@ -182,7 +186,10 @@ export const ExportOverlay: React.FC = () => {
             {Math.round(exportZone.width)} × {Math.round(exportZone.height)}
           </span>
         </span>
-        <div className="flex items-center space-x-1">
+        <div
+          className="flex items-center space-x-1 origin-top-right"
+          style={{ transform: `scale(${1 / currentZoom})` }}
+        >
           <button
             onPointerDown={e => {
               e.stopPropagation();
@@ -199,25 +206,29 @@ export const ExportOverlay: React.FC = () => {
           </span>
         </div>
 
-        {/* 4 Poignées de redimensionnement de coin */}
+        {/* 4 Poignées de redimensionnement de coin compensées au zoom */}
         <div
           onPointerDown={handleStartResize('tl')}
           title={isLocked ? 'Redimensionner (ratio conservé)' : 'Redimensionner librement'}
+          style={{ transform: `scale(${1 / currentZoom})` }}
           className="absolute -top-1.5 -left-1.5 w-3.5 h-3.5 bg-m3-sys-primary border-2 border-white rounded-full shadow cursor-nwse-resize pointer-events-auto hover:scale-125 transition-transform"
         />
         <div
           onPointerDown={handleStartResize('tr')}
           title={isLocked ? 'Redimensionner (ratio conservé)' : 'Redimensionner librement'}
+          style={{ transform: `scale(${1 / currentZoom})` }}
           className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-m3-sys-primary border-2 border-white rounded-full shadow cursor-nesw-resize pointer-events-auto hover:scale-125 transition-transform"
         />
         <div
           onPointerDown={handleStartResize('bl')}
           title={isLocked ? 'Redimensionner (ratio conservé)' : 'Redimensionner librement'}
+          style={{ transform: `scale(${1 / currentZoom})` }}
           className="absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-m3-sys-primary border-2 border-white rounded-full shadow cursor-nesw-resize pointer-events-auto hover:scale-125 transition-transform"
         />
         <div
           onPointerDown={handleStartResize('br')}
           title={isLocked ? 'Redimensionner (ratio conservé)' : 'Redimensionner librement'}
+          style={{ transform: `scale(${1 / currentZoom})` }}
           className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-m3-sys-primary border-2 border-white rounded-full shadow cursor-nwse-resize pointer-events-auto hover:scale-125 transition-transform"
         />
       </div>

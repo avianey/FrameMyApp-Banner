@@ -210,6 +210,20 @@ La boîte de dialogue **Batch Export** automatise la génération de l'intégral
 - Lors de l'export PNG, le moteur extrait préalablement les lignes visuelles natives calculées par le navigateur (`Range.getClientRects()`) et injecte la police japonaise `Noto Sans JP` ainsi que des hauteurs de ligne en pixels absolus (`line-height`).
 - Cela neutralise les dérives de césure et de sous-pixels sur les textes asiatiques sans espaces (japonais, chinois, coréen) et garantit que les retours à la ligne et les espacements dans le fichier PNG final sont 100% identiques à ceux affichés dans l'éditeur interactif.
 
+### 5.5 Batch Export Headless en Ligne de Commande (CI/CD)
+Pour automatiser la génération des visuels depuis un pipeline CI/CD externe (ex. un dépôt tiers contenant un répertoire de bundle FrameMyApp), le script **`generateBatchForBundle.sh`** orchestre un serveur Vite éphémère et un navigateur Chromium headless (via Playwright) utilisant le moteur de rendu exact de l'application (`HeadlessExportBridge`).
+
+```bash
+{checkoutDir}/generateBatchForBundle.sh --in <bundleDirPath> --out <outputDirPath> [options]
+```
+
+- **Comportement par défaut** : Génère les déclinaisons (`variants/<lang>/<slug>.png`) directement dans `<outputDirPath>` (sans sous-dossier horodaté). Si le bundle ne contient aucune variante (template autonome), exporte `master.png`.
+- **Options disponibles** :
+  - `--all` / `-a` : Exporte l'intégralité du bundle (`master.png`, `overrides/*.png`, `variants/**/*.png`).
+  - `--include-master` : Inclut `master.png` dans l'export.
+  - `--include-overrides` : Inclut `overrides/<slug>.png` dans l'export.
+  - `--no-variants` : Exclut les variantes de l'export.
+
 ---
 
 ## 6. Architecture, Types & Tests du Moteur de Templates

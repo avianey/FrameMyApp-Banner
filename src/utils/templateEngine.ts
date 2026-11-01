@@ -10,9 +10,201 @@ import {
   BannerVariantConfig,
   BundleItem
 } from '../types';
+import { assetManager } from './assetManager';
 
 function deepClone<T>(obj: T): T {
+  if (obj === undefined || obj === null) return obj;
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(obj);
+    } catch {
+      // Fallback for non-cloneable references
+    }
+  }
   return JSON.parse(JSON.stringify(obj));
+}
+
+function normalizeAssetUrl(url: string | undefined): string | undefined {
+  if (!url) return url;
+  const fromBlob = assetManager.getAssetPathFromUrl(url);
+  if (fromBlob) return fromBlob;
+  const displayUrl = assetManager.getDisplayUrl(url);
+  if (displayUrl) {
+    const canonical = assetManager.getAssetPathFromUrl(displayUrl);
+    if (canonical) return canonical;
+  }
+  return url;
+}
+
+function isSameAsset(rawPathInYaml: string | undefined, normalizedCanvasPath: string | undefined, itemPath?: string): boolean {
+  if (!rawPathInYaml || !normalizedCanvasPath) return false;
+  const normRaw = normalizeAssetUrl(rawPathInYaml);
+  if (normRaw === normalizedCanvasPath) return true;
+
+  const cleanRaw = rawPathInYaml.replace(/^\/+/, '');
+  const cleanNorm = normalizedCanvasPath.replace(/^\/+/, '');
+  if (cleanNorm === cleanRaw || cleanNorm === `assets/${cleanRaw}`) return true;
+
+  if (itemPath) {
+    const segments = itemPath.replace(/^variants\//, '').split('/');
+    segments.pop();
+    while (segments.length > 0) {
+      if (cleanNorm === `assets/${segments.join('/')}/${cleanRaw}`) return true;
+      segments.pop();
+    }
+  }
+  return false;
+}
+
+function normalizeElementForDiff(el: CanvasElement): CanvasElement {
+  const copy = deepClone(el) as any;
+  delete copy.imageNaturalWidth;
+  delete copy.imageNaturalHeight;
+  if (copy.type === 'device' && copy.screenImageUrl) {
+    copy.screenImageUrl = normalizeAssetUrl(copy.screenImageUrl);
+  }
+  if (copy.type === 'shape' && copy.imageUrl) {
+    copy.imageUrl = normalizeAssetUrl(copy.imageUrl);
+  }
+  return copy;
+}
+
+function normalizeBackgroundForDiff(bg: BackgroundConfig): BackgroundConfig {
+  const copy = deepClone(bg) as any;
+  delete copy.imageNaturalWidth;
+  delete copy.imageNaturalHeight;
+  if (copy.imageUrl) {
+    copy.imageUrl = normalizeAssetUrl(copy.imageUrl);
+  }
+  return copy;
+}
+
+function computeBackgroundDiff(
+  baseBg: BackgroundConfig,
+  currentBg: BackgroundConfig
+): Partial<BackgroundConfig> {
+  const normBase = normalizeBackgroundForDiff(baseBg);
+  const normCurrent = normalizeBackgroundForDiff(currentBg);
+  const diff: Partial<BackgroundConfig> = {};
+
+  const relevantKeys = new Set<keyof BackgroundConfig>(['type']);
+  if (normCurrent.type === 'solid') {
+    relevantKeys.add('solidColor');
+  } else if (normCurrent.type === 'linear') {
+    relevantKeys.add('color1');
+    relevantKeys.add('color2');
+    relevantKeys.add('angle');
+  } else if (normCurrent.type === 'radial') {
+    relevantKeys.add('radialShape');
+    relevantKeys.add('radialColor1');
+    relevantKeys.add('radialColor2');
+  } else if (normCurrent.type === 'image') {
+    relevantKeys.add('imageUrl');
+    relevantKeys.add('imageFit');
+    relevantKeys.add('imageOffsetX');
+    relevantKeys.add('imageOffsetY');
+    relevantKeys.add('imageScale');
+    relevantKeys.add('imageBlurEnable');
+    if (normCurrent.imageBlurEnable || normBase.imageBlurEnable) {
+      relevantKeys.add('imageBlur');
+    }
+    relevantKeys.add('imageOverlayEnable');
+    if (normCurrent.imageOverlayEnable || normBase.imageOverlayEnable) {
+      relevantKeys.add('imageOverlayColor');
+    }
+    relevantKeys.add('zoomBlurEnable');
+    if (normCurrent.zoomBlurEnable || normBase.zoomBlurEnable) {
+      relevantKeys.add('zoomBlurIntensity');
+      relevantKeys.add('zoomBlurOrigin');
+      if (normCurrent.zoomBlurOrigin === 'custom' || normBase.zoomBlurOrigin === 'custom') {
+        relevantKeys.add('zoomBlurOriginX');
+        relevantKeys.add('zoomBlurOriginY');
+      }
+    }
+  }
+
+  for (const key of relevantKeys) {
+    const curVal = normCurrent[key];
+    const baseVal = normBase[key];
+    if (key === 'imageOffsetX' && (curVal === 0 || curVal === undefined) && (baseVal === 0 || baseVal === undefined)) continue;
+    if (key === 'imageOffsetY' && (curVal === 0 || curVal === undefined) && (baseVal === 0 || baseVal === undefined)) continue;
+    if (key === 'imageScale' && (curVal === 1 || curVal === undefined) && (baseVal === 1 || baseVal === undefined)) continue;
+    if (key === 'imageBlurEnable' && !curVal && !baseVal) continue;
+    if (key === 'imageOverlayEnable' && !curVal && !baseVal) continue;
+    if (key === 'zoomBlurEnable' && !curVal && !baseVal) continue;
+
+    if (JSON.stringify(curVal) !== JSON.stringify(baseVal)) {
+      (diff as any)[key] = deepClone(curVal);
+    }
+  }
+
+  return diff;
+}
+
+function computeExportZoneDiff(
+  baseZone: ExportZone,
+  currentZone: ExportZone
+): Partial<ExportZone> {
+  const diff: Partial<ExportZone> = {};
+  for (const [k, val] of Object.entries(currentZone)) {
+    const baseVal = (baseZone as any)[k];
+    if (k === 'ratio' && typeof val === 'number' && typeof baseVal === 'number' && Math.abs(val - baseVal) < 0.0001) {
+      continue;
+    }
+    if (JSON.stringify(val) !== JSON.stringify(baseVal)) {
+      (diff as any)[k] = deepClone(val);
+    }
+  }
+  return diff;
+}
+
+function computeElementDiff(
+  baseEl: CanvasElement,
+  currentEl: CanvasElement,
+  ignoreText: boolean
+): Record<string, any> {
+  const normBase = normalizeElementForDiff(baseEl);
+  const normCurrent = normalizeElementForDiff(currentEl);
+  const diff: Record<string, any> = {};
+  const ignoredKeys = new Set(['id', 'customId', 'type', 'imageNaturalWidth', 'imageNaturalHeight']);
+  if (ignoreText) ignoredKeys.add('text');
+
+  for (const [k, val] of Object.entries(normCurrent)) {
+    if (ignoredKeys.has(k)) continue;
+    const baseVal = (normBase as any)[k];
+
+    if (k === 'imageOffsetX' && (val === 0 || val === undefined) && (baseVal === 0 || baseVal === undefined)) continue;
+    if (k === 'imageOffsetY' && (val === 0 || val === undefined) && (baseVal === 0 || baseVal === undefined)) continue;
+    if (k === 'imageScale' && (val === 1 || val === undefined) && (baseVal === 1 || baseVal === undefined)) continue;
+    if ((k === 'shadow' || k === 'glow') && val && typeof val === 'object' && !val.enable && (!baseVal || !baseVal.enable)) {
+      continue;
+    }
+
+    if (
+      val !== null &&
+      typeof val === 'object' &&
+      !Array.isArray(val) &&
+      baseVal !== null &&
+      typeof baseVal === 'object' &&
+      !Array.isArray(baseVal)
+    ) {
+      const subDiff: Record<string, any> = {};
+      for (const [subK, subVal] of Object.entries(val)) {
+        if (JSON.stringify(subVal) !== JSON.stringify(baseVal[subK])) {
+          subDiff[subK] = deepClone(subVal);
+        }
+      }
+      if (Object.keys(subDiff).length > 0) {
+        diff[k] = subDiff;
+      }
+      continue;
+    }
+
+    if (JSON.stringify(val) !== JSON.stringify(baseVal)) {
+      diff[k] = deepClone(val);
+    }
+  }
+  return diff;
 }
 
 function deepMerge<T extends Record<string, any>>(target: T, source: Partial<T>): T {
@@ -328,14 +520,17 @@ export function resolveComposition(
 
 /**
  * Serializes current canvas state into an updated BannerVariantConfig.
- * Updates the 'content' mapping with text elements by customId / id,
- * preserves existing override elements, images and metadata.
+ * Only serializes fields that differ from the parent composition (Master + Override).
  */
 export function serializeCanvasToVariant(
   variantItem: BundleItem,
   currentElements: CanvasElement[],
   masterConfig?: BannerMasterConfig,
-  overrideConfig?: BannerOverrideConfig
+  overrideConfig?: BannerOverrideConfig,
+  currentBackground?: BackgroundConfig,
+  currentExportZone?: ExportZone,
+  canvasWidth?: number,
+  canvasHeight?: number
 ): BannerVariantConfig {
   const existingConfig = (variantItem.config || {}) as BannerVariantConfig;
   const newConfig: BannerVariantConfig = deepClone(existingConfig);
@@ -344,36 +539,139 @@ export function serializeCanvasToVariant(
     newConfig.name = variantItem.name;
   }
 
-  // 1. Content mapping (text elements with customId or existing key)
+  const normalizedElements = currentElements.map(normalizeElementForDiff);
+  const parentComposition = masterConfig
+    ? resolveComposition(masterConfig, overrideConfig, undefined, {}, variantItem.path)
+    : undefined;
+
+  // 1. Content mapping: when parentComposition is available, only keep text that differs from parent (Master + Override)
   const newContent: Record<string, string> = { ...(newConfig.content || {}) };
   for (const el of currentElements) {
     if (el.type === 'text') {
       const key = el.customId || el.id;
-      if (key) {
-        newContent[key] = (el as TextElementModel).text;
+      if (!key) continue;
+      const textVal = (el as TextElementModel).text;
+      if (parentComposition) {
+        const baseEl = parentComposition.elements.find(e => (e.customId || e.id) === key || e.id === el.id);
+        if (baseEl && baseEl.type === 'text' && (baseEl as TextElementModel).text === textVal) {
+          delete newContent[key];
+        } else {
+          newContent[key] = textVal;
+        }
+      } else {
+        newContent[key] = textVal;
       }
     }
   }
   if (Object.keys(newContent).length > 0) {
     newConfig.content = newContent;
+  } else {
+    delete newConfig.content;
   }
 
-  // 2. Elements fine-tuning (if variant had custom element properties)
-  if (newConfig.elements && typeof newConfig.elements === 'object' && !Array.isArray(newConfig.elements)) {
-    const updatedElements: Record<string, Partial<CanvasElement>> = { ...newConfig.elements };
+  // 2. Canvas dimensions diff against parent (Master + Override)
+  if (parentComposition) {
+    if (canvasWidth !== undefined) {
+      if (canvasWidth !== parentComposition.canvasWidth) {
+        newConfig.canvasWidth = canvasWidth;
+      } else {
+        delete newConfig.canvasWidth;
+        delete newConfig.width;
+      }
+    }
+    if (canvasHeight !== undefined) {
+      if (canvasHeight !== parentComposition.canvasHeight) {
+        newConfig.canvasHeight = canvasHeight;
+      } else {
+        delete newConfig.canvasHeight;
+        delete newConfig.height;
+      }
+    }
+  }
+
+  // 3. Background diff against parent (Master + Override)
+  if (parentComposition && currentBackground) {
+    const bgDiff = computeBackgroundDiff(parentComposition.background, currentBackground);
+    if (newConfig.images) {
+      const bgImgKey = ['background', 'bg', 'body'].find(k => k in newConfig.images!);
+      if (bgImgKey && bgDiff.imageUrl) {
+        if (!isSameAsset(newConfig.images[bgImgKey], bgDiff.imageUrl, variantItem.path)) {
+          newConfig.images[bgImgKey] = bgDiff.imageUrl;
+        }
+        delete bgDiff.imageUrl;
+      }
+    }
+    if (Object.keys(bgDiff).length > 0) {
+      newConfig.background = bgDiff;
+    } else {
+      delete newConfig.background;
+    }
+  }
+
+  // 4. ExportZone diff against parent (Master + Override)
+  if (parentComposition && currentExportZone) {
+    const zoneDiff = computeExportZoneDiff(parentComposition.exportZone, currentExportZone);
+    if (Object.keys(zoneDiff).length > 0) {
+      newConfig.exportZone = zoneDiff;
+    } else {
+      delete newConfig.exportZone;
+    }
+  }
+
+  // 5. Elements diff against parent (Master + Override)
+  const updatedElements: Record<string, Partial<CanvasElement>> =
+    newConfig.elements && typeof newConfig.elements === 'object' && !Array.isArray(newConfig.elements)
+      ? { ...newConfig.elements }
+      : {};
+
+  if (!parentComposition) {
     for (const [key, props] of Object.entries(updatedElements)) {
-      const matchingEl = currentElements.find(e => e.customId === key || e.id === key);
+      const matchingEl = normalizedElements.find(e => e.customId === key || e.id === key);
       if (matchingEl && props) {
         const newProps: Record<string, any> = { ...props };
         for (const propKey of Object.keys(props)) {
           if (propKey in matchingEl) {
-            newProps[propKey] = (matchingEl as any)[propKey];
+            newProps[propKey] = deepClone((matchingEl as any)[propKey]);
           }
         }
         updatedElements[key] = newProps;
       }
     }
-    newConfig.elements = updatedElements;
+  } else if (!Array.isArray(newConfig.elements)) {
+    for (const currentEl of normalizedElements) {
+      const key = currentEl.customId || currentEl.id;
+      const baseEl = parentComposition.elements.find(e => (e.customId || e.id) === key || e.id === currentEl.id);
+      if (baseEl && key) {
+        const diff = computeElementDiff(baseEl, currentEl, true);
+        if (newConfig.images && key in newConfig.images) {
+          if (diff.screenImageUrl) {
+            if (!isSameAsset(newConfig.images[key], diff.screenImageUrl, variantItem.path)) {
+              newConfig.images[key] = diff.screenImageUrl;
+            }
+            delete diff.screenImageUrl;
+          }
+          if (diff.imageUrl) {
+            if (!isSameAsset(newConfig.images[key], diff.imageUrl, variantItem.path)) {
+              newConfig.images[key] = diff.imageUrl;
+            }
+            delete diff.imageUrl;
+          }
+        }
+        if (Object.keys(diff).length > 0) {
+          updatedElements[key] = diff;
+        } else {
+          delete updatedElements[key];
+        }
+      }
+    }
+  }
+
+  if (!Array.isArray(newConfig.elements)) {
+    if (Object.keys(updatedElements).length > 0) {
+      newConfig.elements = updatedElements;
+    } else {
+      delete newConfig.elements;
+    }
   }
 
   return newConfig;
@@ -381,13 +679,16 @@ export function serializeCanvasToVariant(
 
 /**
  * Serializes current canvas state into an updated BannerOverrideConfig.
+ * Only serializes fields that differ from the Master configuration.
  */
 export function serializeCanvasToOverride(
   overrideItem: BundleItem,
   currentBackground: BackgroundConfig,
   currentElements: CanvasElement[],
   currentExportZone: ExportZone,
-  masterConfig?: BannerMasterConfig
+  masterConfig?: BannerMasterConfig,
+  canvasWidth?: number,
+  canvasHeight?: number
 ): BannerOverrideConfig {
   const existingConfig = (overrideItem.config || {}) as BannerOverrideConfig;
   const newConfig: BannerOverrideConfig = deepClone(existingConfig);
@@ -396,46 +697,140 @@ export function serializeCanvasToOverride(
     newConfig.name = overrideItem.name;
   }
 
-  // Update background if it was configured in the override
-  if (newConfig.background || existingConfig.background) {
-    newConfig.background = deepClone(currentBackground);
+  const normalizedBg = normalizeBackgroundForDiff(currentBackground);
+  const normalizedElements = currentElements.map(normalizeElementForDiff);
+  const parentComposition = masterConfig ? resolveComposition(masterConfig) : undefined;
+
+  // 1. Canvas dimensions diff against master
+  if (parentComposition) {
+    if (canvasWidth !== undefined) {
+      if (canvasWidth !== parentComposition.canvasWidth) {
+        newConfig.canvasWidth = canvasWidth;
+      } else {
+        delete newConfig.canvasWidth;
+        delete newConfig.width;
+      }
+    }
+    if (canvasHeight !== undefined) {
+      if (canvasHeight !== parentComposition.canvasHeight) {
+        newConfig.canvasHeight = canvasHeight;
+      } else {
+        delete newConfig.canvasHeight;
+        delete newConfig.height;
+      }
+    }
   }
 
-  // Update exportZone if it was configured in the override
-  if (newConfig.exportZone || existingConfig.exportZone) {
+  // 2. Background diff against master
+  if (parentComposition) {
+    const bgDiff = computeBackgroundDiff(parentComposition.background, normalizedBg);
+    if (newConfig.images) {
+      const bgImgKey = ['background', 'bg', 'body'].find(k => k in newConfig.images!);
+      if (bgImgKey && bgDiff.imageUrl) {
+        if (!isSameAsset(newConfig.images[bgImgKey], bgDiff.imageUrl, overrideItem.path)) {
+          newConfig.images[bgImgKey] = bgDiff.imageUrl;
+        }
+        delete bgDiff.imageUrl;
+      }
+    }
+    if (Object.keys(bgDiff).length > 0) {
+      newConfig.background = bgDiff;
+    } else {
+      delete newConfig.background;
+    }
+  } else if (newConfig.background || existingConfig.background) {
+    newConfig.background = deepClone(normalizedBg);
+  }
+
+  // 3. ExportZone diff against master
+  if (parentComposition) {
+    const zoneDiff = computeExportZoneDiff(parentComposition.exportZone, currentExportZone);
+    if (Object.keys(zoneDiff).length > 0) {
+      newConfig.exportZone = zoneDiff;
+    } else {
+      delete newConfig.exportZone;
+    }
+  } else if (newConfig.exportZone || existingConfig.exportZone) {
     newConfig.exportZone = deepClone(currentExportZone);
   }
 
-  // Update elements mapping
-  if (newConfig.elements && typeof newConfig.elements === 'object' && !Array.isArray(newConfig.elements)) {
-    const updatedElements: Record<string, Partial<CanvasElement>> = { ...newConfig.elements };
-    for (const [key, props] of Object.entries(updatedElements)) {
-      const matchingEl = currentElements.find(e => e.customId === key || e.id === key);
-      if (matchingEl && props) {
-        const newProps: Record<string, any> = { ...props };
-        for (const propKey of Object.keys(props)) {
-          if (propKey in matchingEl) {
-            newProps[propKey] = (matchingEl as any)[propKey];
-          }
-        }
-        updatedElements[key] = newProps;
-      }
-    }
-    newConfig.elements = updatedElements;
-  }
-
-  // Also update content mapping if override had content
+  // 4. Content mapping if override had content
   if (newConfig.content) {
     const updatedContent: Record<string, string> = { ...newConfig.content };
     for (const el of currentElements) {
       if (el.type === 'text') {
         const key = el.customId || el.id;
         if (key && key in updatedContent) {
-          updatedContent[key] = (el as TextElementModel).text;
+          const textVal = (el as TextElementModel).text;
+          const baseEl = parentComposition?.elements.find(e => (e.customId || e.id) === key || e.id === el.id);
+          if (baseEl && baseEl.type === 'text' && (baseEl as TextElementModel).text === textVal) {
+            delete updatedContent[key];
+          } else {
+            updatedContent[key] = textVal;
+          }
         }
       }
     }
-    newConfig.content = updatedContent;
+    if (Object.keys(updatedContent).length > 0) {
+      newConfig.content = updatedContent;
+    } else {
+      delete newConfig.content;
+    }
+  }
+
+  // 5. Elements mapping (diff against master when masterConfig is provided)
+  if (!Array.isArray(newConfig.elements)) {
+    const updatedElements: Record<string, Partial<CanvasElement>> =
+      newConfig.elements && typeof newConfig.elements === 'object' ? { ...newConfig.elements } : {};
+
+    if (!parentComposition) {
+      for (const [key, props] of Object.entries(updatedElements)) {
+        const matchingEl = normalizedElements.find(e => e.customId === key || e.id === key);
+        if (matchingEl && props) {
+          const newProps: Record<string, any> = { ...props };
+          for (const propKey of Object.keys(props)) {
+            if (propKey in matchingEl) {
+              newProps[propKey] = deepClone((matchingEl as any)[propKey]);
+            }
+          }
+          updatedElements[key] = newProps;
+        }
+      }
+    } else {
+      for (const currentEl of normalizedElements) {
+        const key = currentEl.customId || currentEl.id;
+        const baseEl = parentComposition.elements.find(e => (e.customId || e.id) === key || e.id === currentEl.id);
+        if (baseEl && key) {
+          const ignoreText = Boolean(newConfig.content && key in newConfig.content);
+          const diff = computeElementDiff(baseEl, currentEl, ignoreText);
+          if (newConfig.images && key in newConfig.images) {
+            if (diff.screenImageUrl) {
+              if (!isSameAsset(newConfig.images[key], diff.screenImageUrl, overrideItem.path)) {
+                newConfig.images[key] = diff.screenImageUrl;
+              }
+              delete diff.screenImageUrl;
+            }
+            if (diff.imageUrl) {
+              if (!isSameAsset(newConfig.images[key], diff.imageUrl, overrideItem.path)) {
+                newConfig.images[key] = diff.imageUrl;
+              }
+              delete diff.imageUrl;
+            }
+          }
+          if (Object.keys(diff).length > 0) {
+            updatedElements[key] = diff;
+          } else {
+            delete updatedElements[key];
+          }
+        }
+      }
+    }
+
+    if (Object.keys(updatedElements).length > 0) {
+      newConfig.elements = updatedElements;
+    } else {
+      delete newConfig.elements;
+    }
   }
 
   return newConfig;

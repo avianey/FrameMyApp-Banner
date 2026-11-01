@@ -37,11 +37,27 @@ export const BackgroundControls: React.FC = () => {
     editingImageElementId,
     setEditingImageElementId,
     selectElement,
-    loadedBundle
+    loadedBundle,
+    syncDirectoryHandle,
+    setIsAiModalOpen,
+    isGeneratingAiBg,
+    aiHasApiKey
   } = useEditor();
+
+  const isProjectSyncedToDisk = Boolean(syncDirectoryHandle || loadedBundle?.directoryHandle);
+  const isAiButtonDisabled = !aiHasApiKey || !isProjectSyncedToDisk;
+  const aiDisabledReasons: string[] = [];
+  if (!aiHasApiKey) aiDisabledReasons.push('api key manquante');
+  if (!isProjectSyncedToDisk) aiDisabledReasons.push('projet non synchronisé');
+  const aiDisabledReasonText = aiDisabledReasons.join(' • ');
 
   const { background, canvasWidth = 800, canvasHeight = 600, elements = [] } = state;
   const hasDevice = elements.some(el => el.type === 'device');
+
+  const displayBgUrl =
+    (background.imageUrl ? assetManager.getDisplayUrl(background.imageUrl) : undefined) ||
+    (background.imageUrl && loadedBundle?.assets ? resolveAsset(background.imageUrl, undefined, loadedBundle.assets) : undefined) ||
+    background.imageUrl;
 
   // État local des chaînes pour la saisie libre sans forcer de clamp à chaque touche
   const [widthStr, setWidthStr] = useState<string>(String(canvasWidth));
@@ -96,6 +112,36 @@ export const BackgroundControls: React.FC = () => {
       preset: p.id
     });
     showSnackbar(`Dimensions de la scène : ${p.name} (${p.width} × ${p.height} px)`, 'aspect_ratio');
+  };
+
+  const handleFitCanvasToBackgroundImage = () => {
+    const applyDims = (w: number, h: number) => {
+      const clampedW = Math.max(100, Math.min(8000, Math.round(w)));
+      const clampedH = Math.max(100, Math.min(8000, Math.round(h)));
+      setCanvasDimensions(clampedW, clampedH);
+      setWidthStr(String(clampedW));
+      setHeightStr(String(clampedH));
+      showSnackbar(`Scène ajustée à l'image de fond (${clampedW} × ${clampedH} px)`, 'photo_size_select_large');
+    };
+
+    if (background.imageNaturalWidth && background.imageNaturalHeight) {
+      applyDims(background.imageNaturalWidth, background.imageNaturalHeight);
+      return;
+    }
+
+    if (displayBgUrl) {
+      const img = new Image();
+      img.onload = () => {
+        if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+          setBackground({
+            imageNaturalWidth: img.naturalWidth,
+            imageNaturalHeight: img.naturalHeight
+          });
+          applyDims(img.naturalWidth, img.naturalHeight);
+        }
+      };
+      img.src = displayBgUrl;
+    }
   };
 
   const handleSyncExportZoneToCanvas = () => {
@@ -168,6 +214,18 @@ export const BackgroundControls: React.FC = () => {
             />
           </div>
         </div>
+
+        {/* Bouton pour ajuster la scène aux dimensions de l'image de fond */}
+        {background.type === 'image' && Boolean(background.imageUrl) && (
+          <button
+            onClick={handleFitCanvasToBackgroundImage}
+            title="Ajuster les dimensions de la scène aux dimensions naturelles de l'image de fond"
+            className="w-full py-1.5 px-3 rounded-xl bg-m3-sys-surfaceContainer hover:bg-m3-sys-surfaceContainerHighest text-m3-sys-primary text-[11px] font-semibold border border-m3-sys-outlineVariant/30 transition-all flex items-center justify-center space-x-1.5 cursor-pointer shadow-sm active:scale-98"
+          >
+            <span className="material-symbols-rounded text-sm">photo_size_select_large</span>
+            <span>Ajuster la scène à l'image de fond</span>
+          </button>
+        )}
 
         {/* Bouton pour caler le cadre d'export sur la scène */}
         <button
@@ -317,10 +375,43 @@ export const BackgroundControls: React.FC = () => {
           </div>
 
           {(() => {
-            const displayBgUrl =
-              (background.imageUrl ? assetManager.getDisplayUrl(background.imageUrl) : undefined) ||
-              (background.imageUrl && loadedBundle?.assets ? resolveAsset(background.imageUrl, undefined, loadedBundle.assets) : undefined) ||
-              background.imageUrl;
+            const aiGeneratorSection = (
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  disabled={isAiButtonDisabled}
+                  onClick={() => setIsAiModalOpen(true)}
+                  className={`w-full py-2 px-3 rounded-xl border flex flex-col items-center justify-center text-xs font-bold transition-all shadow-sm overflow-hidden relative ${
+                    isAiButtonDisabled
+                      ? 'bg-m3-sys-surfaceContainerHighest/50 text-m3-sys-onSurfaceVariant/50 border-m3-sys-outlineVariant/30 cursor-not-allowed opacity-60'
+                      : 'bg-gradient-to-r from-indigo-500/15 to-purple-500/15 hover:from-indigo-500/25 hover:to-purple-500/25 text-indigo-400 border-indigo-500/30 cursor-pointer active:scale-98'
+                  }`}
+                >
+                  <div className="flex items-center justify-center space-x-2">
+                    <span
+                      className={`material-symbols-rounded text-base leading-none ${
+                        isGeneratingAiBg ? 'animate-spin' : ''
+                      }`}
+                    >
+                      {isGeneratingAiBg ? 'progress_activity' : 'auto_awesome'}
+                    </span>
+                    <span>
+                      {isGeneratingAiBg ? 'Génération IA en cours...' : 'Générer par IA'}
+                    </span>
+                  </div>
+                  {isGeneratingAiBg && (
+                    <div className="w-full h-1 bg-indigo-950/40 rounded-full overflow-hidden mt-1.5">
+                      <div className="h-full w-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 animate-pulse" />
+                    </div>
+                  )}
+                </button>
+                {isAiButtonDisabled && aiDisabledReasonText && (
+                  <p className="text-[10px] text-amber-500/90 text-center font-medium">
+                    {aiDisabledReasonText}
+                  </p>
+                )}
+              </div>
+            );
 
             return (
               <ImageUploadField
@@ -328,6 +419,7 @@ export const BackgroundControls: React.FC = () => {
                 onImageLoaded={(result, file) => applyBackgroundImage(result, file)}
                 onDelete={() => setBackground({ imageUrl: '', type: 'solid' })}
                 objectFit={background.imageFit === 'contain' ? 'contain' : 'cover'}
+                belowDropzone={aiGeneratorSection}
               >
             {/* Options de remplissage */}
             <div className="space-y-1.5">

@@ -7,16 +7,21 @@ interface ConfirmModalProps {
 }
 
 export const ConfirmModal: React.FC<ConfirmModalProps> = ({ isOpen, onClose, onConfirm }) => {
-  // Close on Escape key
+  // Close on Escape key or Confirm on Enter
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
+      if (!isOpen) return;
+      if (e.key === 'Escape') {
+        onClose();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        onConfirm();
         onClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, onConfirm]);
 
   if (!isOpen) return null;
 
@@ -49,7 +54,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({ isOpen, onClose, onC
         {/* Message explicatif */}
         <div className="text-sm text-m3-sys-onSurfaceVariant leading-relaxed mb-6 space-y-2">
           <p>
-            Tous les textes et toutes les formes seront supprimés de la composition. L'arrière-plan sera réinitialisé à son état d'origine.
+            Tous les textes, toutes les formes et tous les appareils (mockups) seront supprimés de la composition. L'arrière-plan sera réinitialisé à son état d'origine.
           </p>
           <p className="text-xs text-m3-sys-primary font-medium flex items-center space-x-1">
             <span className="material-symbols-rounded text-sm leading-none">undo</span>

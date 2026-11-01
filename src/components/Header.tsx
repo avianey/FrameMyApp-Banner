@@ -1,11 +1,11 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useEditor } from '../context/EditorContext';
 
 export const Header: React.FC = () => {
   const {
     state,
-    setActivePanel,
     resetZoom,
+    centerCanvas,
     zoomIn,
     zoomOut,
     toggleTheme,
@@ -27,6 +27,27 @@ export const Header: React.FC = () => {
     openExportPreview
   } = useEditor();
   const { theme, zoom, canUndo, canRedo } = state;
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isShortcutsOpen) {
+        setIsShortcutsOpen(false);
+        return;
+      }
+      const target = e.target as HTMLElement;
+      const isInput =
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable;
+      if (!isInput && e.key === '?') {
+        e.preventDefault();
+        setIsShortcutsOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isShortcutsOpen]);
 
   const handleSyncClick = async () => {
     if (!syncDirectoryName && !syncFileHandle) {
@@ -166,13 +187,14 @@ export const Header: React.FC = () => {
           </button>
         </div>
 
-        {/* Recentrer la vue */}
+        {/* Ajuster à l'écran (Fit) */}
         <button
-          onClick={resetZoom}
-          title="Recentrer la vue (100%)"
+          onClick={() => centerCanvas(state.canvasWidth || 800, state.canvasHeight || 600, true)}
+          title="Ajuster le canevas à l'écran (Fit)"
+          aria-label="Ajuster le canevas à l'écran"
           className="w-10 h-10 rounded-full flex items-center justify-center border border-m3-sys-outlineVariant/40 bg-m3-sys-surfaceContainerLow hover:bg-m3-sys-surfaceContainerHighest hover:border-m3-sys-primary text-m3-sys-onSurface active:scale-95 shadow-sm transition-all cursor-pointer"
         >
-          <span className="material-symbols-rounded text-xl leading-none">filter_center_focus</span>
+          <span className="material-symbols-rounded text-xl leading-none">fit_screen</span>
         </button>
 
         {/* Aperçu du rendu exporté (Lightbox) */}
@@ -198,7 +220,8 @@ export const Header: React.FC = () => {
         {/* Panneau de sauvegarde et synchronisation */}
         <button
           onClick={() => setIsSavePanelOpen(true)}
-          title="Sauvegarder et exporter le projet (Nom, Disque, Exports)"
+          title="Sauvegarder et exporter le projet (Ctrl+S)"
+          aria-label="Sauvegarder et exporter le projet"
           className={`w-10 h-10 rounded-full flex items-center justify-center border border-m3-sys-outlineVariant/40 bg-m3-sys-surfaceContainerLow hover:bg-m3-sys-surfaceContainerHighest hover:border-m3-sys-primary text-m3-sys-onSurface active:scale-95 shadow-sm transition-all cursor-pointer ${
             isSavePanelOpen ? 'ring-2 ring-m3-sys-primary bg-m3-sys-primaryContainer/20 text-m3-sys-primary' : ''
           }`}
@@ -206,24 +229,24 @@ export const Header: React.FC = () => {
           <span className="material-symbols-rounded text-xl leading-none">save</span>
         </button>
 
-        {/* Modifier le fond */}
-        <button
-          onClick={() => setActivePanel('bg')}
-          title="Modifier le fond"
-          className={`w-10 h-10 rounded-full flex items-center justify-center border border-m3-sys-outlineVariant/40 bg-m3-sys-surfaceContainerLow hover:bg-m3-sys-surfaceContainerHighest hover:border-m3-sys-primary text-m3-sys-onSurface active:scale-95 shadow-sm transition-all cursor-pointer ${
-            state.activePanel === 'bg' ? 'ring-2 ring-m3-sys-primary bg-m3-sys-primaryContainer/20 text-m3-sys-primary' : ''
-          }`}
-        >
-          <span className="material-symbols-rounded text-xl leading-none">wallpaper</span>
-        </button>
-
         {/* Séparateur */}
         <div className="w-px h-6 bg-m3-sys-outlineVariant/50 mx-0.5" />
+
+        {/* Aide Raccourcis Clavier (?) */}
+        <button
+          onClick={() => setIsShortcutsOpen(true)}
+          title="Raccourcis clavier & Aide (?)"
+          aria-label="Afficher les raccourcis clavier"
+          className="w-10 h-10 rounded-full flex items-center justify-center border border-m3-sys-outlineVariant/40 bg-m3-sys-surfaceContainerLow hover:bg-m3-sys-surfaceContainerHighest hover:border-m3-sys-primary text-m3-sys-onSurface active:scale-95 shadow-sm transition-all cursor-pointer"
+        >
+          <span className="material-symbols-rounded text-xl leading-none">keyboard</span>
+        </button>
 
         {/* Toggle Dark / Light mode */}
         <button
           onClick={toggleTheme}
           title={theme === 'dark' ? 'Basculer en mode clair' : 'Basculer en mode sombre'}
+          aria-label="Changer le thème"
           className="w-10 h-10 rounded-full flex items-center justify-center border border-m3-sys-outlineVariant/40 bg-m3-sys-surfaceContainerLow hover:bg-m3-sys-surfaceContainerHighest hover:border-m3-sys-primary text-m3-sys-onSurface active:scale-95 shadow-sm transition-all cursor-pointer"
         >
           <span className="material-symbols-rounded text-xl leading-none">
@@ -231,6 +254,61 @@ export const Header: React.FC = () => {
           </span>
         </button>
       </div>
+
+      {/* Modale d'aide des raccourcis clavier */}
+      {isShortcutsOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setIsShortcutsOpen(false)}
+        >
+          <div
+            className="bg-m3-sys-surfaceContainerHigh text-m3-sys-onSurface rounded-3xl p-6 max-w-lg w-full shadow-m3-4 border border-m3-sys-outlineVariant/40 space-y-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-m3-sys-outlineVariant/30 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <span className="material-symbols-rounded text-xl text-m3-sys-primary">keyboard</span>
+                <h3 className="text-base font-bold">Raccourcis & Interactions (Standard Figma)</h3>
+              </div>
+              <button
+                onClick={() => setIsShortcutsOpen(false)}
+                className="w-8 h-8 rounded-full hover:bg-m3-sys-surfaceContainerHighest flex items-center justify-center cursor-pointer"
+              >
+                <span className="material-symbols-rounded text-lg">close</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+              {[
+                ['Simple clic / Glisser', 'Sélectionner & déplacer'],
+                ['Double-clic (Texte / Image)', 'Éditer le texte / Recadrer'],
+                ['Clic-glisser sur le fond', 'Rectangle de sélection'],
+                ['Espace + Glisser / Molette', 'Déplacer la vue (Pan)'],
+                ['Alt + Glisser', 'Ignorer le magnétisme'],
+                ['Shift + Rotation', 'Paliers de 15°'],
+                ['Ctrl/Cmd + D', 'Dupliquer la sélection'],
+                ['Ctrl/Cmd + C / V', 'Copier / Coller'],
+                ['Ctrl/Cmd + A', 'Tout sélectionner'],
+                ['Ctrl/Cmd + Z / Y', 'Annuler / Rétablir'],
+                ['Ctrl/Cmd + S', 'Synchroniser sur disque'],
+                ['Flèches (Shift = 10px)', 'Déplacer au pixel']
+              ].map(([shortcut, desc]) => (
+                <div
+                  key={shortcut}
+                  className="flex items-center justify-between bg-m3-sys-surfaceContainer p-2.5 rounded-xl border border-m3-sys-outlineVariant/30"
+                >
+                  <span className="text-m3-sys-onSurfaceVariant">{desc}</span>
+                  <kbd className="px-2 py-0.5 rounded bg-m3-sys-surfaceContainerHighest font-mono text-[10px] font-bold text-m3-sys-primary ml-2 whitespace-nowrap">
+                    {shortcut}
+                  </kbd>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   );
 };

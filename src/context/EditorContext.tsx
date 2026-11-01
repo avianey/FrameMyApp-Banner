@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   EditorState,
   BackgroundConfig,
@@ -9,7 +9,8 @@ import {
   ActivePanel,
   LoadedBundle,
   BundleItem,
-  SyncStatus
+  SyncStatus,
+  AiModelConfig
 } from '../types';
 import {
   createTextElement,
@@ -21,7 +22,7 @@ import { useViewportNavigation } from '../hooks/useViewportNavigation';
 import { useElementHierarchy } from '../hooks/useElementHierarchy';
 import { useDiskSync, slugifyFilename, computeCanvasSignature } from '../hooks/useDiskSync';
 import { useBundleManager } from '../hooks/useBundleManager';
-import { assetManager } from '../utils/assetManager';
+import { assetManager, dataUrlToBlob } from '../utils/assetManager';
 import { verifyDirectoryPermission, saveDirectoryHandleToIdb, readDirectoryBundle, getLongestCommonDirectory } from '../utils/bundleIo';
 import { captureExportPreview, ExportPreviewData } from '../utils/export';
 
@@ -90,8 +91,10 @@ export interface EditorContextType {
   updateElement: (id: string, updates: Partial<CanvasElement>) => void;
   deleteElement: (id: string) => void;
   deleteSelectedElements: () => void;
+  duplicateSelectedElements: () => void;
   moveSelectedElements: (dx: number, dy: number, isRepeat?: boolean) => void;
   selectElement: (id: string | null, multi?: boolean) => void;
+  selectElements: (ids: string[]) => void;
   setActivePanel: (panel: ActivePanel) => void;
   editingImageElementId: string | 'background' | null;
   setEditingImageElementId: (id: string | 'background' | null) => void;
@@ -157,6 +160,20 @@ export interface EditorContextType {
   authorizeDiskAccess: () => Promise<void>;
   dismissDiskAccessAndStartNew: () => void;
   abortPendingImport: () => void;
+
+  // AI Background Generation
+  isAiModalOpen: boolean;
+  setIsAiModalOpen: (open: boolean) => void;
+  isGeneratingAiBg: boolean;
+  aiHasApiKey: boolean;
+  aiModels: AiModelConfig[];
+  selectedAiModel: string;
+  setSelectedAiModel: (model: string) => void;
+  aiPrompt: string;
+  setAiPrompt: (prompt: string) => void;
+  aiError: string | null;
+  setAiError: (err: string | null) => void;
+  generateAiBackground: () => Promise<void>;
 }
 
 const initialBackground: BackgroundConfig = {
@@ -455,6 +472,45 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     []
   );
 
+  const clipboardElementsRef = useRef<CanvasElement[]>([]);
+  const syncToDiskRef = useRef<() => Promise<boolean>>(async () => false);
+
+  const duplicateElementsByIds = useCallback(
+    (sourceElements: CanvasElement[]) => {
+      if (sourceElements.length === 0) return;
+      recordHistoryRef.current();
+      const now = Date.now();
+      const cloned = sourceElements.map((el, idx) => {
+        const copy: CanvasElement = JSON.parse(JSON.stringify(el));
+        copy.id = `${el.type}-${now}-${idx}`;
+        copy.x = Math.round(el.x + 24);
+        copy.y = Math.round(el.y + 24);
+        if (copy.customId) {
+          copy.customId = `${copy.customId}_copy`;
+        }
+        return copy;
+      });
+      setElements(prev => [...prev, ...cloned]);
+      const newIds = cloned.map(c => c.id);
+      setSelectedElementIds(newIds);
+      if (newIds.length > 1) {
+        setActivePanelState('align');
+      } else if (cloned[0]) {
+        setActivePanelState(cloned[0].type as ActivePanel);
+      }
+      showSnackbar(
+        cloned.length > 1 ? `${cloned.length} éléments dupliqués` : 'Élément dupliqué',
+        'content_copy'
+      );
+    },
+    [showSnackbar]
+  );
+
+  const duplicateSelectedElements = useCallback(() => {
+    const selected = elements.filter(e => selectedElementIdsRef.current.includes(e.id));
+    duplicateElementsByIds(selected);
+  }, [elements, duplicateElementsByIds]);
+
   // Hook 3: Canvas History (Undo / Redo & Shortcuts)
   const history = useCanvasHistory({
     canvasWidth: navigation.canvasWidth,
@@ -483,6 +539,33 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     },
     onMoveSelected: moveSelectedElements,
     onExitImageEditing: () => setEditingImageElementId(null),
+    onDuplicateSelected: duplicateSelectedElements,
+    onCopySelected: () => {
+      const selected = elements.filter(e => selectedElementIdsRef.current.includes(e.id));
+      if (selected.length > 0) {
+        clipboardElementsRef.current = JSON.parse(JSON.stringify(selected));
+        showSnackbar(
+          selected.length > 1 ? `${selected.length} éléments copiés` : 'Élément copié',
+          'content_copy'
+        );
+      }
+    },
+    onPaste: () => {
+      if (clipboardElementsRef.current.length > 0) {
+        duplicateElementsByIds(clipboardElementsRef.current);
+      }
+    },
+    onSelectAll: () => {
+      if (elements.length > 0) {
+        const allIds = elements.map(e => e.id);
+        setSelectedElementIds(allIds);
+        setActivePanelState(allIds.length > 1 ? 'align' : (elements[0].type as ActivePanel));
+        showSnackbar(`${allIds.length} élément(s) sélectionné(s)`, 'select_all');
+      }
+    },
+    onSave: () => {
+      syncToDiskRef.current();
+    },
     showSnackbar
   });
 
@@ -569,6 +652,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   activeBundleItemIdRef.current = bundleManager.activeBundleItemId;
   setLoadedBundleRef.current = bundleManager.setLoadedBundle;
   markItemSavedRef.current = bundleManager.markItemSaved;
+  syncToDiskRef.current = () => diskSync.syncToDisk();
 
   // Element Actions
   const setBackground = useCallback(
@@ -804,6 +888,23 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [elements]);
 
+  const selectElements = useCallback(
+    (ids: string[]) => {
+      setSelectedElementIds(ids);
+      if (ids.length > 1) {
+        setActivePanelState('align');
+      } else if (ids.length === 1) {
+        const singleEl = elements.find(e => e.id === ids[0]);
+        if (singleEl) {
+          setActivePanelState(singleEl.type as ActivePanel);
+        }
+      } else {
+        setActivePanelState(null);
+      }
+    },
+    [elements]
+  );
+
   const setActivePanel = useCallback((panel: ActivePanel) => {
     setActivePanelState(panel);
     if (panel === 'bg' || panel === 'export') {
@@ -966,20 +1067,12 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     diskSync.dismissDiskAccessAndStartNew();
   }, [pendingYamlImport, bundleManager, diskSync, showSnackbar]);
 
-  // Export Preview Lightbox trigger
+  // Export Preview Lightbox trigger (sans modification de l'état de zoom du canvas)
   const openExportPreview = useCallback(async () => {
     if (!artboardRef.current) return;
     setIsExportPreviewOpen(true);
     setIsGeneratingPreview(true);
-
-    const currentSelection = selectedElementId;
-    const currentZoom = navigation.zoom;
-    selectElement(null);
     setEditingImageElementId(null);
-    navigation.setZoom(1.0);
-
-    // Court délai pour permettre à l'UI de désélectionner avant capture
-    await new Promise(res => setTimeout(res, 120));
 
     try {
       const { blob, dataUrl } = await captureExportPreview(artboardRef.current, navigation.exportZone);
@@ -995,132 +1088,310 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.error('Erreur génération preview :', err);
       showSnackbar('Échec de la génération de l’aperçu', 'error');
     } finally {
-      navigation.setZoom(currentZoom);
-      if (currentSelection) {
-        selectElement(currentSelection);
-      }
       setIsGeneratingPreview(false);
     }
-  }, [artboardRef, selectedElementId, navigation, selectElement, showSnackbar]);
+  }, [artboardRef, navigation.exportZone, showSnackbar]);
+
+  // AI Background Generation State & Actions
+  const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
+  const [isGeneratingAiBg, setIsGeneratingAiBg] = useState<boolean>(false);
+  const [aiHasApiKey, setAiHasApiKey] = useState<boolean>(false);
+  const [aiModels, setAiModels] = useState<AiModelConfig[]>([
+    { id: 'gemini-4-argon', name: 'Gemini 4 Argon', description: 'Modèle par défaut', default: true }
+  ]);
+  const [selectedAiModel, setSelectedAiModel] = useState<string>('gemini-4-argon');
+  const [aiPrompt, setAiPrompt] = useState<string>('');
+  const [aiError, setAiError] = useState<string | null>(null);
+  const hasWarnedMissingKeyRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function checkAiConfig() {
+      try {
+        const res = await fetch('/api/ai/status');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (cancelled) return;
+        const hasKey = Boolean(data.hasApiKey);
+        setAiHasApiKey(hasKey);
+        if (!hasKey && !hasWarnedMissingKeyRef.current) {
+          hasWarnedMissingKeyRef.current = true;
+          console.warn(
+            '[FrameMyApp AI] Variable d\'environnement GEMINI_API_KEY manquante ou vide sur le serveur. Le bouton "Générer par IA" est désactivé.'
+          );
+        }
+        if (Array.isArray(data.models) && data.models.length > 0) {
+          setAiModels(data.models);
+          const defaultModel = data.models.find((m: AiModelConfig) => m.default) || data.models[0];
+          if (defaultModel) {
+            setSelectedAiModel(defaultModel.id);
+          }
+        }
+      } catch (e) {
+        if (!cancelled && !hasWarnedMissingKeyRef.current) {
+          hasWarnedMissingKeyRef.current = true;
+          console.warn('[FrameMyApp AI] Impossible de vérifier GEMINI_API_KEY auprès du serveur :', e);
+        }
+      }
+    }
+    checkAiConfig();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const generateAiBackground = useCallback(async () => {
+    if (isGeneratingAiBg) return;
+    if (!aiPrompt.trim()) {
+      setAiError('Veuillez saisir un prompt descriptif.');
+      return;
+    }
+
+    const w = navigation.canvasWidth || 800;
+    const h = navigation.canvasHeight || 600;
+    const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+    const divisor = gcd(Math.round(w), Math.round(h)) || 1;
+    const rw = Math.round(w / divisor);
+    const rh = Math.round(h / divisor);
+    const ratioVal = w / h;
+    let aspectRatio = `${rw}:${rh}`;
+    if (Math.abs(ratioVal - 16 / 9) < 0.03) aspectRatio = '16:9';
+    else if (Math.abs(ratioVal - 9 / 16) < 0.03) aspectRatio = '9:16';
+    else if (Math.abs(ratioVal - 1) < 0.03) aspectRatio = '1:1';
+    else if (Math.abs(ratioVal - 4 / 3) < 0.03) aspectRatio = '4:3';
+    else if (Math.abs(ratioVal - 3 / 4) < 0.03) aspectRatio = '3:4';
+    else if (Math.abs(ratioVal - 3 / 1) < 0.05) aspectRatio = '3:1';
+
+    setIsGeneratingAiBg(true);
+    setAiError(null);
+
+    try {
+      const response = await fetch('/api/ai/generate-background', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: selectedAiModel,
+          prompt: aiPrompt.trim(),
+          width: w,
+          height: h,
+          aspectRatio
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.dataUrl) {
+        throw new Error(data.error || `Erreur lors de la génération (${response.status})`);
+      }
+
+      const { blob, ext } = dataUrlToBlob(data.dataUrl);
+      const filename = `ai_bg_${Date.now()}.${ext || 'png'}`;
+      const file = new File([blob], filename, { type: data.mimeType || 'image/png' });
+
+      await applyBackgroundImage(data.dataUrl, file);
+      setIsAiModalOpen(false);
+    } catch (err: any) {
+      console.error('[FrameMyApp AI] Échec de génération :', err);
+      const msg = err.message || 'Échec de la génération par IA';
+      setAiError(msg);
+      showSnackbar(`Erreur IA : ${msg}`, 'error');
+    } finally {
+      setIsGeneratingAiBg(false);
+    }
+  }, [isGeneratingAiBg, aiPrompt, navigation.canvasWidth, navigation.canvasHeight, selectedAiModel, applyBackgroundImage, showSnackbar]);
+
+  const contextValue = useMemo(
+    () => ({
+      state: {
+        canvasWidth: navigation.canvasWidth,
+        canvasHeight: navigation.canvasHeight,
+        background,
+        elements,
+        selectedElementId,
+        selectedElementIds,
+        activePanel,
+        exportZone: navigation.exportZone,
+        isDrawingExportMode: navigation.isDrawingExportMode,
+        theme,
+        zoom: navigation.zoom,
+        pan: navigation.pan,
+        canUndo: history.canUndo,
+        canRedo: history.canRedo
+      },
+      snackbar,
+      isConfirmModalOpen,
+      setIsConfirmModalOpen,
+      isBatchExportModalOpen,
+      setIsBatchExportModalOpen,
+      isExportPreviewOpen,
+      setIsExportPreviewOpen,
+      exportPreviewData,
+      isGeneratingPreview,
+      openExportPreview,
+      isLeftSidebarOpen,
+      setIsLeftSidebarOpen,
+      activeLeftTab,
+      setActiveLeftTab,
+      artboardRef,
+      artboardContainerRef,
+      viewportRef,
+      setBackground,
+      applyBackgroundImage,
+      persistAsset,
+      setCanvasDimensions: navigation.setCanvasDimensions,
+      addText,
+      addShape,
+      addDevice,
+      updateElement,
+      deleteElement,
+      deleteSelectedElements,
+      duplicateSelectedElements,
+      moveSelectedElements,
+      selectElement,
+      selectElements,
+      setActivePanel,
+      editingImageElementId,
+      setEditingImageElementId,
+      updateExportZone: navigation.updateExportZone,
+      setIsDrawingExportMode: navigation.setIsDrawingExportMode,
+      showSnackbar,
+      resetZoom: navigation.resetZoom,
+      centerCanvas: navigation.centerCanvas,
+      setZoom: navigation.setZoom,
+      zoomIn: navigation.zoomIn,
+      zoomOut: navigation.zoomOut,
+      setPan: navigation.setPan,
+      toggleTheme,
+      recordHistory: history.recordHistory,
+      undo: history.undo,
+      redo: history.redo,
+      clearAll,
+      bringForward: hierarchy.bringForward,
+      sendBackward: hierarchy.sendBackward,
+      bringToFront: hierarchy.bringToFront,
+      sendToBack: hierarchy.sendToBack,
+      alignSelected: hierarchy.alignSelected,
+      alignElementToCanvas: hierarchy.alignElementToCanvas,
+      distributeSelected: hierarchy.distributeSelected,
+      loadedBundle: bundleManager.loadedBundle,
+      setLoadedBundle: bundleManager.setLoadedBundle,
+      activeBundleItemId: bundleManager.activeBundleItemId,
+      applyBundleItem: bundleManager.applyBundleItem,
+      detachBundleAndResetToBlank,
+      applyCompositionDirectly,
+      exportCanvasAsTemplateYaml: bundleManager.exportCanvasAsTemplateYaml,
+      exportCanvasAsBundleZip: bundleManager.exportCanvasAsBundleZip,
+      updateElementCustomId,
+      autoGenerateCustomIds,
+      isItemDirty: bundleManager.isItemDirty,
+      markItemSaved: bundleManager.markItemSaved,
+      saveBundleItemToDisk: bundleManager.saveBundleItemToDisk,
+      projectName: diskSync.projectName,
+      setProjectName: diskSync.setProjectName,
+      isSavePanelOpen,
+      setIsSavePanelOpen,
+      syncStatus: diskSync.syncStatus,
+      lastSyncTime: diskSync.lastSyncTime,
+      isAutoSyncEnabled: diskSync.isAutoSyncEnabled,
+      setIsAutoSyncEnabled: diskSync.setIsAutoSyncEnabled,
+      syncDirectoryName: diskSync.syncDirectoryName,
+      setSyncDirectoryName: diskSync.setSyncDirectoryName,
+      syncFilePath: diskSync.syncFilePath,
+      setSyncFilePath: diskSync.setSyncFilePath,
+      syncDirectoryHandle: diskSync.syncDirectoryHandle,
+      setSyncDirectoryHandle: diskSync.setSyncDirectoryHandle,
+      syncFileHandle: diskSync.syncFileHandle,
+      syncToDisk: diskSync.syncToDisk,
+      selectSyncDirectory: diskSync.selectSyncDirectory,
+      selectSyncFile: diskSync.selectSyncFile,
+      pauseDiskSync: diskSync.pauseDiskSync,
+      resumeDiskSync: diskSync.resumeDiskSync,
+      isPermissionModalOpen: diskSync.isPermissionModalOpen || Boolean(pendingYamlImport),
+      permissionTargetName: pendingYamlImport ? pendingYamlImport.filename : diskSync.permissionTargetName,
+      permissionDetectedAssets: pendingYamlImport ? pendingYamlImport.detectedAssets : diskSync.permissionDetectedAssets,
+      permissionTitle: pendingYamlImport ? 'Charger les images du template ?' : diskSync.permissionTitle,
+      permissionConfirmLabel: pendingYamlImport ? 'Sélectionner le dossier du projet' : diskSync.permissionConfirmLabel,
+      permissionCancelLabel: pendingYamlImport ? 'Continuer sans les images' : diskSync.permissionCancelLabel,
+      permissionErrorMessage: permissionModalError || diskSync.permissionErrorMessage,
+      requestYamlAssetsPermission,
+      authorizeDiskAccess,
+      dismissDiskAccessAndStartNew,
+      abortPendingImport,
+      isAiModalOpen,
+      setIsAiModalOpen,
+      isGeneratingAiBg,
+      aiHasApiKey,
+      aiModels,
+      selectedAiModel,
+      setSelectedAiModel,
+      aiPrompt,
+      setAiPrompt,
+      aiError,
+      setAiError,
+      generateAiBackground
+    }),
+    [
+      navigation,
+      background,
+      elements,
+      selectedElementId,
+      selectedElementIds,
+      activePanel,
+      theme,
+      history,
+      snackbar,
+      isConfirmModalOpen,
+      isBatchExportModalOpen,
+      isExportPreviewOpen,
+      exportPreviewData,
+      isGeneratingPreview,
+      openExportPreview,
+      isLeftSidebarOpen,
+      activeLeftTab,
+      setBackground,
+      applyBackgroundImage,
+      persistAsset,
+      addText,
+      addShape,
+      addDevice,
+      updateElement,
+      deleteElement,
+      deleteSelectedElements,
+      duplicateSelectedElements,
+      moveSelectedElements,
+      selectElement,
+      selectElements,
+      setActivePanel,
+      editingImageElementId,
+      showSnackbar,
+      toggleTheme,
+      clearAll,
+      hierarchy,
+      bundleManager,
+      detachBundleAndResetToBlank,
+      applyCompositionDirectly,
+      updateElementCustomId,
+      autoGenerateCustomIds,
+      diskSync,
+      isSavePanelOpen,
+      pendingYamlImport,
+      permissionModalError,
+      requestYamlAssetsPermission,
+      authorizeDiskAccess,
+      dismissDiskAccessAndStartNew,
+      abortPendingImport,
+      isAiModalOpen,
+      isGeneratingAiBg,
+      aiHasApiKey,
+      aiModels,
+      selectedAiModel,
+      aiPrompt,
+      aiError,
+      generateAiBackground
+    ]
+  );
 
   return (
-    <EditorContext.Provider
-      value={{
-        state: {
-          canvasWidth: navigation.canvasWidth,
-          canvasHeight: navigation.canvasHeight,
-          background,
-          elements,
-          selectedElementId,
-          selectedElementIds,
-          activePanel,
-          exportZone: navigation.exportZone,
-          isDrawingExportMode: navigation.isDrawingExportMode,
-          theme,
-          zoom: navigation.zoom,
-          pan: navigation.pan,
-          canUndo: history.canUndo,
-          canRedo: history.canRedo
-        },
-        snackbar,
-        isConfirmModalOpen,
-        setIsConfirmModalOpen,
-        isBatchExportModalOpen,
-        setIsBatchExportModalOpen,
-        isExportPreviewOpen,
-        setIsExportPreviewOpen,
-        exportPreviewData,
-        isGeneratingPreview,
-        openExportPreview,
-        isLeftSidebarOpen,
-        setIsLeftSidebarOpen,
-        activeLeftTab,
-        setActiveLeftTab,
-        artboardRef,
-        artboardContainerRef,
-        viewportRef,
-        setBackground,
-        applyBackgroundImage,
-        persistAsset,
-        setCanvasDimensions: navigation.setCanvasDimensions,
-        addText,
-        addShape,
-        addDevice,
-        updateElement,
-        deleteElement,
-        deleteSelectedElements,
-        moveSelectedElements,
-        selectElement,
-        setActivePanel,
-        editingImageElementId,
-        setEditingImageElementId,
-        updateExportZone: navigation.updateExportZone,
-        setIsDrawingExportMode: navigation.setIsDrawingExportMode,
-        showSnackbar,
-        resetZoom: navigation.resetZoom,
-        centerCanvas: navigation.centerCanvas,
-        setZoom: navigation.setZoom,
-        zoomIn: navigation.zoomIn,
-        zoomOut: navigation.zoomOut,
-        setPan: navigation.setPan,
-        toggleTheme,
-        recordHistory: history.recordHistory,
-        undo: history.undo,
-        redo: history.redo,
-        clearAll,
-        bringForward: hierarchy.bringForward,
-        sendBackward: hierarchy.sendBackward,
-        bringToFront: hierarchy.bringToFront,
-        sendToBack: hierarchy.sendToBack,
-        alignSelected: hierarchy.alignSelected,
-        alignElementToCanvas: hierarchy.alignElementToCanvas,
-        distributeSelected: hierarchy.distributeSelected,
-        loadedBundle: bundleManager.loadedBundle,
-        setLoadedBundle: bundleManager.setLoadedBundle,
-        activeBundleItemId: bundleManager.activeBundleItemId,
-        applyBundleItem: bundleManager.applyBundleItem,
-        detachBundleAndResetToBlank,
-        applyCompositionDirectly,
-        exportCanvasAsTemplateYaml: bundleManager.exportCanvasAsTemplateYaml,
-        exportCanvasAsBundleZip: bundleManager.exportCanvasAsBundleZip,
-        updateElementCustomId,
-        autoGenerateCustomIds,
-        isItemDirty: bundleManager.isItemDirty,
-        markItemSaved: bundleManager.markItemSaved,
-        saveBundleItemToDisk: bundleManager.saveBundleItemToDisk,
-        projectName: diskSync.projectName,
-        setProjectName: diskSync.setProjectName,
-        isSavePanelOpen,
-        setIsSavePanelOpen,
-        syncStatus: diskSync.syncStatus,
-        lastSyncTime: diskSync.lastSyncTime,
-        isAutoSyncEnabled: diskSync.isAutoSyncEnabled,
-        setIsAutoSyncEnabled: diskSync.setIsAutoSyncEnabled,
-        syncDirectoryName: diskSync.syncDirectoryName,
-        setSyncDirectoryName: diskSync.setSyncDirectoryName,
-        syncFilePath: diskSync.syncFilePath,
-        setSyncFilePath: diskSync.setSyncFilePath,
-        syncDirectoryHandle: diskSync.syncDirectoryHandle,
-        setSyncDirectoryHandle: diskSync.setSyncDirectoryHandle,
-        syncFileHandle: diskSync.syncFileHandle,
-        syncToDisk: diskSync.syncToDisk,
-        selectSyncDirectory: diskSync.selectSyncDirectory,
-        selectSyncFile: diskSync.selectSyncFile,
-        pauseDiskSync: diskSync.pauseDiskSync,
-        resumeDiskSync: diskSync.resumeDiskSync,
-        isPermissionModalOpen: diskSync.isPermissionModalOpen || Boolean(pendingYamlImport),
-        permissionTargetName: pendingYamlImport ? pendingYamlImport.filename : diskSync.permissionTargetName,
-        permissionDetectedAssets: pendingYamlImport ? pendingYamlImport.detectedAssets : diskSync.permissionDetectedAssets,
-        permissionTitle: pendingYamlImport ? 'Charger les images du template ?' : diskSync.permissionTitle,
-        permissionConfirmLabel: pendingYamlImport ? 'Sélectionner le dossier du projet' : diskSync.permissionConfirmLabel,
-        permissionCancelLabel: pendingYamlImport ? 'Continuer sans les images' : diskSync.permissionCancelLabel,
-        permissionErrorMessage: permissionModalError || diskSync.permissionErrorMessage,
-        requestYamlAssetsPermission,
-        authorizeDiskAccess,
-        dismissDiskAccessAndStartNew,
-        abortPendingImport
-      }}
-    >
+    <EditorContext.Provider value={contextValue}>
       {children}
     </EditorContext.Provider>
   );

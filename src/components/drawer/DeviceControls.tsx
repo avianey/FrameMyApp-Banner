@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useEditor } from '../../context/EditorContext';
 import { DeviceElementModel, DeviceModelType } from '../../types';
 import { ColorAlphaPicker } from '../common/ColorAlphaPicker';
@@ -82,6 +82,46 @@ interface DeviceControlsProps {
 
 export const DeviceControls: React.FC<DeviceControlsProps> = ({ element }) => {
   const { updateElement, deleteElement, showSnackbar, recordHistory, persistAsset, loadedBundle } = useEditor();
+  const [widthStr, setWidthStr] = useState(String(Math.round(element.width)));
+  const [heightStr, setHeightStr] = useState(String(Math.round(element.height)));
+
+  useEffect(() => {
+    setWidthStr(String(Math.round(element.width)));
+  }, [element.width]);
+
+  useEffect(() => {
+    setHeightStr(String(Math.round(element.height)));
+  }, [element.height]);
+
+  const commitWidth = () => {
+    const parsed = parseInt(widthStr, 10);
+    const newW = Math.max(60, isNaN(parsed) ? element.width : parsed);
+    setWidthStr(String(newW));
+    if (newW !== element.width) {
+      recordHistory();
+      if (element.screenImageUrl && element.imageAspectRatio) {
+        const newH = computeDeviceHeightFromWidth(newW, element.imageAspectRatio, element);
+        handleUpdate({ width: newW, height: newH });
+      } else {
+        handleUpdate({ width: newW });
+      }
+    }
+  };
+
+  const commitHeight = () => {
+    const parsed = parseInt(heightStr, 10);
+    const newH = Math.max(60, isNaN(parsed) ? element.height : parsed);
+    setHeightStr(String(newH));
+    if (newH !== element.height) {
+      recordHistory();
+      if (element.screenImageUrl && element.imageAspectRatio) {
+        const newW = computeDeviceWidthFromHeight(newH, element.imageAspectRatio, element);
+        handleUpdate({ width: newW, height: newH });
+      } else {
+        handleUpdate({ height: newH });
+      }
+    }
+  };
 
   const baseW = element.deviceType === 'pixel-tab' ? 500 : 260;
   const effectiveDims = getDeviceEffectiveDimensions(element);
@@ -674,14 +714,12 @@ export const DeviceControls: React.FC<DeviceControlsProps> = ({ element }) => {
             <span className="text-[11px] text-m3-sys-onSurfaceVariant">Largeur (px)</span>
             <input
               type="number"
-              value={element.width}
-              onChange={e => {
-                const newW = Math.max(60, parseInt(e.target.value, 10) || 60);
-                if (element.screenImageUrl && element.imageAspectRatio) {
-                  const newH = computeDeviceHeightFromWidth(newW, element.imageAspectRatio, element);
-                  handleUpdate({ width: newW, height: newH });
-                } else {
-                  handleUpdate({ width: newW });
+              value={widthStr}
+              onChange={e => setWidthStr(e.target.value)}
+              onBlur={commitWidth}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.currentTarget.blur();
                 }
               }}
               className="w-full mt-1 px-3 py-1.5 bg-m3-sys-surfaceContainerHighest rounded-xl border border-m3-sys-outlineVariant/50 text-sm font-mono font-medium focus:ring-2 focus:ring-m3-sys-primary focus:outline-none"
@@ -691,14 +729,12 @@ export const DeviceControls: React.FC<DeviceControlsProps> = ({ element }) => {
             <span className="text-[11px] text-m3-sys-onSurfaceVariant">Hauteur (px)</span>
             <input
               type="number"
-              value={element.height}
-              onChange={e => {
-                const newH = Math.max(60, parseInt(e.target.value, 10) || 60);
-                if (element.screenImageUrl && element.imageAspectRatio) {
-                  const newW = computeDeviceWidthFromHeight(newH, element.imageAspectRatio, element);
-                  handleUpdate({ width: newW, height: newH });
-                } else {
-                  handleUpdate({ height: newH });
+              value={heightStr}
+              onChange={e => setHeightStr(e.target.value)}
+              onBlur={commitHeight}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.currentTarget.blur();
                 }
               }}
               className="w-full mt-1 px-3 py-1.5 bg-m3-sys-surfaceContainerHighest rounded-xl border border-m3-sys-outlineVariant/50 text-sm font-mono font-medium focus:ring-2 focus:ring-m3-sys-primary focus:outline-none"

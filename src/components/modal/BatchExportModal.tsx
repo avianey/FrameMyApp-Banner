@@ -89,6 +89,18 @@ export const BatchExportModal: React.FC = () => {
     setIsVariantsExpanded(true);
   }, [isBatchExportModalOpen, loadedBundle]);
 
+  // Fermeture par touche Escape hors export en cours
+  useEffect(() => {
+    if (!isBatchExportModalOpen || isExporting) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsBatchExportModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isBatchExportModalOpen, isExporting, setIsBatchExportModalOpen]);
+
   if (!isBatchExportModalOpen || !loadedBundle) return null;
 
   const handlePickDirectory = async () => {
@@ -242,7 +254,7 @@ export const BatchExportModal: React.FC = () => {
           await new Promise(r => setTimeout(r, 100));
 
           // 4. Capture
-          const { blob, dataUrl } = await captureZoneToBlob(artboardRef.current, resolved.exportZone);
+          const { blob, thumbnailUrl } = await captureZoneToBlob(artboardRef.current, resolved.exportZone);
 
           // 5. Store/write
           if (exportMode === 'directory' && rootSubDirHandle) {
@@ -253,10 +265,10 @@ export const BatchExportModal: React.FC = () => {
 
           successCount++;
 
-          // Update item status to done with preview
+          // Update item status to done with lightweight thumbnail preview
           setItems(prev =>
             prev.map((it, idx) =>
-              idx === i ? { ...it, status: 'done', previewDataUrl: dataUrl } : it
+              idx === i ? { ...it, status: 'done', previewDataUrl: thumbnailUrl } : it
             )
           );
         } catch (err: any) {

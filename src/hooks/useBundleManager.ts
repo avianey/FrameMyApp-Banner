@@ -248,7 +248,9 @@ export function useBundleManager({
             background,
             elements,
             exportZone,
-            currentBundle.master?.config as BannerMasterConfig | undefined
+            currentBundle.master?.config as BannerMasterConfig | undefined,
+            canvasWidth,
+            canvasHeight
           );
           yamlContent = stringifyYaml(overrideConfig);
           updatedConfig = overrideConfig;
@@ -258,7 +260,11 @@ export function useBundleManager({
             item,
             elements,
             currentBundle.master?.config as BannerMasterConfig | undefined,
-            matchingOverride?.config as BannerOverrideConfig | undefined
+            matchingOverride?.config as BannerOverrideConfig | undefined,
+            background,
+            exportZone,
+            canvasWidth,
+            canvasHeight
           );
           yamlContent = stringifyYaml(variantConfig);
           updatedConfig = variantConfig;
@@ -292,16 +298,15 @@ export function useBundleManager({
           }
         }
 
+        const cleanConfig = convertUrlsToRelativeAssetPaths(updatedConfig, currentBundle.assets);
+        yamlContent = stringifyYaml(cleanConfig);
+
         if (dirHandle) {
           await verifyDirectoryPermission(dirHandle, true);
           await assetManager.saveAllToDirectory(dirHandle, true);
-          const cleanConfig = convertUrlsToRelativeAssetPaths(updatedConfig);
-          yamlContent = stringifyYaml(cleanConfig);
           await writeTextToDirectory(dirHandle, item.path, yamlContent);
           showSnackbar(`Enregistré dans : ${item.path}`, 'save');
         } else {
-          const cleanConfig = convertUrlsToRelativeAssetPaths(updatedConfig);
-          yamlContent = stringifyYaml(cleanConfig);
           downloadFile(item.path.split('/').pop() || 'template.yml', yamlContent, 'text/yaml');
           showSnackbar(`Fichier téléchargé : ${item.path}`, 'download');
         }
@@ -309,7 +314,7 @@ export function useBundleManager({
         const updatedItem: BundleItem = {
           ...item,
           rawContent: yamlContent,
-          config: updatedConfig
+          config: cleanConfig
         };
 
         let newBundle: LoadedBundle;

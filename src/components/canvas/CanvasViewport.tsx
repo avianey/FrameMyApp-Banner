@@ -21,6 +21,7 @@ export const CanvasViewport: React.FC = () => {
     centerCanvas,
     setPan,
     selectElement,
+    selectElements,
     editingImageElementId,
     setEditingImageElementId
   } = useEditor();
@@ -28,7 +29,14 @@ export const CanvasViewport: React.FC = () => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
+  const [marquee, setMarquee] = useState<{
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+  } | null>(null);
   const panStartRef = useRef<{ startX: number; startY: number; initPanX: number; initPanY: number } | null>(null);
+  const marqueeStartRef = useRef<{ startX: number; startY: number } | null>(null);
   const hasMovedRef = useRef<boolean>(false);
   const editingImageElementIdRef = useRef(editingImageElementId);
   const hasInitiallyCenteredRef = useRef<boolean>(false);
@@ -70,6 +78,15 @@ export const CanvasViewport: React.FC = () => {
         return;
       }
 
+      // Pan horizontal/vertical à 2 doigts sur trackpad si deltaX est présent sans Ctrl/Cmd
+      if (!e.ctrlKey && !e.metaKey && Math.abs(e.deltaX) > 0) {
+        setPan(prev => ({
+          x: Math.round(prev.x - e.deltaX),
+          y: Math.round(prev.y - e.deltaY)
+        }));
+        return;
+      }
+
       const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
       setZoom(
         prev => {
@@ -92,7 +109,7 @@ export const CanvasViewport: React.FC = () => {
       viewportEl.removeEventListener('wheel', handleWheel);
       viewportEl.removeEventListener('auxclick', preventAuxClick);
     };
-  }, [setZoom, viewportRef]);
+  }, [setZoom, setPan, viewportRef]);
 
   // Space key detection for pan navigation (Inkscape style) & Escape to exit editing
   useEffect(() => {
@@ -146,11 +163,10 @@ export const CanvasViewport: React.FC = () => {
       }
     }
 
-    // Autoriser le déplacement de la scène avec :
-    // 1. Clic gauche (bouton 0) sur l'arrière-plan ou scène
-    // 2. Clic molette (bouton 1)
-    // 3. Espace + clic gauche
-    if (e.button === 0 || e.button === 1) {
+    // Standard Figma :
+    // - Pan avec Espace + Clic gauche OU Clic molette (bouton 1)
+    // - Rectangle de sélection (Marquee) au Clic gauche (bouton 0) sur le fond / artboard
+    if (e.button === 1 || (e.button === 0 && isSpacePressed)) {
       hasMovedRef.current = false;
       setIsPanning(true);
       panStartRef.current = {
@@ -159,6 +175,19 @@ export const CanvasViewport: React.FC = () => {
         initPanX: pan.x,
         initPanY: pan.y
       };
+      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+      return;
+    }
+
+    if (e.button === 0) {
+      hasMovedRef.current = false;
+      marqueeStartRef.current = { startX: e.clientX, startY: e.clientY };
+      setMarquee({
+        startX: e.clientX,
+        startY: e.clientY,
+        currentX: e.clientX,
+        currentY: e.clientY
+      });
       (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     }
   };
@@ -174,20 +203,66 @@ export const CanvasViewport: React.FC = () => {
         x: Math.round(panStartRef.current.initPanX + dx),
         y: Math.round(panStartRef.current.initPanY + dy)
       });
+      return;
+    }
+
+    if (marqueeStartRef.current) {
+      const dx = e.clientX - marqueeStartRef.current.startX;
+      const dy = e.clientY - marqueeStartRef.current.startY;
+      if (!hasMovedRef.current && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+        hasMovedRef.current = true;
+      }
+      setMarquee({
+        startX: marqueeStartRef.current.startX,
+        startY: marqueeStartRef.current.startY,
+        currentX: e.clientX,
+        currentY: e.clientY
+      });
     }
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
     if (isPanning) {
-      const wasDrag = hasMovedRef.current;
       setIsPanning(false);
       panStartRef.current = null;
       try {
         (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
       } catch {}
+      return;
+    }
 
-      // Si c'était un simple clic sans déplacement sur l'arrière-plan avec le clic gauche : désélectionner et ouvrir le volet d'arrière-plan
-      if (!wasDrag && e.button === 0) {
+    if (marqueeStartRef.current) {
+      const wasDrag = hasMovedRef.current;
+      const start = marqueeStartRef.current;
+      marqueeStartRef.current = null;
+      setMarquee(null);
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+      } catch {}
+
+      if (wasDrag) {
+        const minX = Math.min(start.startX, e.clientX);
+        const maxX = Math.max(start.startX, e.clientX);
+        const minY = Math.min(start.startY, e.clientY);
+        const maxY = Math.max(start.startY, e.clientY);
+
+        const matchedIds: string[] = [];
+        for (const el of state.elements) {
+          const domNode = document.getElementById(`el-${el.id}`);
+          if (domNode) {
+            const rect = domNode.getBoundingClientRect();
+            const intersects =
+              rect.left <= maxX &&
+              rect.right >= minX &&
+              rect.top <= maxY &&
+              rect.bottom >= minY;
+            if (intersects) {
+              matchedIds.push(el.id);
+            }
+          }
+        }
+        selectElements(matchedIds);
+      } else if (e.button === 0) {
         selectElement(null);
         setActivePanel('bg');
         if (editingImageElementId && editingImageElementId !== 'background') {
@@ -318,12 +393,14 @@ export const CanvasViewport: React.FC = () => {
     }
   };
 
-  let cursorClass = 'cursor-grab';
+  let cursorClass = 'cursor-default';
   if (isPanning) {
     cursorClass = 'cursor-grabbing';
   } else if (isSpacePressed) {
     cursorClass = 'cursor-grab';
   }
+
+  const viewportRect = viewportRef.current?.getBoundingClientRect();
 
   return (
     <main
@@ -402,8 +479,23 @@ export const CanvasViewport: React.FC = () => {
         </div>
       )}
 
-      {/* Plan de travail avec échelle de zoom */}
-      <Artboard />
+      {/* Plan de travail avec échelle de zoom (pointer-events désactivés pendant Espace+Pan) */}
+      <div className={isSpacePressed || isPanning ? 'pointer-events-none' : ''}>
+        <Artboard />
+      </div>
+
+      {/* Rectangle de sélection Marquee (Standard Figma) */}
+      {marquee && hasMovedRef.current && viewportRect && (
+        <div
+          className="fixed border border-m3-sys-primary bg-m3-sys-primary/15 pointer-events-none z-50 rounded-sm"
+          style={{
+            left: `${Math.min(marquee.startX, marquee.currentX)}px`,
+            top: `${Math.min(marquee.startY, marquee.currentY)}px`,
+            width: `${Math.abs(marquee.currentX - marquee.startX)}px`,
+            height: `${Math.abs(marquee.currentY - marquee.startY)}px`
+          }}
+        />
+      )}
 
       {/* Badge flottant des contrôles de zoom en bas à gauche */}
       <div className="absolute bottom-6 left-6 z-20 flex items-center bg-m3-sys-surfaceContainerHigh/90 backdrop-blur-md rounded-full shadow-m3-2 border border-m3-sys-outlineVariant/50 p-1 space-x-1 select-none">
@@ -427,6 +519,14 @@ export const CanvasViewport: React.FC = () => {
           className="w-8 h-8 rounded-full flex items-center justify-center text-m3-sys-onSurfaceVariant hover:text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainerHighest active:scale-90 transition-all cursor-pointer"
         >
           <span className="material-symbols-rounded text-lg leading-none">add</span>
+        </button>
+        <div className="w-px h-4 bg-m3-sys-outlineVariant/40" />
+        <button
+          onClick={() => centerCanvas(state.canvasWidth || 800, state.canvasHeight || 600, true)}
+          title="Ajuster à l'écran (Fit)"
+          className="w-8 h-8 rounded-full flex items-center justify-center text-m3-sys-onSurfaceVariant hover:text-m3-sys-primary hover:bg-m3-sys-surfaceContainerHighest active:scale-90 transition-all cursor-pointer"
+        >
+          <span className="material-symbols-rounded text-base leading-none">fit_screen</span>
         </button>
       </div>
     </main>
