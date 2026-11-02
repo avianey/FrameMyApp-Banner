@@ -314,6 +314,7 @@ export const DeviceElement: React.FC<DeviceElementProps> = ({
       id={`el-${element.id}`}
       className="absolute touch-none select-none"
       style={{
+        position: 'absolute',
         left: `${element.x}px`,
         top: `${element.y}px`,
         width: `${element.width}px`,

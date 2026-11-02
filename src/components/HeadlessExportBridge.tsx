@@ -26,12 +26,36 @@ export interface HeadlessBatchOptions {
   onProgress?: (info: { current: number; total: number; outputPath: string; name: string }) => void;
 }
 
+export interface HeadlessElementLayoutMetric {
+  id: string;
+  customId?: string;
+  type: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  computedPosition: string;
+  domLeft: number;
+  domTop: number;
+  domWidth: number;
+  domHeight: number;
+}
+
+export interface HeadlessLayoutSnapshot {
+  artboardWidth: number;
+  artboardHeight: number;
+  targetWidth: number;
+  targetHeight: number;
+  elements: HeadlessElementLayoutMetric[];
+}
+
 export interface HeadlessBatchResult {
   exported: {
     outputPath: string;
     name: string;
     type: 'master' | 'override' | 'variant';
     dataUrl: string;
+    layout: HeadlessLayoutSnapshot;
   }[];
   errors: {
     outputPath: string;
@@ -47,6 +71,45 @@ function base64ToBlob(base64: string, mimeType = 'application/octet-stream'): Bl
     bytes[i] = binary.charCodeAt(i);
   }
   return new Blob([bytes], { type: mimeType });
+}
+
+function measureArtboardLayout(
+  artboardEl: HTMLElement,
+  resolved: {
+    elements: any[];
+    exportZone: { targetWidth?: number; targetHeight?: number; width?: number; height?: number };
+    canvasWidth?: number;
+    canvasHeight?: number;
+  }
+): HeadlessLayoutSnapshot {
+  const artboardW = artboardEl.offsetWidth || resolved.canvasWidth || resolved.exportZone.width || 800;
+  const artboardH = artboardEl.offsetHeight || resolved.canvasHeight || resolved.exportZone.height || 600;
+  const elements: HeadlessElementLayoutMetric[] = resolved.elements.map(el => {
+    const domNode = artboardEl.querySelector(`#el-${CSS.escape(el.id)}`) as HTMLElement | null;
+    const cs = domNode ? window.getComputedStyle(domNode) : null;
+    return {
+      id: el.id,
+      customId: el.customId,
+      type: el.type,
+      x: el.x,
+      y: el.y,
+      width: el.width,
+      height: el.height,
+      computedPosition: cs?.position || 'missing',
+      domLeft: domNode ? parseFloat(cs?.left || '0') || domNode.offsetLeft : NaN,
+      domTop: domNode ? parseFloat(cs?.top || '0') || domNode.offsetTop : NaN,
+      domWidth: domNode ? domNode.offsetWidth : NaN,
+      domHeight: domNode ? domNode.offsetHeight : NaN
+    };
+  });
+
+  return {
+    artboardWidth: artboardW,
+    artboardHeight: artboardH,
+    targetWidth: resolved.exportZone.targetWidth || artboardW,
+    targetHeight: resolved.exportZone.targetHeight || artboardH,
+    elements
+  };
 }
 
 export const HeadlessExportBridge: React.FC = () => {
@@ -172,19 +235,35 @@ export const HeadlessExportBridge: React.FC = () => {
 
             applyCompositionDirectly(resolved, false);
 
+            // Wait for React to commit the new composition to DOM
+            await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+            // Explicitly load fonts used by text elements
             if (typeof document !== 'undefined' && document.fonts) {
+              const fontPromises = resolved.elements
+                .filter(el => el.type === 'text' && (el as any).fontFamily)
+                .map(el => {
+                  const t = el as any;
+                  const weight = t.fontWeight || 400;
+                  const size = t.fontSize || 32;
+                  return document.fonts.load(`${weight} ${size}px "${t.fontFamily}"`).catch(() => {});
+                });
+              await Promise.all(fontPromises);
               await document.fonts.ready;
             }
+
             await new Promise(r => requestAnimationFrame(r));
             await new Promise(r => setTimeout(r, 120));
 
             const { dataUrl } = await captureZoneToBlob(artboardRef.current, resolved.exportZone);
+            const layout = measureArtboardLayout(artboardRef.current, resolved);
 
             exported.push({
               outputPath,
               name: item.name,
               type: item.type,
-              dataUrl
+              dataUrl,
+              layout
             });
           } catch (err: any) {
             errors.push({

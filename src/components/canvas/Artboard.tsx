@@ -226,6 +226,11 @@ export const Artboard: React.FC = () => {
         onPointerDown={handlePointerDown}
         onDoubleClick={handleDoubleClick}
         className="w-full h-full rounded-none relative overflow-visible bg-white"
+        style={{
+          position: 'relative',
+          width: `${canvasWidth}px`,
+          height: `${canvasHeight}px`
+        }}
       >
         {/* Fond dynamique */}
         {background.type === 'image' && background.imageUrl ? (

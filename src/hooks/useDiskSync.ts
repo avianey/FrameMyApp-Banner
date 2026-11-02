@@ -50,10 +50,11 @@ export function computeCanvasSignature(
   h?: number,
   name?: string
 ): string {
+  const { imageNaturalWidth: _nw, imageNaturalHeight: _nh, ...bgRest } = bg as any;
   return JSON.stringify({
     name: name || 'Projet sans nom',
     bg: {
-      ...bg,
+      ...bgRest,
       imageUrl: assetManager.getAssetPathFromUrl(bg.imageUrl) || bg.imageUrl
     },
     els: els.map(e => {
@@ -338,17 +339,7 @@ export function useDiskSync({
         effectiveBundle && activeId && effectiveBundle.master?.id !== activeId
       );
 
-      const hasSubItems = Boolean(
-        effectiveBundle &&
-        (Object.keys(effectiveBundle.overrides || {}).length > 0 || (effectiveBundle.variants || []).length > 0)
-      );
-      const isCanonicalMasterFile =
-        effectiveBundle?.master?.path === 'master.yml' || effectiveBundle?.master?.path === 'master.yaml';
-
       if (effectiveBundle && !isBundleSubItem) {
-        const shouldRenameMasterPath = !hasSubItems && !isCanonicalMasterFile;
-        const newFilename = `${slugifyFilename(val)}.yml`;
-
         setLoadedBundleState(prev => {
           if (!prev) return null;
           return {
@@ -358,43 +349,25 @@ export function useDiskSync({
               ? {
                   ...prev.master,
                   name: val,
-                  path: shouldRenameMasterPath ? newFilename : prev.master.path,
-                  slug: shouldRenameMasterPath ? slugifyFilename(val) : prev.master.slug
+                  path: prev.master.path || 'master.yml',
+                  slug: prev.master.slug || 'master'
                 }
               : null
           };
         });
+      }
 
-        if (shouldRenameMasterPath) {
-          setSyncFilePathState(currentPath => {
-            if (currentPath && currentPath !== newFilename && currentPath !== 'master.yml') {
-              setPreviousSyncFilePath(currentPath);
-              try {
-                localStorage.setItem('framemyapp_prev_sync_file', currentPath);
-              } catch {}
-            }
+      // If standalone project (no active bundle and no existing synced file on disk), sync file path tracks the project name
+      if (!effectiveBundle && !isBundleSubItem) {
+        const newFilename = `${slugifyFilename(val)}.yml`;
+        setSyncFilePathState(currentPath => {
+          if (!currentPath) {
             try {
               localStorage.setItem('framemyapp_sync_file_path', newFilename);
             } catch {}
             return newFilename;
-          });
-        }
-      }
-
-      // If standalone project (no active bundle), sync file path tracks the project name
-      if (!effectiveBundle && !isBundleSubItem) {
-        const newFilename = `${slugifyFilename(val)}.yml`;
-        setSyncFilePathState(currentPath => {
-          if (currentPath && currentPath !== newFilename && currentPath !== 'master.yml') {
-            setPreviousSyncFilePath(currentPath);
-            try {
-              localStorage.setItem('framemyapp_prev_sync_file', currentPath);
-            } catch {}
           }
-          try {
-            localStorage.setItem('framemyapp_sync_file_path', newFilename);
-          } catch {}
-          return newFilename;
+          return currentPath;
         });
       }
 
@@ -1160,14 +1133,7 @@ export function useDiskSync({
         await verifyDirectoryPermission(targetDirHandle, true);
         await writeTextToDirectory(targetDirHandle, targetFilename || 'banner_template.yml', yamlContent);
 
-        if (previousSyncFilePath && previousSyncFilePath !== targetFilename && previousSyncFilePath !== 'master.yml') {
-          try {
-            if (typeof targetDirHandle.removeEntry === 'function') {
-              await targetDirHandle.removeEntry(previousSyncFilePath);
-            }
-          } catch (e) {
-            console.warn('Could not remove previous file after rename:', e);
-          }
+        if (previousSyncFilePath) {
           setPreviousSyncFilePath(null);
           try {
             localStorage.removeItem('framemyapp_prev_sync_file');

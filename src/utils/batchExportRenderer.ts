@@ -59,14 +59,18 @@ export async function captureZoneToBlob(
   // Wait for all images in the live artboard to be fully loaded and decoded before capture
   const liveImages = Array.from(artboardElement.querySelectorAll('img'));
   await Promise.all(
-    liveImages.map(img => {
-      if (img.complete && img.naturalWidth > 0) return Promise.resolve();
-      return new Promise<void>(resolve => {
-        const onDone = () => resolve();
-        img.addEventListener('load', onDone, { once: true });
-        img.addEventListener('error', onDone, { once: true });
-        setTimeout(resolve, 500);
-      });
+    liveImages.map(async img => {
+      if (!img.complete || img.naturalWidth === 0) {
+        await new Promise<void>(resolve => {
+          const onDone = () => resolve();
+          img.addEventListener('load', onDone, { once: true });
+          img.addEventListener('error', onDone, { once: true });
+          setTimeout(resolve, 1500);
+        });
+      }
+      if (typeof img.decode === 'function') {
+        await img.decode().catch(() => {});
+      }
     })
   );
 
@@ -75,12 +79,13 @@ export async function captureZoneToBlob(
     img.setAttribute('data-export-img-id', `img-${idx}`);
   });
 
-  await new Promise(r => requestAnimationFrame(r));
+  // Allow React state updates triggered by image onLoad (naturalWidth/naturalHeight geometry) to flush to DOM
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
   await new Promise(r => setTimeout(r, 60));
 
   try {
-    const artboardW = artboardElement.offsetWidth || artboardElement.clientWidth || 800;
-    const artboardH = artboardElement.offsetHeight || artboardElement.clientHeight || 600;
+    const artboardW = artboardElement.offsetWidth || artboardElement.clientWidth || zone.width || 800;
+    const artboardH = artboardElement.offsetHeight || artboardElement.clientHeight || zone.height || 600;
     const targetW = zone.targetWidth || 1200;
     const targetH = zone.targetHeight || 900;
 

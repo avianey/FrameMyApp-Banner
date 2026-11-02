@@ -267,6 +267,7 @@ export const ShapeElement: React.FC<ShapeElementProps> = ({
       id={`el-${element.id}`}
       className="absolute touch-none"
       style={{
+        position: 'absolute',
         left: `${element.x}px`,
         top: `${element.y}px`,
         width: `${element.width}px`,

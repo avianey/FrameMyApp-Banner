@@ -654,6 +654,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setSyncFilePath: diskSync.setSyncFilePath,
     setSyncStatus: diskSync.setSyncStatus,
     lastSavedSignatureRef: diskSync.lastSavedSignatureRef,
+    externalLoadedBundleRef: loadedBundleRef,
+    externalActiveBundleItemIdRef: activeBundleItemIdRef,
     recordHistory: history.recordHistory,
     applyCompositionDirectly,
     showSnackbar
@@ -669,7 +671,12 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Element Actions
   const setBackground = useCallback(
     (updates: Partial<BackgroundConfig>) => {
-      history.recordHistory();
+      const keys = Object.keys(updates);
+      const isOnlyIntrinsicDims =
+        keys.length > 0 && keys.every(k => k === 'imageNaturalWidth' || k === 'imageNaturalHeight');
+      if (!isOnlyIntrinsicDims) {
+        history.recordHistory();
+      }
       setBackgroundState(prev => ({ ...prev, ...updates }));
     },
     [history]
@@ -1040,16 +1047,17 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           await verifyDirectoryPermission(dirHandle, true, true);
           const bundle = await readDirectoryBundle(dirHandle, pendingYamlImport.filename);
           if (!bundle.master) {
-            bundle.master = pendingYamlImport.item;
+            bundle.master = {
+              ...pendingYamlImport.item,
+              path: pendingYamlImport.filename
+            };
           }
-          if (bundle.master) {
-            bundle.master.path = pendingYamlImport.filename;
-          }
+          const masterPath = bundle.master?.path || pendingYamlImport.filename;
           bundleManager.setLoadedBundle(bundle);
-          diskSync.setProjectName(pendingYamlImport.item.name || bundle.name);
+          diskSync.setProjectName(bundle.master?.name || pendingYamlImport.item.name || bundle.name);
           diskSync.setSyncDirectoryName(bundle.name);
           diskSync.setSyncDirectoryHandle(dirHandle);
-          diskSync.setSyncFilePath(pendingYamlImport.filename);
+          diskSync.setSyncFilePath(masterPath);
           await saveDirectoryHandleToIdb(dirHandle, 'sync_dir_handle');
           await saveDirectoryHandleToIdb(dirHandle, 'root_bundle_dir');
           bundleManager.applyBundleItem(bundle.master || pendingYamlImport.item, bundle);

@@ -527,11 +527,12 @@ elements:
 
 ## 8. Génération Automatisée en CI/CD (Headless Browser CLI)
 
-Lorsqu'un dépôt tiers (ex. `XYZ`) contient un répertoire configuré comme bundle FrameMy.App (`master.yml`, `overrides/`, `variants/`, `assets/`), un pipeline CI/CD peut cloner FrameMyApp-Banner et générer tous les visuels PNG de manière déterministe via un navigateur Chromium headless (Playwright).
+Lorsqu'un dépôt tiers (ex. `XYZ`) contient un répertoire configuré comme bundle FrameMy.App (`master.yml`, `overrides/`, `variants/`, `assets/`), un pipeline CI/CD peut cloner le dépôt [FrameMyApp-Banner](https://github.com/avianey/FrameMyApp-Banner) (`https://github.com/avianey/FrameMyApp-Banner.git` ou `git@github.com:avianey/FrameMyApp-Banner.git`) et générer tous les visuels PNG de manière déterministe via un navigateur Chromium headless (Playwright).
 
 ### 8.1 Syntaxe de la Commande
 
 ```bash
+git clone https://github.com/avianey/FrameMyApp-Banner.git {checkoutDir}
 {checkoutDir}/generateBatchForBundle.sh --in <bundleDirPath> --out <outputDirPath> [options]
 ```
 
@@ -567,7 +568,7 @@ jobs:
       - name: Checkout FrameMyApp-Banner engine
         uses: actions/checkout@v4
         with:
-          repository: org/FrameMyApp-Banner
+          repository: avianey/FrameMyApp-Banner
           path: .framemyapp-engine
 
       - name: Setup Node.js

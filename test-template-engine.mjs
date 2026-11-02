@@ -1,4 +1,7 @@
 import assert from 'assert';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { parseYaml, stringifyYaml } from './src/utils/yamlHelper.ts';
 import {
   serializeCanvasToMaster,
@@ -9,6 +12,13 @@ import {
 } from './src/utils/templateEngine.ts';
 import { alignElements, distributeElements } from './src/utils/alignment.ts';
 import { assetManager, convertUrlsToRelativeAssetPaths } from './src/utils/assetManager.ts';
+import { buildBundleFromEntries } from './src/utils/bundleIo.ts';
+import { computeImageCropGeometry } from './src/utils/imageCropHelper.ts';
+import { getDeviceEffectiveDimensions } from './src/utils/deviceHelper.ts';
+import { computeCanvasSignature } from './src/hooks/useDiskSync.ts';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 console.log('Testing Template Engine & YAML round-tripping...');
 
@@ -607,5 +617,188 @@ assert.strictEqual(variantSerialized.exportZone, undefined, 'Unchanged exportZon
 assert.strictEqual(variantSerialized.elements, undefined, 'Device image already mapped in variant.images should not leak into variant.elements');
 assert.deepStrictEqual(variantSerialized.images, { app_screen: 'screen_fr.png' }, 'Relative variant.images mapping should remain intact');
 console.log('✔ Clean Master -> Override -> Variant minimal diff serialization verified');
+
+// 13. Comprehensive Layout, Position, Distance, Width/Height & Master Path Preservation Suite
+async function runLayoutAndBundleGeometryTests() {
+  const fixtureDir = path.join(__dirname, 'tests', 'fixtures', 'layout-bundle');
+
+  function loadEntriesFromDir(dirPath) {
+    const entries = [];
+    function walk(curr, relPrefix) {
+      for (const dirent of fs.readdirSync(curr, { withFileTypes: true })) {
+        if (dirent.name.startsWith('.')) continue;
+        const full = path.join(curr, dirent.name);
+        const rel = relPrefix ? `${relPrefix}/${dirent.name}` : dirent.name;
+        if (dirent.isDirectory()) {
+          walk(full, rel);
+        } else if (dirent.isFile()) {
+          if (/\.(ya?ml|json)$/i.test(rel)) {
+            const text = fs.readFileSync(full, 'utf-8');
+            entries.push({ path: rel, getContent: async () => text });
+          } else if (/\.(png|jpe?g|webp|svg|gif)$/i.test(rel)) {
+            const buf = fs.readFileSync(full);
+            entries.push({
+              path: rel,
+              getContent: async () => '',
+              getBlob: async () => new Blob([buf])
+            });
+          }
+        }
+      }
+    }
+    walk(dirPath, '');
+    return entries;
+  }
+
+  const entries = loadEntriesFromDir(fixtureDir);
+  const loadedBundle = await buildBundleFromEntries(entries, 'layout-bundle');
+
+  // Verify custom root master file (yatzy.yml) is preserved and recognized
+  assert.ok(loadedBundle.master, 'Master item should be loaded from yatzy.yml');
+  assert.strictEqual(loadedBundle.master.path, 'yatzy.yml', 'Master path must remain yatzy.yml (never overwritten)');
+  assert.strictEqual(loadedBundle.variants.length, 1, 'Should load 1 variant');
+
+  const daVariant = loadedBundle.variants[0];
+  const resolved = resolveComposition(
+    loadedBundle.master.config,
+    loadedBundle.overrides[daVariant.slug]?.config,
+    daVariant.config,
+    loadedBundle.assets,
+    daVariant.path
+  );
+
+  // Verify canvas & exportZone dimensions
+  assert.strictEqual(resolved.canvasWidth, 1024, 'Canvas width must be 1024');
+  assert.strictEqual(resolved.canvasHeight, 500, 'Canvas height must be 500');
+  assert.strictEqual(resolved.exportZone.x, 0);
+  assert.strictEqual(resolved.exportZone.y, 0);
+  assert.strictEqual(resolved.exportZone.width, 1024);
+  assert.strictEqual(resolved.exportZone.height, 500);
+  assert.strictEqual(resolved.exportZone.targetWidth, 1024);
+  assert.strictEqual(resolved.exportZone.targetHeight, 500);
+
+  // Verify exact positions, widths, heights & pairwise distances of the 6 dice shapes
+  const diceCustomIds = ['hero_badge', 'shape_3', 'shape_4', 'shape_5', 'shape_2', 'shape_6'];
+  const expectedDiceX = [310, 376, 443, 510, 577, 643];
+  const diceElements = diceCustomIds.map(cid => {
+    const el = resolved.elements.find(e => e.customId === cid);
+    assert.ok(el, `Dice element ${cid} must exist`);
+    return el;
+  });
+
+  diceElements.forEach((die, idx) => {
+    assert.strictEqual(die.x, expectedDiceX[idx], `Die ${die.customId} x position must be ${expectedDiceX[idx]}`);
+    assert.strictEqual(die.y, 219, `Die ${die.customId} y position must be 219 (horizontal alignment)`);
+    assert.strictEqual(die.width, 62, `Die ${die.customId} width must be 62`);
+    assert.strictEqual(die.height, 62, `Die ${die.customId} height must be 62`);
+    assert.strictEqual(die.rotation || 0, 0, `Die ${die.customId} rotation must be 0`);
+  });
+
+  // Verify horizontal distances (gaps) between consecutive dice
+  const expectedGaps = [4, 5, 5, 5, 4]; // (376 - (310+62)=4), (443 - (376+62)=5), etc.
+  for (let i = 0; i < diceElements.length - 1; i++) {
+    const leftDie = diceElements[i];
+    const rightDie = diceElements[i + 1];
+    const horizontalGap = rightDie.x - (leftDie.x + leftDie.width);
+    const verticalDelta = Math.abs(rightDie.y - leftDie.y);
+    assert.strictEqual(
+      horizontalGap,
+      expectedGaps[i],
+      `Horizontal gap between ${leftDie.customId} and ${rightDie.customId} must be ${expectedGaps[i]}px`
+    );
+    assert.strictEqual(verticalDelta, 0, `Dice ${leftDie.customId} and ${rightDie.customId} must have 0px vertical delta`);
+  }
+
+  // Total span of the dice row: from x=310 to x=643+62=705 -> total width = 395px
+  const diceRowLeft = diceElements[0].x;
+  const diceRowRight = diceElements[diceElements.length - 1].x + diceElements[diceElements.length - 1].width;
+  assert.strictEqual(diceRowRight - diceRowLeft, 395, 'Total horizontal span of the 6 dice must be 395px');
+
+  // Verify Title and Subtitle positions, dimensions, and vertical distances to the dice row
+  const titleEl = resolved.elements.find(e => e.customId === 'title');
+  const subtitleEl = resolved.elements.find(e => e.customId === 'subtitle');
+  assert.ok(titleEl && subtitleEl, 'Title and subtitle elements must exist');
+
+  assert.strictEqual(titleEl.x, 230);
+  assert.strictEqual(titleEl.y, 44);
+  assert.strictEqual(titleEl.width, 550);
+  assert.strictEqual(titleEl.height, 145);
+  assert.strictEqual(titleEl.text, 'Yatzy\nTerningspil');
+
+  assert.strictEqual(subtitleEl.x, 286);
+  assert.strictEqual(subtitleEl.y, 313);
+  assert.strictEqual(subtitleEl.width, 448);
+  assert.strictEqual(subtitleEl.height, 139);
+  assert.ok(subtitleEl.text.includes('11 terningspil-regler'));
+
+  // Vertical distance from title bottom (44 + 145 = 189) to dice top (219) = 30px
+  const gapTitleToDice = diceElements[0].y - (titleEl.y + titleEl.height);
+  assert.strictEqual(gapTitleToDice, 30, 'Vertical distance from title bottom to dice top must be 30px');
+
+  // Vertical distance from dice bottom (219 + 62 = 281) to subtitle top (313) = 32px
+  const gapDiceToSubtitle = subtitleEl.y - (diceElements[0].y + diceElements[0].height);
+  assert.strictEqual(gapDiceToSubtitle, 32, 'Vertical distance from dice bottom to subtitle top must be 32px');
+
+  // Verify intrinsic image dimensions do not alter canvas signature (prevents unintended auto-sync after load)
+  const sigBeforeImgLoad = computeCanvasSignature(
+    resolved.background,
+    resolved.elements,
+    resolved.exportZone,
+    resolved.canvasWidth,
+    resolved.canvasHeight,
+    loadedBundle.master.name
+  );
+  const sigAfterImgLoad = computeCanvasSignature(
+    { ...resolved.background, imageNaturalWidth: 1024, imageNaturalHeight: 500 },
+    resolved.elements,
+    resolved.exportZone,
+    resolved.canvasWidth,
+    resolved.canvasHeight,
+    loadedBundle.master.name
+  );
+  assert.strictEqual(
+    sigBeforeImgLoad,
+    sigAfterImgLoad,
+    'Canvas signature must remain identical when imageNaturalWidth/Height are populated on image load'
+  );
+
+  // Verify image crop geometry for cover & contain modes
+  const coverGeom = computeImageCropGeometry(1024, 500, 1024, 500, 1.0, 0, 0, 'cover');
+  assert.strictEqual(coverGeom.renderW, 1024);
+  assert.strictEqual(coverGeom.renderH, 500);
+  assert.strictEqual(coverGeom.currentLeft, 0);
+  assert.strictEqual(coverGeom.currentTop, 0);
+
+  // Verify Device element geometry (1408x2952 portrait screen layout)
+  const deviceEl = {
+    id: 'device-test',
+    customId: 'app_screen',
+    type: 'device',
+    deviceType: 'pixel-10',
+    x: 204,
+    y: 731,
+    width: 1001,
+    height: 2122,
+    rotation: 0,
+    bodyThickness: 9,
+    screenBorderWidth: 4,
+    borderRadius: 36,
+    bodyThicknessPercent: 3.5,
+    borderRadiusPercent: 13.846153846153847,
+    screenBorderWidthPercent: 1.5384615384615385,
+    imageAspectRatio: 0.44554455445544555
+  };
+  const devDims = getDeviceEffectiveDimensions(deviceEl);
+  assert.ok(devDims.effectiveBodyThickness > 0, 'Device body thickness must be positive');
+  assert.ok(devDims.effectiveBorderRadius > 0, 'Device border radius must be positive');
+  const activeScreenW = deviceEl.width - 2 * (devDims.effectiveBodyThickness + devDims.effectiveScreenBorderWidth);
+  const activeScreenH = deviceEl.height - 2 * (devDims.effectiveBodyThickness + devDims.effectiveScreenBorderWidth);
+  assert.ok(activeScreenW > 800 && activeScreenW < 1001, 'Active screen width must be inset by body+bezel');
+  assert.ok(activeScreenH > 1900 && activeScreenH < 2122, 'Active screen height must be inset by body+bezel');
+
+  console.log('✔ Layout, positions, distances, widths/heights & master yatzy.yml preservation verified');
+}
+
+await runLayoutAndBundleGeometryTests();
 
 console.log('\nAll tests passed successfully!');

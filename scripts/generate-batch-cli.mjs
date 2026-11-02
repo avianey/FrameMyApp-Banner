@@ -195,6 +195,9 @@ async function main() {
 
   console.log(`   → ${entries.length} fichier(s) chargé(s) depuis le bundle.`);
 
+  // Ensure working directory is PROJECT_ROOT so Vite, PostCSS and Tailwind resolve configs and sources accurately
+  process.chdir(PROJECT_ROOT);
+
   // Start Vite server programmatically on an ephemeral port
   console.log('🚀 Démarrage du serveur de rendu FrameMyApp...');
   const viteServer = await createServer({

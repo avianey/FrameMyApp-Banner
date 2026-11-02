@@ -40,6 +40,8 @@ interface UseBundleManagerOptions {
   setSyncFilePath: (path: string) => void;
   setSyncStatus: (status: any) => void;
   lastSavedSignatureRef: React.MutableRefObject<string>;
+  externalLoadedBundleRef?: React.MutableRefObject<LoadedBundle | null>;
+  externalActiveBundleItemIdRef?: React.MutableRefObject<string | null>;
   recordHistory: () => void;
   applyCompositionDirectly: (comp: any, recordHist?: boolean) => void;
   showSnackbar: (message: string, icon?: string) => void;
@@ -57,15 +59,27 @@ export function useBundleManager({
   setSyncFilePath,
   setSyncStatus,
   lastSavedSignatureRef,
+  externalLoadedBundleRef,
+  externalActiveBundleItemIdRef,
   recordHistory,
   applyCompositionDirectly,
   showSnackbar
 }: UseBundleManagerOptions) {
   const [loadedBundle, setLoadedBundleState] = useState<LoadedBundle | null>(null);
   const loadedBundleRef = useRef<LoadedBundle | null>(null);
-  const [activeBundleItemId, setActiveBundleItemId] = useState<string | null>(null);
+  const [activeBundleItemId, setActiveBundleItemIdState] = useState<string | null>(null);
   const [savedCanvasSignatures, setSavedCanvasSignatures] = useState<Record<string, string>>({});
   const bundleDirHandleRef = useRef<any>(null);
+
+  const setActiveBundleItemId = useCallback(
+    (id: string | null) => {
+      if (externalActiveBundleItemIdRef) {
+        externalActiveBundleItemIdRef.current = id;
+      }
+      setActiveBundleItemIdState(id);
+    },
+    [externalActiveBundleItemIdRef]
+  );
 
   const setLoadedBundle = useCallback(
     (bundleOrUpdater: LoadedBundle | null | ((prev: LoadedBundle | null) => LoadedBundle | null)) => {
@@ -74,11 +88,17 @@ export function useBundleManager({
         setLoadedBundleState(prev => {
           resolvedBundle = bundleOrUpdater(prev);
           loadedBundleRef.current = resolvedBundle;
+          if (externalLoadedBundleRef) {
+            externalLoadedBundleRef.current = resolvedBundle;
+          }
           return resolvedBundle;
         });
       } else {
         resolvedBundle = bundleOrUpdater;
         loadedBundleRef.current = resolvedBundle;
+        if (externalLoadedBundleRef) {
+          externalLoadedBundleRef.current = resolvedBundle;
+        }
         setLoadedBundleState(resolvedBundle);
       }
 
@@ -97,7 +117,7 @@ export function useBundleManager({
         bundleDirHandleRef.current = null;
       }
     },
-    [setSyncFilePath, setSyncStatus, syncFilePath]
+    [setSyncFilePath, setSyncStatus, syncFilePath, externalLoadedBundleRef]
   );
 
   const detachBundle = useCallback(() => {
