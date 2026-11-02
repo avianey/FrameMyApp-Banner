@@ -239,8 +239,19 @@ async function main() {
       { timeout: 30000 }
     );
 
+    fs.mkdirSync(outDirAbs, { recursive: true });
+    let writtenCount = 0;
+
     await page.exposeFunction('__onFrameMyAppCliProgress', info => {
       console.log(`   [${info.current}/${info.total}] Rendu de ${info.outputPath} (${info.name})...`);
+    });
+
+    await page.exposeFunction('__onFrameMyAppCliExportedItem', item => {
+      const targetFile = path.join(outDirAbs, item.outputPath);
+      fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+      const base64Data = item.dataUrl.replace(/^data:image\/\w+;base64,/, '');
+      fs.writeFileSync(targetFile, Buffer.from(base64Data, 'base64'));
+      writtenCount++;
     });
 
     console.log('🎨 Exécution du rendu Batch Export...');
@@ -251,6 +262,11 @@ async function main() {
           onProgress: info => {
             if (typeof window.__onFrameMyAppCliProgress === 'function') {
               window.__onFrameMyAppCliProgress(info);
+            }
+          },
+          onExportedItem: async item => {
+            if (typeof window.__onFrameMyAppCliExportedItem === 'function') {
+              await window.__onFrameMyAppCliExportedItem(item);
             }
           }
         });
@@ -264,11 +280,9 @@ async function main() {
       }
     );
 
-    // Write generated PNGs to output directory
-    fs.mkdirSync(outDirAbs, { recursive: true });
-
-    let writtenCount = 0;
+    // Fallback if any item had dataUrl returned directly
     for (const item of result.exported || []) {
+      if (!item.dataUrl) continue;
       const targetFile = path.join(outDirAbs, item.outputPath);
       fs.mkdirSync(path.dirname(targetFile), { recursive: true });
       const base64Data = item.dataUrl.replace(/^data:image\/\w+;base64,/, '');

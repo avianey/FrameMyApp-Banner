@@ -24,6 +24,13 @@ export interface HeadlessBatchOptions {
   includeOverrides?: boolean;
   includeVariants?: boolean;
   onProgress?: (info: { current: number; total: number; outputPath: string; name: string }) => void;
+  onExportedItem?: (item: {
+    outputPath: string;
+    name: string;
+    type: 'master' | 'override' | 'variant';
+    dataUrl: string;
+    layout: HeadlessLayoutSnapshot;
+  }) => Promise<void> | void;
 }
 
 export interface HeadlessElementLayoutMetric {
@@ -258,13 +265,30 @@ export const HeadlessExportBridge: React.FC = () => {
             const { dataUrl } = await captureZoneToBlob(artboardRef.current, resolved.exportZone);
             const layout = measureArtboardLayout(artboardRef.current, resolved);
 
-            exported.push({
-              outputPath,
-              name: item.name,
-              type: item.type,
-              dataUrl,
-              layout
-            });
+            if (options.onExportedItem) {
+              await options.onExportedItem({
+                outputPath,
+                name: item.name,
+                type: item.type,
+                dataUrl,
+                layout
+              });
+              exported.push({
+                outputPath,
+                name: item.name,
+                type: item.type,
+                dataUrl: '',
+                layout
+              });
+            } else {
+              exported.push({
+                outputPath,
+                name: item.name,
+                type: item.type,
+                dataUrl,
+                layout
+              });
+            }
           } catch (err: any) {
             errors.push({
               outputPath,
