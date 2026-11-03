@@ -69,14 +69,18 @@ export function computeCanvasSignature(
           width: t.width,
           height: t.height,
           rotation: t.rotation,
-          opacity: t.opacity,
           text: t.text,
           fontSize: t.fontSize,
           fontFamily: t.fontFamily,
+          fontWeight: t.fontWeight,
           color: t.color,
           lineHeight: t.lineHeight,
           letterSpacing: t.letterSpacing,
-          textAlign: t.textAlign
+          minLines: t.minLines,
+          textAlign: t.textAlign,
+          verticalAlign: t.verticalAlign,
+          glow: t.glow ? { ...t.glow } : undefined,
+          shadow: t.shadow ? { ...t.shadow } : undefined
         };
       } else if (e.type === 'device') {
         const d = e as DeviceElementModel;
@@ -114,6 +118,7 @@ export function computeCanvasSignature(
           flareColor: d.flareColor,
           flareAngle: d.flareAngle,
           flareSpread: d.flareSpread,
+          glow: d.glow ? { ...d.glow } : undefined,
           shadow: d.shadow ? { ...d.shadow } : undefined
         };
       } else {
@@ -128,14 +133,25 @@ export function computeCanvasSignature(
           height: s.height,
           rotation: s.rotation,
           opacity: s.opacity,
+          borderRadius: s.borderRadius,
           shapeType: s.shapeType,
           fillType: s.fillType,
           solidColor: s.solidColor,
+          color1: s.color1,
+          color2: s.color2,
+          angle: s.angle,
+          radialColor1: s.radialColor1,
+          radialColor2: s.radialColor2,
+          gradientStops: s.gradientStops ? s.gradientStops.map(st => ({ ...st })) : undefined,
+          radialStops: s.radialStops ? s.radialStops.map(st => ({ ...st })) : undefined,
           imageUrl: assetManager.getAssetPathFromUrl(s.imageUrl) || s.imageUrl,
           imageFit: s.imageFit,
           imageOffsetX: s.imageOffsetX,
           imageOffsetY: s.imageOffsetY,
-          imageScale: s.imageScale
+          imageScale: s.imageScale,
+          stroke: s.stroke ? { ...s.stroke } : undefined,
+          glow: s.glow ? { ...s.glow } : undefined,
+          shadow: s.shadow ? { ...s.shadow } : undefined
         };
       }
     }),
@@ -144,8 +160,11 @@ export function computeCanvasSignature(
       y: zone.y,
       width: zone.width,
       height: zone.height,
+      preset: zone.preset,
+      ratio: zone.ratio,
       targetWidth: zone.targetWidth,
-      targetHeight: zone.targetHeight
+      targetHeight: zone.targetHeight,
+      lockRatio: zone.lockRatio
     },
     w,
     h

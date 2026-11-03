@@ -213,15 +213,31 @@ export const LeftSidebar: React.FC = () => {
   };
 
   // Handle Drag & Drop of directory, zip or yaml
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDraggingOver(true);
+    }
+  };
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDraggingOver(true);
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'copy';
+    }
+    if (!isDraggingOver) {
+      setIsDraggingOver(true);
+    }
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) {
+      return;
+    }
     setIsDraggingOver(false);
   };
 
@@ -230,95 +246,123 @@ export const LeftSidebar: React.FC = () => {
     e.stopPropagation();
     setIsDraggingOver(false);
 
-    const items = e.dataTransfer.items;
-    const files = e.dataTransfer.files;
+    const rawItems = Array.from(e.dataTransfer.items || []);
+    const rawFiles = Array.from(e.dataTransfer.files || []);
 
-    if (!items && !files) return;
+    if (rawItems.length === 0 && rawFiles.length === 0) return;
+
+    // 0. Capture synchronous handles/entries IMMEDIATELY before any await!
+    // DataTransferItemList is cleared by the browser right after the synchronous event tick.
+    const fileItem =
+      rawItems.find(it => it.kind === 'file') || rawItems[0] || null;
+    const webkitEntry = fileItem ? (fileItem as any).webkitGetAsEntry?.() : null;
+    const handlePromise =
+      fileItem && typeof (fileItem as any).getAsFileSystemHandle === 'function'
+        ? Promise.resolve((fileItem as any).getAsFileSystemHandle()).catch(err => {
+            console.warn('getAsFileSystemHandle error:', err);
+            return null;
+          })
+        : Promise.resolve(null);
+
+    const finalizeLoadedBundle = (bundle: any, dirHandle?: any) => {
+      if (!bundle.master) {
+        const masterConfig = serializeCanvasToMaster(
+          bundle.name || 'Master',
+          state.background,
+          state.elements,
+          state.exportZone,
+          state.canvasWidth,
+          state.canvasHeight
+        );
+        bundle.master = {
+          id: 'master',
+          type: 'master',
+          path: 'master.yml',
+          slug: 'master',
+          name: masterConfig.name || 'Master',
+          rawContent: stringifyYaml(masterConfig),
+          config: masterConfig
+        };
+      }
+      setLoadedBundle(bundle);
+      setProjectName(bundle.master?.name || bundle.name);
+      setSyncDirectoryName(bundle.name);
+      setSyncFilePath(bundle.master?.path || 'master.yml');
+      if (dirHandle) {
+        setSyncDirectoryHandle(dirHandle);
+      }
+      if (bundle.master) {
+        applyBundleItem(bundle.master, bundle);
+      }
+    };
 
     try {
-      // Check if dropped item is a directory
-      if (items && items.length > 0) {
-        const firstItem = items[0];
-
-        // 1. Try modern File System Access API first to obtain persistent FileSystemDirectoryHandle
-        if (typeof (firstItem as any).getAsFileSystemHandle === 'function') {
-          try {
-            const handle = await (firstItem as any).getAsFileSystemHandle();
-            if (handle && handle.kind === 'directory') {
-              await verifyDirectoryPermission(handle, true);
-              const bundle = await readDirectoryBundle(handle);
-              setLoadedBundle(bundle);
-              setProjectName(bundle.name);
-              setSyncDirectoryName(bundle.name);
-              setSyncFilePath(bundle.master?.path || 'master.yml');
-              setSyncDirectoryHandle(handle);
-              if (bundle.master) {
-                applyBundleItem(bundle.master, bundle);
-              }
-              showSnackbar(`Dossier déposé et connecté : ${bundle.name}`, 'folder');
-              return;
-            }
-          } catch (err) {
-            console.warn('getAsFileSystemHandle fallback to webkitGetAsEntry:', err);
-          }
-        }
-
-        const entry = (firstItem as any).webkitGetAsEntry?.();
-        if (entry && entry.isDirectory) {
-          // Read directory recursively using DataTransferItemList
-          const collectedFiles: { path: string; file: File }[] = [];
-          const readEntry = async (dirEntry: any, path: string) => {
-            const reader = dirEntry.createReader();
-            const entries: any[] = await new Promise((resolve, reject) => {
-              reader.readEntries(resolve, reject);
-            });
-            for (const subEntry of entries) {
-              if (subEntry.isFile) {
-                const file: File = await new Promise((resolve, reject) => {
-                  subEntry.file(resolve, reject);
-                });
-                collectedFiles.push({ path: `${path}/${subEntry.name}`, file });
-              } else if (subEntry.isDirectory) {
-                await readEntry(subEntry, `${path}/${subEntry.name}`);
-              }
-            }
-          };
-
-          await readEntry(entry, entry.name);
-          const bundle = await readFilesBundle(
-            collectedFiles.map(f => {
-              Object.defineProperty(f.file, 'webkitRelativePath', {
-                value: f.path,
-                writable: false
-              });
-              return f.file;
-            })
-          );
-          setLoadedBundle(bundle);
-          setProjectName(bundle.name);
-          setSyncDirectoryName(bundle.name);
-          setSyncFilePath(bundle.master?.path || 'master.yml');
-          if (bundle.master) {
-            applyBundleItem(bundle.master, bundle);
-          }
-          showSnackbar(`Dossier déposé et chargé : ${bundle.name}`, 'folder');
+      // 1. Try modern File System Access API first to obtain persistent FileSystemDirectoryHandle
+      const handle = await handlePromise;
+      if (handle && handle.kind === 'directory') {
+        try {
+          // Request read permission only if needed, do not block if readwrite prompts or fails on drop
+          await verifyDirectoryPermission(handle, false, false);
+          const bundle = await readDirectoryBundle(handle);
+          finalizeLoadedBundle(bundle, handle);
+          showSnackbar(`Dossier déposé et connecté : ${bundle.name}`, 'folder');
           return;
+        } catch (err) {
+          console.warn('readDirectoryBundle fallback to webkitGetAsEntry:', err);
         }
       }
 
-      // Single file drop (ZIP or YAML)
-      if (files && files.length > 0) {
-        const file = files[0];
-        let fileHandle: any = null;
-        try {
-          const items = Array.from(e.dataTransfer.items || []);
-          if (items[0] && typeof (items[0] as any).getAsFileSystemHandle === 'function') {
-            const h = await (items[0] as any).getAsFileSystemHandle();
-            if (h && h.kind === 'file') {
-              fileHandle = h;
+      // 2. Fallback to captured FileSystemDirectoryEntry (webkitGetAsEntry)
+      if (webkitEntry && webkitEntry.isDirectory) {
+        const collectedFiles: { path: string; file: File }[] = [];
+
+        const readAllEntries = async (dirReader: any): Promise<any[]> => {
+          const all: any[] = [];
+          while (true) {
+            const batch: any[] = await new Promise((resolve, reject) => {
+              dirReader.readEntries(resolve, reject);
+            });
+            if (!batch || batch.length === 0) break;
+            all.push(...batch);
+          }
+          return all;
+        };
+
+        const readEntry = async (dirEntry: any, path: string) => {
+          const reader = dirEntry.createReader();
+          const entries = await readAllEntries(reader);
+          for (const subEntry of entries) {
+            if (subEntry.isFile) {
+              const file: File = await new Promise((resolve, reject) => {
+                subEntry.file(resolve, reject);
+              });
+              collectedFiles.push({ path: `${path}/${subEntry.name}`, file });
+            } else if (subEntry.isDirectory) {
+              await readEntry(subEntry, `${path}/${subEntry.name}`);
             }
           }
-        } catch {}
+        };
+
+        await readEntry(webkitEntry, webkitEntry.name);
+        const bundle = await readFilesBundle(
+          collectedFiles.map(f => {
+            Object.defineProperty(f.file, 'webkitRelativePath', {
+              value: f.path,
+              writable: false,
+              configurable: true
+            });
+            return f.file;
+          })
+        );
+        finalizeLoadedBundle(bundle, handle?.kind === 'directory' ? handle : undefined);
+        showSnackbar(`Dossier déposé et chargé : ${bundle.name}`, 'folder');
+        return;
+      }
+
+      // 3. Single file drop (ZIP or YAML)
+      if (rawFiles.length > 0) {
+        const file = rawFiles[0];
+        const fileHandle = handle && handle.kind === 'file' ? handle : null;
         await processImportedFile(file, fileHandle);
       }
     } catch (err: any) {
@@ -438,6 +482,7 @@ export const LeftSidebar: React.FC = () => {
         {activeLeftTab === 'templates' && (
           <div
             className="flex-1 overflow-y-auto p-4 space-y-5 no-scrollbar"
+            onDragEnter={handleDragEnter}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
