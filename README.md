@@ -1,110 +1,88 @@
 # FrameMy.App Studio
 
-Application de conception visuelle Material 3, gestion de transparence Alpha complète (RGBA / HEX8 `#FFFFFFFF`), synchronisation et sauvegarde sur disque local, presets maîtres, déclinaisons & batch export haute fidélité.
-Projet Node.js / React moderne développé avec Vite, TypeScript et Tailwind CSS.
+Application web de conception de bannières et captures marketing Material 3 : éditeur interactif standard Figma, gestion complète de l'Alpha (RGBA / HEX8), mockups d'appareils, génération d'arrière-plans par IA (Google Gemini), système de templates YAML en cascade (`master` / `overrides` / `variants`), synchronisation disque locale et Batch Export haute fidélité (interface navigateur & CLI headless CI/CD).
+
+Développé avec **React 18**, **TypeScript**, **Vite** et **Tailwind CSS**.
+
+---
 
 ## 🚀 Démarrage rapide
 
 ### Prérequis
-- [Node.js](https://nodejs.org/) (version 18 ou supérieure recommandée)
-- npm (ou yarn / pnpm)
+- [Node.js](https://nodejs.org/) 18+ (20 recommandé pour le runner CI headless)
+- npm
 
-### Installation des dépendances
+### Installation & lancement en développement
 ```bash
 npm install
-```
-
-### Lancement en mode développement
-```bash
 npm run dev
 ```
+L'application est accessible sur `http://localhost:3000`.
 
-Pour activer la **génération d'arrière-plan par IA** (Google Gemini, modèles configurés dans `config.ia.yaml`), démarrez le serveur avec la variable d'environnement `GEMINI_API_KEY` :
+### Activer la génération d'arrière-plan par IA (Google Gemini)
+Démarrez le serveur avec la variable d'environnement `GEMINI_API_KEY` (modèles configurables dans [config.ia.yaml](config.ia.yaml)) :
 ```bash
 GEMINI_API_KEY="..." npm run dev
 ```
-L'application s'ouvre automatiquement sur `http://localhost:3000`.
 
-### Build de production
+### Scripts disponibles
+| Commande | Description |
+|---|---|
+| `npm run dev` | Lance le serveur Vite avec HMR |
+| `npm run build` | Typecheck TypeScript + build de production dans `dist/` |
+| `npm run preview` | Prévisualise le build de production |
+| `npm test` | Exécute les tests unitaires du moteur de templates (`test-template-engine.mjs`) |
+| `npm run test:headless` | Exécute les tests de layout headless Playwright (`test-headless-layout.mjs`) |
+| `./generateBatchForBundle.sh --in <bundle> --out <dir>` | Exporte un bundle en mode headless Playwright (CI/CD) |
+
+---
+
+## 🤖 Batch Export Headless en CI/CD
+
+Pour générer automatiquement les bannières d'un bundle depuis un pipeline CI/CD sur la **version exacte** du moteur ayant produit `master.yml` :
+
 ```bash
-npm run build
+# 1. Lire le tag de version inscrit dans master.yml (ex: 1.0.1)
+# 2. Cloner/checkout FrameMyApp-Banner sur ce tag exact
+./generateBatchForBundle.sh --in <bundleDirPath> --out <outputDirPath> [--all | --include-master | --include-overrides | --no-variants]
 ```
-Les fichiers statiques optimisés sont générés dans le dossier `dist/`.
 
-### Prévisualisation du build de production
-```bash
-npm run preview
+Voir la section 8 de [docs/TEMPLATE_SYSTEM.md](docs/TEMPLATE_SYSTEM.md) pour le workflow GitHub Actions complet avec résolution automatique du tag depuis `master.yml`.
+
+---
+
+## ✨ Fonctionnalités principales
+
+- **Éditeur Canvas standard Figma** : simple clic pour déplacer, double-clic sur texte pour éditer, sélection multiple (*marquee*), pan (`Espace+clic`, clic molette, trackpad), zoom focal (`Ctrl+molette`) et bouton *Fit*, *Smart Guides* magnétiques, alignement AABB orienté, cropper d'image in-place, Undo/Redo et raccourcis clavier (`?`).
+- **Calques riches** : textes Google Fonts (glow, ombre, alignement H/V, fidélité typographique CJK), formes vectorielles et textures image (dégradés multi-stops), mockups d'appareils (`pixel-10`, `iphone-pro-max`, `samsung-galaxy`, `pixel-tab` avec métal brossé, Dynamic Island et reflets).
+- **Arrière-plans avancés** : couleur unie, dégradés linéaire/radial, image (flou, voile, Zoom Blur cinétique) et génération IA Gemini.
+- **Templates & Bundles YAML en cascade** : `master.yml` (taggé avec la version de l'application) → `overrides/<slug>.yml` → `variants/<lang>/<slug>.yml`, sérialisation par diff minimal, résolution d'assets localisés, édition live avec sauvegarde disque (File System Access API) et import/export ZIP.
+- **Batch Export HD** : export PNG, JPEG ou WebP jusqu'à 4× vers un dossier disque horodaté, une archive ZIP ou via la CLI headless Playwright.
+
+---
+
+## 🗂️ Architecture haut niveau
+
+```text
+├── src/
+│   ├── types/          # Contrats TypeScript (éléments canvas, background, templates, bundles)
+│   ├── context/        # Store global React (EditorContext)
+│   ├── hooks/          # Sync disque, gestion bundles, historique Undo/Redo, hiérarchie, viewport
+│   ├── utils/          # Moteur de cascade & diff YAML, APP_VERSION, assets, alignement, rendu export
+│   └── components/     # Canvas, inspecteur droit (drawer), volet gauche (leftDrawer), modales, bridge headless
+├── scripts/            # CLI headless Node/Playwright (generate-batch-cli.mjs)
+├── docs/               # Spécification technique de référence (TEMPLATE_SYSTEM.md)
+├── .skills/            # Compétences IA du projet (workflow, architecture, documentation, releases)
+├── generateBatchForBundle.sh
+├── config.ia.yaml
+├── CHANGELOG.md
+└── AGENTS.md
 ```
 
 ---
 
-## 📁 Architecture du projet
+## 📚 Documentation & Gouvernance
 
-```
-├── .aiexclude                 # Fichiers exclus des contextes d'IA
-├── .gitignore                 # Exclusion Git (node_modules, dist, .idea, etc.)
-├── index.html                 # Point d'entrée HTML Vite (Google Fonts & Material Symbols)
-├── index.original.html        # Sauvegarde du fichier monolithique original
-├── package.json               # Dépendances et scripts NPM
-├── postcss.config.js          # Configuration PostCSS pour Tailwind
-├── tailwind.config.js         # Configuration du thème Material 3 (palettes sys, ombres)
-├── tsconfig.json              # Configuration TypeScript pour le projet
-├── tsconfig.node.json         # Configuration TypeScript pour Vite
-├── vite.config.ts             # Configuration du bundler Vite avec plugin React
-└── src/
-    ├── main.tsx               # Point d'entrée React 18
-    ├── App.tsx                # Structure principale de l'interface
-    ├── index.css              # Styles globaux, utilitaires Tailwind & classes personnalisées
-    ├── types/
-    │   └── index.ts           # Types TypeScript du store, des formes et éléments
-    ├── utils/
-    │   ├── color.ts           # Parser et formateur RGBA/HEX avec gestion de l'Alpha
-    │   └── export.ts          # Pipeline d'export haute résolution via html2canvas
-    ├── context/
-    │   └── EditorContext.tsx  # Contexte React / Store d'état global
-    └── components/
-        ├── Header.tsx         # En-tête Material 3 (titre, actions rapides)
-        ├── BottomBar.tsx      # Barre flottante inférieure (FABs M3)
-        ├── Snackbar.tsx       # Notifications toast M3
-        ├── common/
-        │   └── ColorAlphaPicker.tsx # Sélecteur de couleur hex + curseur alpha (0-100%)
-        ├── canvas/
-        │   ├── CanvasViewport.tsx   # Conteneur avec grille canvas et drag & drop d'images
-        │   ├── Artboard.tsx         # Plan de travail 800x600 px et fond dynamique
-        │   ├── TextElement.tsx      # Composant texte éditable en ligne avec poignées
-        │   ├── ShapeElement.tsx     # Formes géométriques (rectangle, arrondi, cercle, étoile, hexagone, etc.)
-        │   ├── SelectionHandles.tsx # Poignées de redimensionnement, rotation et déplacement
-        │   └── ExportOverlay.tsx    # Masque SVG et cadre de sélection d'export
-        ├── leftDrawer/
-        │   └── LeftSidebar.tsx      # Volet gauche (Templates & Bundles, Identifiants Custom IDs)
-        ├── modal/
-        │   ├── ConfirmModal.tsx     # Dialogue de confirmation M3 sécurisé
-        │   ├── BatchExportModal.tsx # Export par lot (File System Access API & ZIP)
-        │   └── NewVariantModal.tsx  # Création d'une nouvelle déclinaison
-        └── drawer/
-            ├── SideDrawer.tsx       # Volet latéral interactif M3
-            ├── BackgroundControls.tsx # Contrôles du fond (Uni, Linéaire, Radial, Image)
-            ├── TextControls.tsx     # Propriétés du texte (polices, lueur, ombre, taille...)
-            ├── ShapeControls.tsx    # Propriétés de forme (remplissage, contour, ombre, arrondi...)
-            └── ExportControls.tsx   # Outils d'exportation (tracé libre, presets, téléchargement PNG)
-```
-
----
-
-## ✨ Fonctionnalités
-
-- **Thème Material 3 complet & Dark Mode** : Palettes `m3-sys-*` adaptatives (Light & Dark), persistance du thème (localStorage), bascule rapide depuis l'en-tête et contrôles de formulaire assombris (`color-scheme: dark`).
-- **Historique Retour avant / arrière (Undo / Redo)** : Boutons dédiés dans la toolbar et raccourcis clavier globaux (`Ctrl+Z` / `Ctrl+Y` ou `Cmd+Shift+Z`).
-- **Réinitialisation complète avec modale de confirmation** : Bouton de nettoyage rapide ouvrant un dialogue de confirmation M3 sécurisé avec possibilité d'annuler.
-- **Moteur Alpha intégral & format HEX8 (#FFFFFFFF)** : Couleurs de fond, de textes, de formes, de contours et d'ombres gérées avec opacité RGBA et champ de saisie direct au format hexadécimal à 8 caractères `#RRGGBBAA`.
-- **Zoom & Dézoom à la roulette** : Navigation fluide avec la molette de la souris (20% à 350%), widget de zoom flottant et recentrage rapide (100%).
-- **Typographies Google Fonts** : Nombreuses polices embarquées (Roboto, Space Grotesk, Inter, Montserrat, Pacifico, etc.).
-- **Manipulation interactive** : Déplacement, rotation à la souris/au toucher, redimensionnement et édition directe du texte.
-- **Drag & Drop d'images** : Glissez-déposez des images directement sur le canvas pour changer le fond ou la texture d'une forme.
-- **Cadre d'export intelligent** : Tracé libre à la volée avec verrouillage du ratio, préréglages sociaux (Instagram, Story, YouTube, Bannière) et synchronisation automatique de la résolution finale.
-- **Export haute fidélité** : Capture au format PNG avec mise à l'échelle via `html2canvas`.
-- **Système de Templates & Bundles (Master, Overrides, Variants)** : Volet dédié à gauche de l'écran pour importer/exporter des presets maîtres, des surcharges partagées et des déclinaisons multilingues (inspiré du blueprint FrameYourApp).
-- **Identifiants personnalisés (`customId`)** : Permet d'identifier chaque champ texte et forme pour les cibler avec précision dans les templates YAML (`content.<id>` ou `elements.<id>`).
-- **Batch Export (Export par lot)** : Génération automatisée de l'ensemble des déclinaisons du bundle vers un répertoire disque local (File System Access API) ou en archive `.ZIP`.
-- **Spécification du Système de Templates** : Documentation technique de référence sous [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md) (cascade, syntaxe YAML, customId, assets, batch export).
-- **Skills IA du Projet** : Protocoles d'extension sous [.skills/](.skills/) (`documentation-maintenance`, `banner-template-architecture` et `frugal-workflow`).
+- **[Spécification du Système de Templates & CI/CD](docs/TEMPLATE_SYSTEM.md)** : référence unique pour les bundles, le schéma YAML, le champ `version` de `master.yml`, les `customId`, les assets, le Batch Export et l'intégration GitHub Actions.
+- **[Changelog](CHANGELOG.md)** : historique des versions (SemVer / Keep a Changelog).
+- **[Directives Agents IA](AGENTS.md)** & **[.skills/](.skills/)** : protocoles de développement frugal (`frugal-workflow`), d'extension du moteur (`banner-template-architecture`), de maintenance documentaire (`documentation-maintenance`) et de sauts de version (`release-versioning`).

@@ -24,10 +24,15 @@ import { useDiskSync, slugifyFilename, computeCanvasSignature } from '../hooks/u
 import { useBundleManager } from '../hooks/useBundleManager';
 import { assetManager, dataUrlToBlob } from '../utils/assetManager';
 import {
+  prepareElementsForClipboard,
+  cloneElementsForTarget,
+  saveClipboardToStorage,
+  loadClipboardFromStorage
+} from '../utils/elementClipboardHelper';
+import {
   verifyDirectoryPermission,
   saveDirectoryHandleToIdb,
   readDirectoryBundle,
-  getLongestCommonDirectory,
   checkSameFileExistsInDirectory
 } from '../utils/bundleIo';
 import { captureExportPreview, ExportPreviewData } from '../utils/export';
@@ -99,6 +104,17 @@ export interface EditorContextType {
   deleteElement: (id: string) => void;
   deleteSelectedElements: () => void;
   duplicateSelectedElements: () => void;
+  clipboardElements: CanvasElement[];
+  copyElements: (elementIds?: string[]) => void;
+  pasteElements: () => void;
+  copyToModalElements: CanvasElement[] | null;
+  openCopyToModal: (elementIds?: string[]) => void;
+  closeCopyToModal: () => void;
+  copyElementsToTargets: (
+    sourceElements: CanvasElement[],
+    targetItemIds: string[],
+    options?: { keepExactPosition?: boolean }
+  ) => Promise<number>;
   moveSelectedElements: (dx: number, dy: number, isRepeat?: boolean) => void;
   selectElement: (id: string | null, multi?: boolean) => void;
   selectElements: (ids: string[]) => void;
@@ -145,7 +161,8 @@ export interface EditorContextType {
       canvasWidth?: number;
       canvasHeight?: number;
     },
-    recordHist?: boolean
+    recordHist?: boolean,
+    fitMode?: 'always' | 'on-change' | 'never'
   ) => void;
   exportCanvasAsTemplateYaml: (filename?: string) => void;
   exportCanvasAsBundleZip: () => Promise<void>;
@@ -479,24 +496,51 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     []
   );
 
-  const clipboardElementsRef = useRef<CanvasElement[]>([]);
+  const initialClipboardPayload = useMemo(() => loadClipboardFromStorage(), []);
+  const [clipboardElements, setClipboardElements] = useState<CanvasElement[]>(
+    initialClipboardPayload?.elements || []
+  );
+  const clipboardMetaRef = useRef<{
+    elements: CanvasElement[];
+    sourceItemId: string | null;
+    pasteCount: number;
+  }>({
+    elements: initialClipboardPayload?.elements || [],
+    sourceItemId: initialClipboardPayload?.sourceItemId ?? null,
+    pasteCount: 0
+  });
+  const [copyToModalElements, setCopyToModalElements] = useState<CanvasElement[] | null>(null);
   const syncToDiskRef = useRef<() => Promise<boolean>>(async () => false);
 
-  const duplicateElementsByIds = useCallback(
-    (sourceElements: CanvasElement[]) => {
+  const insertClonedElementsOnCanvas = useCallback(
+    (
+      sourceElements: CanvasElement[],
+      options: {
+        offsetPx: number;
+        preferOriginalCustomId: boolean;
+        snackbarLabel?: string;
+        snackbarIcon?: string;
+      }
+    ) => {
       if (sourceElements.length === 0) return;
       recordHistoryRef.current();
-      const now = Date.now();
-      const cloned = sourceElements.map((el, idx) => {
-        const copy: CanvasElement = JSON.parse(JSON.stringify(el));
-        copy.id = `${el.type}-${now}-${idx}`;
-        copy.x = Math.round(el.x + 24);
-        copy.y = Math.round(el.y + 24);
-        if (copy.customId) {
-          copy.customId = `${copy.customId}_copy`;
-        }
-        return copy;
+
+      const activeBundle = loadedBundleRef.current;
+      const activeId = activeBundleItemIdRef.current;
+      const activeItem =
+        activeBundle && activeId
+          ? (activeBundle.master?.id === activeId ? activeBundle.master : undefined) ||
+            Object.values(activeBundle.overrides || {}).find(o => o.id === activeId) ||
+            (activeBundle.variants || []).find(v => v.id === activeId)
+          : undefined;
+
+      const cloned = cloneElementsForTarget(sourceElements, elements, {
+        offsetPx: options.offsetPx,
+        preferOriginalCustomId: options.preferOriginalCustomId,
+        assetsMap: activeBundle?.assets || {},
+        targetItemPath: activeItem?.path
       });
+
       setElements(prev => [...prev, ...cloned]);
       const newIds = cloned.map(c => c.id);
       setSelectedElementIds(newIds);
@@ -505,18 +549,122 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       } else if (cloned[0]) {
         setActivePanelState(cloned[0].type as ActivePanel);
       }
-      showSnackbar(
-        cloned.length > 1 ? `${cloned.length} éléments dupliqués` : 'Élément dupliqué',
-        'content_copy'
-      );
+
+      if (options.snackbarLabel) {
+        showSnackbar(options.snackbarLabel, options.snackbarIcon || 'content_copy');
+      }
     },
-    [showSnackbar]
+    [elements, showSnackbar]
   );
 
   const duplicateSelectedElements = useCallback(() => {
     const selected = elements.filter(e => selectedElementIdsRef.current.includes(e.id));
-    duplicateElementsByIds(selected);
-  }, [elements, duplicateElementsByIds]);
+    if (selected.length === 0) return;
+    insertClonedElementsOnCanvas(selected, {
+      offsetPx: 24,
+      preferOriginalCustomId: false,
+      snackbarLabel: selected.length > 1 ? `${selected.length} éléments dupliqués` : 'Élément dupliqué',
+      snackbarIcon: 'content_copy'
+    });
+  }, [elements, insertClonedElementsOnCanvas]);
+
+  const copyElements = useCallback(
+    (elementIds?: string[]) => {
+      const targetIds = elementIds && elementIds.length > 0 ? elementIds : selectedElementIdsRef.current;
+      const selected = elements.filter(e => targetIds.includes(e.id));
+      if (selected.length === 0) return;
+
+      const prepared = prepareElementsForClipboard(selected);
+      const sourceItemId = activeBundleItemIdRef.current;
+      clipboardMetaRef.current = {
+        elements: prepared,
+        sourceItemId,
+        pasteCount: 0
+      };
+      setClipboardElements(prepared);
+      saveClipboardToStorage({
+        elements: prepared,
+        sourceItemId,
+        copiedAt: Date.now()
+      });
+
+      showSnackbar(
+        selected.length > 1
+          ? `${selected.length} éléments copiés — Ctrl+V pour coller ici ou ailleurs`
+          : 'Élément copié — Ctrl+V pour coller ici ou dans un autre master/override/variante',
+        'content_copy'
+      );
+    },
+    [elements, showSnackbar]
+  );
+
+  const pasteElements = useCallback(() => {
+    let payload = clipboardMetaRef.current;
+    if (payload.elements.length === 0) {
+      const stored = loadClipboardFromStorage();
+      if (stored && stored.elements.length > 0) {
+        payload = {
+          elements: stored.elements,
+          sourceItemId: stored.sourceItemId,
+          pasteCount: 0
+        };
+        clipboardMetaRef.current = payload;
+        setClipboardElements(stored.elements);
+      } else {
+        return;
+      }
+    }
+
+    const currentItemId = activeBundleItemIdRef.current;
+    const isSameDocument = payload.sourceItemId === currentItemId;
+
+    // Si on colle dans un autre master/override/variante pour la 1ère fois :
+    // conserver exactement la position (x, y) et le customId d'origine (si non pris).
+    // Si on colle dans le même document (ou un collage répété) : décaler par paliers de +24px.
+    const existingCustomIds = new Set(elements.map(e => (e.customId || '').trim()).filter(Boolean));
+    const hasExactOverlap = payload.elements.some(src =>
+      elements.some(
+        existing =>
+          existing.type === src.type &&
+          Math.abs(existing.x - src.x) <= 2 &&
+          Math.abs(existing.y - src.y) <= 2 &&
+          existing.width === src.width &&
+          existing.height === src.height
+      )
+    );
+
+    let offsetPx = 0;
+    let preferOriginalCustomId = true;
+    if (isSameDocument || hasExactOverlap) {
+      payload.pasteCount += 1;
+      offsetPx = 24 * payload.pasteCount;
+      preferOriginalCustomId = !isSameDocument && !payload.elements.some(e => e.customId && existingCustomIds.has(e.customId));
+    }
+
+    insertClonedElementsOnCanvas(payload.elements, {
+      offsetPx,
+      preferOriginalCustomId,
+      snackbarLabel:
+        payload.elements.length > 1
+          ? `${payload.elements.length} éléments collés`
+          : 'Élément collé',
+      snackbarIcon: 'content_paste'
+    });
+  }, [elements, insertClonedElementsOnCanvas]);
+
+  const openCopyToModal = useCallback(
+    (elementIds?: string[]) => {
+      const targetIds = elementIds && elementIds.length > 0 ? elementIds : selectedElementIdsRef.current;
+      const selected = elements.filter(e => targetIds.includes(e.id));
+      if (selected.length === 0) return;
+      setCopyToModalElements(prepareElementsForClipboard(selected));
+    },
+    [elements]
+  );
+
+  const closeCopyToModal = useCallback(() => {
+    setCopyToModalElements(null);
+  }, []);
 
   // Hook 3: Canvas History (Undo / Redo & Shortcuts)
   const history = useCanvasHistory({
@@ -547,21 +695,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     onMoveSelected: moveSelectedElements,
     onExitImageEditing: () => setEditingImageElementId(null),
     onDuplicateSelected: duplicateSelectedElements,
-    onCopySelected: () => {
-      const selected = elements.filter(e => selectedElementIdsRef.current.includes(e.id));
-      if (selected.length > 0) {
-        clipboardElementsRef.current = JSON.parse(JSON.stringify(selected));
-        showSnackbar(
-          selected.length > 1 ? `${selected.length} éléments copiés` : 'Élément copié',
-          'content_copy'
-        );
-      }
-    },
-    onPaste: () => {
-      if (clipboardElementsRef.current.length > 0) {
-        duplicateElementsByIds(clipboardElementsRef.current);
-      }
-    },
+    onCopySelected: () => copyElements(),
+    onPaste: pasteElements,
     onSelectAll: () => {
       if (elements.length > 0) {
         const allIds = elements.map(e => e.id);
@@ -624,7 +759,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         canvasWidth?: number;
         canvasHeight?: number;
       },
-      recordHist = true
+      recordHist = true,
+      fitMode: 'always' | 'on-change' | 'never' = 'on-change'
     ) => {
       if (recordHist) {
         history.recordHistory();
@@ -636,7 +772,11 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       const targetW = comp.canvasWidth || comp.exportZone?.width || 800;
       const targetH = comp.canvasHeight || comp.exportZone?.height || 600;
-      navigation.setCanvasDimensions(targetW, targetH);
+      navigation.setCanvasDimensions(targetW, targetH, {
+        recordHistory: false,
+        syncExportZone: false,
+        fitMode
+      });
     },
     [history, navigation]
   );
@@ -658,6 +798,12 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     externalActiveBundleItemIdRef: activeBundleItemIdRef,
     recordHistory: history.recordHistory,
     applyCompositionDirectly,
+    pasteIntoActiveCanvas: (sourceEls, offsetPx = 24) => {
+      insertClonedElementsOnCanvas(sourceEls, {
+        offsetPx,
+        preferOriginalCustomId: false
+      });
+    },
     showSnackbar
   });
 
@@ -1004,7 +1150,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     fileHandle?: any;
   } | null>(null);
   const [permissionModalError, setPermissionModalError] = useState<string | null>(null);
-  const [isSuggestedBlocked, setIsSuggestedBlocked] = useState<boolean>(false);
+  const [, setIsSuggestedBlocked] = useState<boolean>(false);
 
   const requestYamlAssetsPermission = useCallback(
     (item: BundleItem, filename: string, detectedAssets: string[], fileHandle?: any) => {
@@ -1294,6 +1440,13 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       deleteElement,
       deleteSelectedElements,
       duplicateSelectedElements,
+      clipboardElements,
+      copyElements,
+      pasteElements,
+      copyToModalElements,
+      openCopyToModal,
+      closeCopyToModal,
+      copyElementsToTargets: bundleManager.copyElementsToTargets,
       moveSelectedElements,
       selectElement,
       selectElements,
@@ -1407,6 +1560,12 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       deleteElement,
       deleteSelectedElements,
       duplicateSelectedElements,
+      clipboardElements,
+      copyElements,
+      pasteElements,
+      copyToModalElements,
+      openCopyToModal,
+      closeCopyToModal,
       moveSelectedElements,
       selectElement,
       selectElements,

@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { parseYaml, stringifyYaml } from './src/utils/yamlHelper.ts';
 import {
+  APP_VERSION,
   serializeCanvasToMaster,
   serializeCanvasToVariant,
   serializeCanvasToOverride,
@@ -16,6 +17,16 @@ import { buildBundleFromEntries } from './src/utils/bundleIo.ts';
 import { computeImageCropGeometry } from './src/utils/imageCropHelper.ts';
 import { getDeviceEffectiveDimensions } from './src/utils/deviceHelper.ts';
 import { computeCanvasSignature } from './src/hooks/useDiskSync.ts';
+import {
+  computeHomographyMatrix,
+  computePerspectiveMatrix3d,
+  isConvexQuad,
+  quadPointsToClipPath
+} from './src/utils/quadHelper.ts';
+import {
+  cloneElementsForTarget,
+  generateUniqueCustomId
+} from './src/utils/elementClipboardHelper.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -796,7 +807,490 @@ async function runLayoutAndBundleGeometryTests() {
   assert.ok(activeScreenW > 800 && activeScreenW < 1001, 'Active screen width must be inset by body+bezel');
   assert.ok(activeScreenH > 1900 && activeScreenH < 2122, 'Active screen height must be inset by body+bezel');
 
-  console.log('✔ Layout, positions, distances, widths/heights & master yatzy.yml preservation verified');
+  // Verify master.yml serialization references package.json version (APP_VERSION)
+  const pkgJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
+  assert.strictEqual(
+    APP_VERSION,
+    pkgJson.version,
+    'APP_VERSION must match package.json version'
+  );
+  const serializedMaster = serializeCanvasToMaster(
+    'Version Check Master',
+    testMasterConfig.background,
+    testMasterConfig.elements,
+    testMasterConfig.exportZone,
+    800,
+    600
+  );
+  assert.strictEqual(
+    serializedMaster.version,
+    pkgJson.version,
+    'serializeCanvasToMaster must record package.json version in master.yml'
+  );
+  const roundTrippedMaster = parseYaml(stringifyYaml(serializedMaster));
+  assert.strictEqual(
+    roundTrippedMaster.version,
+    pkgJson.version,
+    'master.yml YAML round-trip must preserve build version'
+  );
+
+  console.log('✔ Layout, positions, distances, widths/heights, master version & yatzy.yml preservation verified');
+
+  // 16. Element deletion & addition persistence in Overrides and Variants (removedElements)
+  const masterForDeletionTest = {
+    name: 'Master With All Element Types',
+    background: testMasterConfig.background,
+    exportZone: testMasterConfig.exportZone,
+    elements: [
+      {
+        id: 'txt-main',
+        customId: 'main_title',
+        type: 'text',
+        text: 'Hello',
+        x: 50,
+        y: 50,
+        width: 300,
+        height: 80,
+        rotation: 0,
+        fontSize: 40
+      },
+      {
+        id: 'shp-badge',
+        customId: 'promo_badge',
+        type: 'shape',
+        shapeType: 'circle',
+        x: 100,
+        y: 150,
+        width: 120,
+        height: 120,
+        rotation: 0,
+        fillType: 'solid',
+        solidColor: '#ff0000'
+      },
+      {
+        id: 'dev-phone',
+        customId: 'hero_phone',
+        type: 'device',
+        deviceType: 'pixel-10',
+        x: 400,
+        y: 100,
+        width: 260,
+        height: 520,
+        rotation: 0,
+        screenImageUrl: ''
+      }
+    ]
+  };
+
+  // Override deletes the shape (promo_badge) and the device (hero_phone), keeps main_title, and adds a new shape
+  const extraShape = {
+    id: 'shp-extra',
+    customId: 'override_pill',
+    type: 'shape',
+    shapeType: 'pill',
+    x: 20,
+    y: 20,
+    width: 140,
+    height: 40,
+    rotation: 0,
+    fillType: 'solid',
+    solidColor: '#00ff00'
+  };
+  const overrideCanvasElements = [
+    masterForDeletionTest.elements[0], // main_title kept
+    extraShape // new shape added in override
+  ];
+
+  const serializedOverrideWithRemoval = serializeCanvasToOverride(
+    {
+      id: 'override_minimal',
+      type: 'override',
+      path: 'overrides/minimal.yml',
+      slug: 'minimal',
+      name: 'Minimal Override',
+      rawContent: '',
+      config: {
+        name: 'Minimal Override',
+        elements: { promo_badge: { solidColor: '#0000ff' } },
+        images: { hero_phone: 'old_screen.png' }
+      }
+    },
+    masterForDeletionTest.background,
+    overrideCanvasElements,
+    masterForDeletionTest.exportZone,
+    masterForDeletionTest
+  );
+
+  assert.deepStrictEqual(
+    serializedOverrideWithRemoval.removedElements,
+    ['promo_badge', 'hero_phone'],
+    'Override must persist removedElements for deleted shape and device'
+  );
+  assert.strictEqual(
+    serializedOverrideWithRemoval.elements.promo_badge,
+    undefined,
+    'Deleted element stale override entry must be cleaned from elements'
+  );
+  assert.strictEqual(
+    serializedOverrideWithRemoval.images,
+    undefined,
+    'Deleted element stale image mapping must be cleaned from images'
+  );
+  assert.ok(
+    serializedOverrideWithRemoval.elements.override_pill,
+    'Added element in override must be serialized in elements'
+  );
+
+  // YAML round-trip + resolveComposition for Override
+  const roundTrippedOverride = parseYaml(stringifyYaml(serializedOverrideWithRemoval));
+  const resolvedOverrideAfterDelete = resolveComposition(masterForDeletionTest, roundTrippedOverride);
+  assert.strictEqual(
+    resolvedOverrideAfterDelete.elements.length,
+    2,
+    'Resolved override must exclude removed master elements and include added element'
+  );
+  assert.strictEqual(
+    resolvedOverrideAfterDelete.elements.find(e => e.customId === 'promo_badge'),
+    undefined,
+    'Removed shape must not be included from master'
+  );
+  assert.strictEqual(
+    resolvedOverrideAfterDelete.elements.find(e => e.customId === 'hero_phone'),
+    undefined,
+    'Removed device must not be included from master'
+  );
+  assert.ok(
+    resolvedOverrideAfterDelete.elements.find(e => e.customId === 'override_pill'),
+    'Added shape must be present when loading override'
+  );
+
+  // Variant inheriting this override deletes main_title too
+  const variantCanvasElements = [extraShape];
+  const serializedVariantWithRemoval = serializeCanvasToVariant(
+    {
+      id: 'variant_fr_minimal',
+      type: 'variant',
+      path: 'variants/fr/minimal.yml',
+      slug: 'minimal',
+      lang: 'fr',
+      name: 'FR Minimal',
+      rawContent: '',
+      config: { name: 'FR Minimal', content: { main_title: 'Bonjour' } }
+    },
+    variantCanvasElements,
+    masterForDeletionTest,
+    roundTrippedOverride,
+    resolvedOverrideAfterDelete.background,
+    resolvedOverrideAfterDelete.exportZone
+  );
+
+  assert.deepStrictEqual(
+    serializedVariantWithRemoval.removedElements,
+    ['main_title'],
+    'Variant must only record elements removed relative to Master+Override'
+  );
+  assert.strictEqual(
+    serializedVariantWithRemoval.content,
+    undefined,
+    'Deleted text element must be cleaned from variant content'
+  );
+
+  const roundTrippedVariant = parseYaml(stringifyYaml(serializedVariantWithRemoval));
+  const resolvedVariantAfterDelete = resolveComposition(
+    masterForDeletionTest,
+    roundTrippedOverride,
+    roundTrippedVariant
+  );
+  assert.strictEqual(resolvedVariantAfterDelete.elements.length, 1);
+  assert.strictEqual(resolvedVariantAfterDelete.elements[0].customId, 'override_pill');
+
+  console.log('✔ Element deletion (removedElements) & addition persistence in Overrides and Variants verified');
+
+  // 17. Quadrilateral shape (4 movable vertices + perspective homography image fit + YAML cascade)
+  const quadPts = {
+    tl: { x: 0.12, y: 0.08 },
+    tr: { x: 0.86, y: 0.04 },
+    br: { x: 0.98, y: 0.92 },
+    bl: { x: 0.02, y: 0.96 }
+  };
+  assert.strictEqual(isConvexQuad(quadPts), true, 'Valid perspective quad must be convex');
+  assert.strictEqual(
+    isConvexQuad({
+      tl: { x: 0, y: 0 },
+      tr: { x: 1, y: 1 },
+      br: { x: 1, y: 0 },
+      bl: { x: 0, y: 1 }
+    }),
+    false,
+    'Self-intersecting bowtie quad must not be convex'
+  );
+
+  const quadW = 400;
+  const quadH = 300;
+  const h = computeHomographyMatrix(quadW, quadH, quadPts);
+  assert.ok(h && h.length === 9, 'Homography matrix must be solved for convex quad');
+
+  const projectPoint = (x, y) => {
+    const w = h[6] * x + h[7] * y + h[8];
+    return [(h[0] * x + h[1] * y + h[2]) / w, (h[3] * x + h[4] * y + h[5]) / w];
+  };
+  const expectedCorners = [
+    [[0, 0], [quadPts.tl.x * quadW, quadPts.tl.y * quadH]],
+    [[quadW, 0], [quadPts.tr.x * quadW, quadPts.tr.y * quadH]],
+    [[quadW, quadH], [quadPts.br.x * quadW, quadPts.br.y * quadH]],
+    [[0, quadH], [quadPts.bl.x * quadW, quadPts.bl.y * quadH]]
+  ];
+  for (const [[sx, sy], [ex, ey]] of expectedCorners) {
+    const [px, py] = projectPoint(sx, sy);
+    assert.ok(Math.abs(px - ex) < 1e-6 && Math.abs(py - ey) < 1e-6, 'Projected corner must match target quad vertex');
+  }
+
+  const matrix3dCss = computePerspectiveMatrix3d(quadW, quadH, quadPts);
+  assert.ok(matrix3dCss && matrix3dCss.startsWith('matrix3d('), 'computePerspectiveMatrix3d must return valid CSS matrix3d');
+  assert.ok(quadPointsToClipPath(quadPts).startsWith('polygon('), 'quadPointsToClipPath must produce polygon()');
+
+  const quadMaster = serializeCanvasToMaster(
+    'Quad Master',
+    testMasterConfig.background,
+    [
+      {
+        id: 'shp-quad',
+        customId: 'paper_sheet',
+        type: 'shape',
+        shapeType: 'quadrilateral',
+        x: 100,
+        y: 100,
+        width: quadW,
+        height: quadH,
+        rotation: 0,
+        fillType: 'image',
+        solidColor: '#ffffff',
+        color1: '#000',
+        color2: '#fff',
+        angle: 0,
+        radialColor1: '#000',
+        radialColor2: '#fff',
+        imageUrl: 'assets/sheet.png',
+        quadPoints: quadPts,
+        quadImageFit: true,
+        opacity: 1,
+        borderRadius: 0,
+        stroke: { enable: true, width: 4, color: '#ffffff' },
+        glow: { enable: false, color: '#000', blur: 0, x: 0, y: 0 },
+        shadow: { enable: true, color: 'rgba(0,0,0,0.3)', blur: 12, x: 0, y: 6 }
+      }
+    ],
+    testMasterConfig.exportZone,
+    800,
+    600
+  );
+
+  const quadMasterParsed = parseYaml(stringifyYaml(quadMaster));
+  const quadOverride = {
+    name: 'Tilted Override',
+    elements: {
+      paper_sheet: {
+        quadPoints: {
+          tl: { x: 0.2, y: 0.15 }
+        },
+        quadImageFit: false
+      }
+    }
+  };
+  const resolvedQuadOverride = resolveComposition(quadMasterParsed, quadOverride);
+  const resolvedSheet = resolvedQuadOverride.elements.find(e => e.customId === 'paper_sheet');
+  assert.strictEqual(resolvedSheet.shapeType, 'quadrilateral');
+  assert.strictEqual(resolvedSheet.quadPoints.tl.x, 0.2, 'Overridden quad corner tl.x must be merged');
+  assert.strictEqual(resolvedSheet.quadPoints.br.x, 0.98, 'Unmodified quad corners must be preserved from master');
+  assert.strictEqual(resolvedSheet.quadImageFit, false, 'quadImageFit override must be applied');
+
+  const sigQuad1 = computeCanvasSignature(
+    resolvedQuadOverride.background,
+    resolvedQuadOverride.elements,
+    resolvedQuadOverride.exportZone,
+    800,
+    600,
+    'Quad'
+  );
+  const movedQuadElements = [
+    {
+      ...resolvedSheet,
+      quadPoints: { ...resolvedSheet.quadPoints, tr: { x: 0.75, y: 0.1 } }
+    }
+  ];
+  const sigQuad2 = computeCanvasSignature(
+    resolvedQuadOverride.background,
+    movedQuadElements,
+    resolvedQuadOverride.exportZone,
+    800,
+    600,
+    'Quad'
+  );
+  assert.notStrictEqual(sigQuad1, sigQuad2, 'Moving a quad vertex must change canvas signature (dirty state)');
+  console.log('✔ Quadrilateral shape (homography 3D, vertices, quadImageFit & YAML cascade) verified');
+
+  // 18. Element copy/paste helper (intra-document & cross-master/override/variant)
+  const existingSet = new Set(['hero_badge', 'hero_badge_copy']);
+  assert.strictEqual(
+    generateUniqueCustomId('hero_badge', existingSet, false),
+    'hero_badge_copy_2',
+    'Same-document duplicate must pick next available _copy_N suffix'
+  );
+  assert.strictEqual(
+    generateUniqueCustomId('new_badge', existingSet, true),
+    'new_badge',
+    'Cross-document copy must preserve original customId when unused in target'
+  );
+  const srcEl = testMasterConfig.elements[1]; // promo_badge at x:100, y:100
+  const crossClones = cloneElementsForTarget([srcEl], [testMasterConfig.elements[0]], {
+    offsetPx: 0,
+    preferOriginalCustomId: true
+  });
+  assert.strictEqual(crossClones[0].x, 100);
+  assert.strictEqual(crossClones[0].y, 100);
+  assert.strictEqual(crossClones[0].customId, 'promo_badge');
+  assert.notStrictEqual(crossClones[0].id, srcEl.id);
+
+  const sameDocClones = cloneElementsForTarget([srcEl], testMasterConfig.elements, {
+    offsetPx: 24,
+    preferOriginalCustomId: false
+  });
+  assert.strictEqual(sameDocClones[0].x, 124);
+  assert.strictEqual(sameDocClones[0].y, 124);
+  assert.strictEqual(sameDocClones[0].customId, 'promo_badge_copy');
+  console.log('✔ Element copy/paste (intra- & cross-document) helper verified');
+
+  // 19. Element z-order (elementOrder) persistence in Overrides and Variants
+  const zOrderMaster = {
+    name: 'Z-Order Master',
+    background: testMasterConfig.background,
+    exportZone: testMasterConfig.exportZone,
+    elements: [
+      { id: 'el-a', customId: 'layer_a', type: 'shape', shapeType: 'rectangle', x: 0, y: 0, width: 200, height: 200, rotation: 0, fillType: 'solid', solidColor: '#111' },
+      { id: 'el-b', customId: 'layer_b', type: 'device', deviceType: 'pixel-10', x: 50, y: 50, width: 200, height: 400, rotation: 0, screenImageUrl: '' }
+    ]
+  };
+
+  // Case A: Override reverses master layers (layer_b sent behind layer_a)
+  const reversedOverride = serializeCanvasToOverride(
+    {
+      id: 'override_z',
+      type: 'override',
+      path: 'overrides/z.yml',
+      slug: 'z',
+      name: 'Z Override',
+      rawContent: '',
+      config: { name: 'Z Override' }
+    },
+    zOrderMaster.background,
+    [zOrderMaster.elements[1], zOrderMaster.elements[0]],
+    zOrderMaster.exportZone,
+    zOrderMaster
+  );
+  assert.deepStrictEqual(
+    reversedOverride.elementOrder,
+    ['layer_b', 'layer_a'],
+    'Override must persist elementOrder when layer order differs from Master'
+  );
+  const resolvedZOverride = resolveComposition(zOrderMaster, parseYaml(stringifyYaml(reversedOverride)));
+  assert.deepStrictEqual(
+    resolvedZOverride.elements.map(e => e.customId),
+    ['layer_b', 'layer_a'],
+    'Resolved override must apply persisted elementOrder'
+  );
+
+  // Case B: Override adds a new shape and sends it BELOW master elements
+  const addedBehind = {
+    id: 'el-bg-card',
+    customId: 'bg_card',
+    type: 'shape',
+    shapeType: 'quadrilateral',
+    x: 10,
+    y: 10,
+    width: 300,
+    height: 300,
+    rotation: 0,
+    fillType: 'solid',
+    solidColor: '#222'
+  };
+  const overrideAddedBehind = serializeCanvasToOverride(
+    {
+      id: 'override_behind',
+      type: 'override',
+      path: 'overrides/behind.yml',
+      slug: 'behind',
+      name: 'Behind Override',
+      rawContent: '',
+      config: { name: 'Behind Override' }
+    },
+    zOrderMaster.background,
+    [addedBehind, zOrderMaster.elements[0], zOrderMaster.elements[1]],
+    zOrderMaster.exportZone,
+    zOrderMaster
+  );
+  assert.deepStrictEqual(
+    overrideAddedBehind.elementOrder,
+    ['bg_card', 'layer_a', 'layer_b'],
+    'Added element moved behind master elements must persist elementOrder'
+  );
+  const resolvedBehind = resolveComposition(zOrderMaster, parseYaml(stringifyYaml(overrideAddedBehind)));
+  assert.deepStrictEqual(
+    resolvedBehind.elements.map(e => e.customId),
+    ['bg_card', 'layer_a', 'layer_b'],
+    'Reloaded override must keep added element behind master elements'
+  );
+
+  // Case C: Restoring natural order clears elementOrder from diff
+  const naturalOverride = serializeCanvasToOverride(
+    {
+      id: 'override_z',
+      type: 'override',
+      path: 'overrides/z.yml',
+      slug: 'z',
+      name: 'Z Override',
+      rawContent: '',
+      config: reversedOverride
+    },
+    zOrderMaster.background,
+    [zOrderMaster.elements[0], zOrderMaster.elements[1]],
+    zOrderMaster.exportZone,
+    zOrderMaster
+  );
+  assert.strictEqual(
+    naturalOverride.elementOrder,
+    undefined,
+    'elementOrder must be omitted when layer order matches Master'
+  );
+
+  // Case D: Variant inheriting reversed override can re-order further
+  const variantReordered = serializeCanvasToVariant(
+    {
+      id: 'variant_fr_behind',
+      type: 'variant',
+      path: 'variants/fr/behind.yml',
+      slug: 'behind',
+      lang: 'fr',
+      name: 'FR Behind',
+      rawContent: '',
+      config: { name: 'FR Behind' }
+    },
+    [zOrderMaster.elements[0], addedBehind, zOrderMaster.elements[1]],
+    zOrderMaster,
+    overrideAddedBehind,
+    zOrderMaster.background,
+    zOrderMaster.exportZone
+  );
+  assert.deepStrictEqual(variantReordered.elementOrder, ['layer_a', 'bg_card', 'layer_b']);
+  const resolvedVariantOrder = resolveComposition(
+    zOrderMaster,
+    overrideAddedBehind,
+    parseYaml(stringifyYaml(variantReordered))
+  );
+  assert.deepStrictEqual(
+    resolvedVariantOrder.elements.map(e => e.customId),
+    ['layer_a', 'bg_card', 'layer_b']
+  );
+  console.log('✔ Element z-order (elementOrder) persistence in Overrides and Variants verified');
 }
 
 await runLayoutAndBundleGeometryTests();

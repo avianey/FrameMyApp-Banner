@@ -62,9 +62,11 @@ Dans `master.yml`, chaque élément dispose d'un attribut **`customId`**. C'est 
 
 Le fichier maître définit l'état initial complet de la composition.
 
+> **Versionnage obligatoire (`version`)** : Lors de chaque sérialisation (`serializeCanvasToMaster`), FrameMy.App Studio inscrit automatiquement dans `master.yml` le numéro de version exact de l'application (issu de `package.json`, ex. `"1.0.1"`). Ce numéro correspond **1:1 au tag Git** du dépôt `FrameMyApp-Banner` afin que la CLI headless CI/CD puisse être invoquée sur la version exacte du moteur qui a construit le bundle (rendu garanti identique). Les anciens bundles indiquant `version: "1.0"` restent compatibles en lecture.
+
 ```yaml
 name: "Campagne Printemps 2025"
-version: "1.0"
+version: "1.0.1"              # [RECOMMANDÉ] Version FrameMy.App Studio (= tag Git) ayant construit ce master
 canvasWidth: 800              # [Optionnel] Largeur du canevas (800 par défaut)
 canvasHeight: 600             # [Optionnel] Hauteur du canevas (600 par défaut)
 
@@ -99,6 +101,11 @@ background:
   imageBlur: 4                 # Rayon du flou en px (0 à 30)
   imageOverlayEnable: false    # Voile / calque coloré par-dessus l'image
   imageOverlayColor: "rgba(0, 0, 0, 0.4)"
+  zoomBlurEnable: false        # Flou cinétique radial (Zoom Blur)
+  zoomBlurIntensity: 25        # Intensité du flou cinétique (0 à 100)
+  zoomBlurOrigin: "auto-device" # "auto-device", "canvas-center", "custom"
+  zoomBlurOriginX: 50          # Origine X en % si zoomBlurOrigin: "custom"
+  zoomBlurOriginY: 50          # Origine Y en % si zoomBlurOrigin: "custom"
 
 # Liste ordonnée des calques (du bas vers le haut)
 elements:
@@ -106,7 +113,7 @@ elements:
   - id: "shape-1"
     customId: "hero_card"
     type: "shape"
-    shapeType: "rounded-rect"   # "rectangle", "rounded-rect", "circle", "pill", "star", "hexagon"
+    shapeType: "rounded-rect"   # "rectangle", "rounded-rect", "circle", "quadrilateral", "star", "hexagon" (rétrocompat: "pill")
     x: 480
     y: 180
     width: 240
@@ -119,14 +126,32 @@ elements:
     angle: 45
     radialColor1: "rgba(245, 158, 11, 1)"
     radialColor2: "rgba(220, 38, 38, 0.85)"
+    # Stops personnalisés optionnels (remplacent color1/color2 ou radialColor1/radialColor2)
+    gradientStops:
+      - { color: "rgba(6, 182, 212, 0.9)", offset: 0 }
+      - { color: "rgba(59, 130, 246, 0.9)", offset: 100 }
     imageUrl: ""                # Si fillType: "image"
     imageFit: "cover"           # "cover", "contain", "auto"
+    # Optionnel — uniquement si shapeType: "quadrilateral"
+    # Coordonnées normalisées [0..1] des 4 sommets (tl, tr, br, bl)
+    # quadPoints:
+    #   tl: { x: 0.1, y: 0.06 }
+    #   tr: { x: 0.9, y: 0.06 }
+    #   br: { x: 1, y: 0.94 }
+    #   bl: { x: 0, y: 0.94 }
+    # quadImageFit: true        # Projette les 4 coins de l'image en perspective dans les 4 angles (défaut: true)
     opacity: 0.95               # 0.05 à 1.0
     borderRadius: 24            # Rayon d'arrondi en pixels
     stroke:
       enable: true
       width: 3
       color: "rgba(255, 255, 255, 0.9)"
+    glow:
+      enable: false
+      color: "rgba(59, 130, 246, 0.85)"
+      blur: 16
+      x: 0
+      y: 0
     shadow:
       enable: true
       color: "rgba(0, 0, 0, 0.35)"
@@ -226,6 +251,12 @@ elements:
     flareAngle: 45                             # Orientation du reflet (0° à 360°)
     flareSpread: 40                            # Étendue du reflet (10% à 100%)
     borderRadiusPercent: 12                    # Rayon des coins en % de la largeur
+    glow:
+      enable: false
+      color: "rgba(99, 102, 241, 0.6)"
+      blur: 16
+      x: 0
+      y: 0
     shadow:
       enable: true
       color: "rgba(0, 0, 0, 0.45)"
@@ -242,7 +273,6 @@ Les overrides servent à modifier l'apparence globale (couleurs de fond, teintes
 
 ```yaml
 name: "01 — Thème Vente Flash Rouge"
-version: "1.0"
 
 # Surcharge de l'arrière-plan
 background:
@@ -257,7 +287,7 @@ images:
   hero_card: "badge_promo.png"
   hero_device: "screen_promo.png"
 
-# Surcharge ciblée des attributs d'éléments par customId
+# Surcharge ciblée des attributs d'éléments par customId (ou ajout complet)
 elements:
   hero_card:
     solidColor: "rgba(239, 68, 68, 1)"
@@ -267,6 +297,16 @@ elements:
   cta_text:
     color: "rgba(254, 240, 138, 1)"
     fontSize: 22
+
+# Éléments hérités du Master explicitement supprimés dans cet override (optionnel)
+removedElements:
+  - "promo_badge"
+
+# Ordre personnalisé des plans du fond vers le 1er plan si différent du Master (optionnel)
+elementOrder:
+  - "hero_card"
+  - "hero_device"
+  - "cta_text"
 ```
 
 ---
@@ -317,6 +357,41 @@ flowchart LR
 4. **Résolution des Assets (`resolveAsset`)** :
    - Recherche d'abord dans le dossier localisé : `assets/<lang>/<filename>`
    - Remonte ensuite au dossier parent : `assets/<filename>`
+   - Lors d'un import disque ou drag & drop, les images sont stockées sous `assets/` et sérialisées en chemins relatifs propres (jamais de Base64 dans les `.yml`).
+
+### 4.1 Édition Live, Sauvegarde par Diff & Dirty State
+
+- **Sérialisation minimale par diff** : Lorsqu'un override ou une variante est sauvegardé depuis l'éditeur, le moteur (`serializeCanvasToOverride`, `serializeCanvasToVariant`) calcule automatiquement le différentiel par rapport au parent (`master` ou `master + override`) afin de ne persister que les propriétés réellement modifiées.
+- **Indicateur *Dirty State*** : Dès qu'une modification non enregistrée affecte l'élément actif, l'icône disquette de la ligne correspondante dans le volet gauche passe en rouge vif. Un clic persiste immédiatement le YAML sur disque via la File System Access API.
+- **Création de déclinaisons (`+ Décliner`)** : Accepte une langue simple (`fr`, `ja`) ou un chemin imbriqué (`feature/fr`, `marketing/de`), empêche les collisions avec un chemin déjà existant et crée immédiatement le fichier YAML sur disque. Lorsqu'au moins un override existe dans le bundle, une liste déroulante *Override hérité* (par défaut `Sans override hérité`) permet d'hériter d'un override en pré-remplissant automatiquement l'identifiant (`slug`), le titre et les textes résolus de l'override.
+- **Déclinaison directe depuis un override (`Décliner`)** : Chaque override de la liste *Overrides partagés* dispose d'un bouton **Décliner** ouvrant la modale de création de variante avec cet override déjà sélectionné.
+- **Duplication d'une variante (`Dupliquer`)** : Chaque variante dispose d'un bouton **Dupliquer** ouvrant la modale avec choix obligatoire d'un nouveau chemin non déjà pris, tout en reprenant l'identifiant (`slug`), l'override éventuel et en clonant intégralement toutes les propriétés de la variante source (`content`, `background`, `elements`, `images`, `exportZone`, `metadata`, dimensions).
+- **Copier / Coller d'éléments intra- et inter-cibles** : Tout élément (ou multi-sélection) peut être copié/collé (`Ctrl+C`/`Ctrl+V` ou boutons **Copier / Coller**) au sein du même master/override/variante ou vers un autre master/override/variante (avec préservation des coordonnées `(x, y)` et du `customId` en inter-cibles), ou directement injecté dans une ou plusieurs cibles du bundle via **Copier vers…**.
+
+### 4.2 Matrice de Correspondance YAML ↔ TypeScript
+
+| Bloc YAML | Propriété TypeScript | Exemple YAML |
+| :--- | :--- | :--- |
+| `version` (`master.yml`) | `BannerMasterConfig.version` (`APP_VERSION`) | `version: "1.0.1"` |
+| `background.type` | `BackgroundConfig.type` | `type: "linear"` |
+| `background.color1` | `BackgroundConfig.color1` | `color1: "rgba(30, 27, 75, 1)"` |
+| `background.imageUrl` | `BackgroundConfig.imageUrl` | `imageUrl: "assets/bg.jpg"` |
+| `background.zoomBlur*` | `BackgroundConfig.zoomBlur*` | `zoomBlurEnable: true` |
+| `exportZone.targetWidth` | `ExportZone.targetWidth` | `targetWidth: 1200` |
+| `content.<customId>` | `TextElementModel.text` | `content.main_title: "Bonjour"` |
+| `elements.<customId>.<prop>` | `CanvasElement.<prop>` | `elements.badge.solidColor: "#ff0000"` |
+| `elements.<customId>.quadPoints` | `ShapeElementModel.quadPoints` | `quadPoints: { tl: { x: 0.1, y: 0.06 }, ... }` |
+| `elements.<customId>.quadImageFit` | `ShapeElementModel.quadImageFit` | `quadImageFit: true` |
+| `removedElements` | `BannerOverrideConfig.removedElements` \| `BannerVariantConfig.removedElements` | `removedElements: ["promo_badge"]` |
+| `elementOrder` | `BannerOverrideConfig.elementOrder` \| `BannerVariantConfig.elementOrder` | `elementOrder: ["bg_card", "hero_device"]` |
+| `images.<customId>` | `ShapeElementModel.imageUrl` \| `DeviceElementModel.screenImageUrl` | `images.hero_device: "screen_fr.png"` |
+| `images.background` | `BackgroundConfig.imageUrl` | `images.background: "cover.jpg"` |
+
+### 4.3 Batch Export Interactif (UI) & Fidélité CJK
+
+- **Groupes repliables** : La modale Batch Export regroupe les cibles en 3 sections (*Master* et *Overrides* repliés/décochés par défaut, *Variantes* dépliées/cochées par défaut) avec compteurs et raccourcis *Tout cocher / Tout décocher*.
+- **Destinations & Formats** : Export direct vers un dossier disque horodaté (File System Access API) ou en archive `.ZIP`, aux formats **PNG**, **JPEG** ou **WebP** (mise à l'échelle jusqu'à 4×).
+- **Fidélité typographique CJK** : Avant la capture, le moteur extrait les lignes visuelles natives du navigateur (`Range.getClientRects()`), injecte `Noto Sans JP` et fige les `line-height` en pixels absolus pour éviter toute dérive sur les langues sans espaces (japonais, chinois, coréen).
 
 ---
 
@@ -366,7 +441,7 @@ Contraintes impératives :
 ### `master.yml`
 ```yaml
 name: "Fitness App Launch"
-version: "1.0"
+version: "1.0.1"
 exportZone:
   x: 50
   y: 40
@@ -549,13 +624,16 @@ git clone https://github.com/avianey/FrameMyApp-Banner.git {checkoutDir}
 | `--no-variants` | Exclut `variants/<lang>/<slug>.png` de l'export. |
 | `--help`, `-h` | Affiche l'aide de la commande. |
 
-### 8.3 Fonctionnement Interne du Script
+### 8.3 Fonctionnement Interne & Contrôle de Version
 
-1. **Autonomie CI** : Le script `generateBatchForBundle.sh` vérifie automatiquement la présence de `node_modules`, du package `playwright` et du binaire Chromium headless (les installe à la volée si absents). Il supporte également les variables d'environnement `CHROME_PATH` ou `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` si le runner CI fournit déjà son propre binaire Chromium.
-2. **Résolution des chemins** : Les chemins relatifs passés à `--in` et `--out` sont résolus par rapport au répertoire de travail de l'appelant (`pwd`).
-3. **Rendu 1:1** : Un serveur Vite local éphémère démarre sur un port libre (`127.0.0.1`) en mode `?headless=1` et pilote `window.__FRAMEMYAPP_CLI__.runBatchExport`, garantissant le même rendu typographique, CJK, dégradés, flous et mockups que l'interface interactive.
+1. **Résolution de la version du moteur (`master.yml` → Tag Git)** :
+   - Chaque `master.yml` produit par FrameMy.App Studio contient un champ `version` (ex. `version: "1.0.1"`) correspondant exactement au **tag Git** du dépôt `FrameMyApp-Banner`.
+   - Au démarrage, `scripts/generate-batch-cli.mjs` compare la version déclarée dans `master.yml` avec celle du dépôt checkout (`package.json`). En cas d'écart, un avertissement explicite indique le tag exact à utiliser pour garantir un rendu 100% reproductible.
+2. **Autonomie CI** : Le script `generateBatchForBundle.sh` vérifie automatiquement la présence de `node_modules`, du package `playwright` et du binaire Chromium headless (les installe à la volée si absents). Il supporte également les variables d'environnement `CHROME_PATH` ou `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` si le runner CI fournit déjà son propre binaire Chromium.
+3. **Résolution des chemins** : Les chemins relatifs passés à `--in` et `--out` sont résolus par rapport au répertoire de travail de l'appelant (`pwd`).
+4. **Rendu 1:1 & Streaming mémoire** : Un serveur Vite local éphémère démarre sur un port libre (`127.0.0.1`) en mode `?headless=1` et pilote `window.__FRAMEMYAPP_CLI__.runBatchExport` en streamant chaque PNG vers le disque au fil de l'eau (`onExportedItem`), garantissant le même rendu typographique, CJK, dégradés, flous et mockups que l'interface interactive même sur des bundles volumineux.
 
-### 8.4 Exemple d'Intégration GitHub Actions (dans le repo `XYZ`)
+### 8.4 Exemple d'Intégration GitHub Actions (avec checkout automatique du tag `master.yml`)
 
 ```yaml
 jobs:
@@ -565,10 +643,17 @@ jobs:
       - name: Checkout repository XYZ
         uses: actions/checkout@v4
 
-      - name: Checkout FrameMyApp-Banner engine
+      - name: Read required FrameMyApp version from master.yml
+        id: bundle
+        run: |
+          VERSION=$(sed -nE 's/^version:[[:space:]]*["'\'']?([^"'\''#[:space:]]+).*/\1/p' ./marketing/framemyapp-bundle/master.yml | head -n 1)
+          echo "version=${VERSION:-main}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout FrameMyApp-Banner engine on exact bundle version
         uses: actions/checkout@v4
         with:
           repository: avianey/FrameMyApp-Banner
+          ref: ${{ steps.bundle.outputs.version }}
           path: .framemyapp-engine
 
       - name: Setup Node.js

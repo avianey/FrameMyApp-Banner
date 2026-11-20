@@ -12,6 +12,7 @@ import { ExportPreviewModal } from './components/modal/ExportPreviewModal';
 import { SaveModal } from './components/modal/SaveModal';
 import { DiskPermissionModal } from './components/modal/DiskPermissionModal';
 import { AiBackgroundModal } from './components/modal/AiBackgroundModal';
+import { CopyElementToModal } from './components/modal/CopyElementToModal';
 import { HeadlessExportBridge } from './components/HeadlessExportBridge';
 
 export const AppContent: React.FC = () => {
@@ -51,6 +52,7 @@ export const AppContent: React.FC = () => {
       <BatchExportModal />
       <ExportPreviewModal />
       <AiBackgroundModal />
+      <CopyElementToModal />
       <DiskPermissionModal
         isOpen={isPermissionModalOpen}
         targetName={permissionTargetName}

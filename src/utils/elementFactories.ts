@@ -5,6 +5,7 @@ import {
   DeviceElementModel,
   DeviceModelType
 } from '../types';
+import { INITIAL_QUAD_PERSPECTIVE_POINTS } from './quadHelper';
 
 export function createTextElement(count: number, offset: number): TextElementModel {
   const id = 'txt-' + Date.now();
@@ -54,6 +55,17 @@ export function createShapeElement(shapeType: ShapeType = 'rounded-rect', count:
     radialColor1: 'rgba(251, 191, 36, 1)',
     radialColor2: 'rgba(185, 28, 28, 0.9)',
     imageUrl: '',
+    ...(shapeType === 'quadrilateral'
+      ? {
+          quadPoints: {
+            tl: { ...INITIAL_QUAD_PERSPECTIVE_POINTS.tl },
+            tr: { ...INITIAL_QUAD_PERSPECTIVE_POINTS.tr },
+            br: { ...INITIAL_QUAD_PERSPECTIVE_POINTS.br },
+            bl: { ...INITIAL_QUAD_PERSPECTIVE_POINTS.bl }
+          },
+          quadImageFit: true
+        }
+      : {}),
     opacity: 1,
     borderRadius: 16,
     stroke: {
@@ -85,7 +97,6 @@ export function createDeviceElement(deviceType: DeviceModelType = 'pixel-10', co
   let width = 260;
   let height = 565;
   let borderRadius = 36;
-  let screenPadding = 10;
   let bodyColor = '#1e2022';
   let buttonColor = '#3a3f45';
 
@@ -93,21 +104,18 @@ export function createDeviceElement(deviceType: DeviceModelType = 'pixel-10', co
     width = 265;
     height = 570;
     borderRadius = 44;
-    screenPadding = 10;
     bodyColor = '#1d1d1f';
     buttonColor = '#3a3835';
   } else if (deviceType === 'samsung-galaxy') {
     width = 260;
     height = 575;
     borderRadius = 22;
-    screenPadding = 8;
     bodyColor = '#1a1c1e';
     buttonColor = '#33373b';
   } else if (deviceType === 'pixel-tab') {
     width = 500;
     height = 325;
     borderRadius = 26;
-    screenPadding = 16;
     bodyColor = '#2b2c2e';
     buttonColor = '#424448';
   }

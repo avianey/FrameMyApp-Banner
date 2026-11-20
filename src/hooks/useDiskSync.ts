@@ -149,6 +149,15 @@ export function computeCanvasSignature(
           imageOffsetX: s.imageOffsetX,
           imageOffsetY: s.imageOffsetY,
           imageScale: s.imageScale,
+          quadPoints: s.quadPoints
+            ? {
+                tl: { ...s.quadPoints.tl },
+                tr: { ...s.quadPoints.tr },
+                br: { ...s.quadPoints.br },
+                bl: { ...s.quadPoints.bl }
+              }
+            : undefined,
+          quadImageFit: s.quadImageFit,
           stroke: s.stroke ? { ...s.stroke } : undefined,
           glow: s.glow ? { ...s.glow } : undefined,
           shadow: s.shadow ? { ...s.shadow } : undefined

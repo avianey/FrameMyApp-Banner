@@ -1,4 +1,3 @@
-import React from 'react';
 import { GlowConfig, ShadowConfig } from '../../types';
 import { ColorAlphaPicker } from '../common/ColorAlphaPicker';
 

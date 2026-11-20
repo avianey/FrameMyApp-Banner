@@ -326,7 +326,7 @@ export const DeviceControls: React.FC<DeviceControlsProps> = ({ element }) => {
               placeholder="Cliquez ou glissez une capture d'écran ici"
               sublabel="Le ratio d'aspect s'adaptera automatiquement"
               previewHeight="h-28"
-              objectFit={element.screenFit || 'contain'}
+              objectFit={element.screenFit === 'cover' ? 'cover' : 'contain'}
             >
               <div className="space-y-3">
                 <div className="grid grid-cols-1 gap-2">

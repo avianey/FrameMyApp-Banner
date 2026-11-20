@@ -82,13 +82,23 @@ export function drawGeometryPath(
   width: number,
   height: number,
   borderRadius: number = 0,
-  shapeType: string = 'rounded-rect'
+  shapeType: string = 'rounded-rect',
+  quadPoints?: { tl: { x: number; y: number }; tr: { x: number; y: number }; br: { x: number; y: number }; bl: { x: number; y: number } }
 ): void {
   ctx.beginPath();
   if (shapeType === 'circle') {
     const rx = width / 2;
     const ry = height / 2;
     ctx.ellipse(x + rx, y + ry, rx, ry, 0, 0, Math.PI * 2);
+  } else if (shapeType === 'quadrilateral' && quadPoints) {
+    const pts = [quadPoints.tl, quadPoints.tr, quadPoints.br, quadPoints.bl];
+    pts.forEach((pt, i) => {
+      const ptX = x + pt.x * width;
+      const ptY = y + pt.y * height;
+      if (i === 0) ctx.moveTo(ptX, ptY);
+      else ctx.lineTo(ptX, ptY);
+    });
+    ctx.closePath();
   } else if (shapeType === 'pill') {
     const r = Math.min(width, height) / 2;
     if (typeof ctx.roundRect === 'function') {

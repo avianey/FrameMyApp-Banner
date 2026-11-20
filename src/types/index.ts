@@ -37,7 +37,19 @@ export interface BackgroundConfig {
   zoomBlurOriginY?: number;
 }
 
-export type ShapeType = 'rectangle' | 'rounded-rect' | 'circle' | 'pill' | 'star' | 'hexagon';
+export type ShapeType = 'rectangle' | 'rounded-rect' | 'circle' | 'quadrilateral' | 'pill' | 'star' | 'hexagon';
+
+export interface QuadPoint {
+  x: number;
+  y: number;
+}
+
+export interface QuadPoints {
+  tl: QuadPoint;
+  tr: QuadPoint;
+  br: QuadPoint;
+  bl: QuadPoint;
+}
 export type FillType = 'none' | 'solid' | 'linear' | 'radial' | 'image';
 
 export interface GradientStop {
@@ -126,6 +138,10 @@ export interface ShapeElementModel extends VisualEffectsElement {
   imageScale?: number;
   imageNaturalWidth?: number;
   imageNaturalHeight?: number;
+  /** Coordonnées normalisées [0..1] des 4 angles d'un quadrilatère */
+  quadPoints?: QuadPoints;
+  /** En mode quadrilatère + image, projette les 4 coins de l'image dans les 4 coins de la forme (défaut: true) */
+  quadImageFit?: boolean;
   opacity: number;
   borderRadius: number;
   stroke: StrokeConfig;

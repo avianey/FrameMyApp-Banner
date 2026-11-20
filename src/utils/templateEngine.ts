@@ -11,6 +11,14 @@ import {
   BundleItem
 } from '../types';
 import { assetManager } from './assetManager';
+import packageJson from '../../package.json';
+
+/**
+ * Version courante de FrameMy.App Studio (issue de package.json).
+ * Sérialisée dans `master.yml` (`version`) afin que le moteur headless CI/CD
+ * puisse être invoqué sur le tag Git exact ayant produit le bundle.
+ */
+export const APP_VERSION: string = packageJson.version;
 
 function deepClone<T>(obj: T): T {
   if (obj === undefined || obj === null) return obj;
@@ -301,7 +309,7 @@ export function serializeCanvasToMaster(
 ): BannerMasterConfig {
   return {
     name: name || 'Bannière Master',
-    version: '1.0',
+    version: APP_VERSION,
     canvasWidth,
     canvasHeight,
     exportZone: deepClone(exportZone),
@@ -325,6 +333,16 @@ function applyLayer(
 ) {
   if (!layer) return;
 
+  // 0. Remove elements explicitly deleted by this layer (inherited from Master / Override)
+  if (Array.isArray(layer.removedElements) && layer.removedElements.length > 0) {
+    const removedSet = new Set(layer.removedElements);
+    composition.elements = composition.elements.filter(el => {
+      const matchesCustomId = el.customId ? removedSet.has(el.customId) : false;
+      const matchesId = el.id ? removedSet.has(el.id) : false;
+      return !matchesCustomId && !matchesId;
+    });
+  }
+
   // 1. ExportZone
   if (layer.exportZone) {
     composition.exportZone = deepMerge(composition.exportZone, layer.exportZone);
@@ -339,7 +357,51 @@ function applyLayer(
     }
   }
 
-  // 3. Images mapping (images.background or images.[customId])
+  // 3. Elements overrides & additions (array or dictionary)
+  if (layer.elements) {
+    if (Array.isArray(layer.elements)) {
+      for (const overrideEl of layer.elements) {
+        if (!overrideEl) continue;
+        const targetIdx = composition.elements.findIndex(
+          el => (overrideEl.customId && el.customId === overrideEl.customId) || (overrideEl.id && el.id === overrideEl.id)
+        );
+        if (targetIdx !== -1) {
+          composition.elements[targetIdx] = deepMerge(
+            composition.elements[targetIdx],
+            overrideEl as any
+          );
+        } else if (
+          overrideEl.type === 'text' ||
+          overrideEl.type === 'shape' ||
+          overrideEl.type === 'device'
+        ) {
+          composition.elements.push(deepClone(overrideEl as CanvasElement));
+        }
+      }
+    } else if (typeof layer.elements === 'object') {
+      for (const [key, overrideProps] of Object.entries(layer.elements)) {
+        if (!overrideProps) continue;
+        const targetIdx = composition.elements.findIndex(el => el.customId === key || el.id === key);
+        if (targetIdx !== -1) {
+          composition.elements[targetIdx] = deepMerge(
+            composition.elements[targetIdx],
+            overrideProps as any
+          );
+        } else if (
+          overrideProps.type === 'text' ||
+          overrideProps.type === 'shape' ||
+          overrideProps.type === 'device'
+        ) {
+          const addedEl = deepClone(overrideProps) as any;
+          if (!addedEl.id) addedEl.id = key;
+          if (!addedEl.customId) addedEl.customId = key;
+          composition.elements.push(addedEl as CanvasElement);
+        }
+      }
+    }
+  }
+
+  // 4. Images mapping (images.background or images.[customId])
   if (layer.images) {
     for (const [key, imgVal] of Object.entries(layer.images)) {
       if (key === 'background' || key === 'bg' || key === 'body') {
@@ -358,7 +420,7 @@ function applyLayer(
     }
   }
 
-  // 4. Content mapping (content.[customId] = string text)
+  // 5. Content mapping (content.[customId] = string text)
   if (layer.content) {
     for (const [key, textVal] of Object.entries(layer.content)) {
       const target = composition.elements.find(el => el.customId === key || el.id === key);
@@ -368,33 +430,19 @@ function applyLayer(
     }
   }
 
-  // 5. Elements overrides (array or dictionary)
-  if (layer.elements) {
-    if (Array.isArray(layer.elements)) {
-      for (const overrideEl of layer.elements) {
-        if (!overrideEl) continue;
-        const targetIdx = composition.elements.findIndex(
-          el => (overrideEl.customId && el.customId === overrideEl.customId) || (overrideEl.id && el.id === overrideEl.id)
-        );
-        if (targetIdx !== -1) {
-          composition.elements[targetIdx] = deepMerge(
-            composition.elements[targetIdx],
-            overrideEl as any
-          );
-        }
-      }
-    } else if (typeof layer.elements === 'object') {
-      for (const [key, overrideProps] of Object.entries(layer.elements)) {
-        if (!overrideProps) continue;
-        const targetIdx = composition.elements.findIndex(el => el.customId === key || el.id === key);
-        if (targetIdx !== -1) {
-          composition.elements[targetIdx] = deepMerge(
-            composition.elements[targetIdx],
-            overrideProps as any
-          );
-        }
+  // 6. Custom z-order of elements (from bottom to top)
+  if (Array.isArray(layer.elementOrder) && layer.elementOrder.length > 0) {
+    const ordered: CanvasElement[] = [];
+    const remaining = [...composition.elements];
+
+    for (const key of layer.elementOrder) {
+      const idx = remaining.findIndex(el => el.customId === key || el.id === key);
+      if (idx !== -1) {
+        ordered.push(remaining.splice(idx, 1)[0]);
       }
     }
+
+    composition.elements = [...ordered, ...remaining];
   }
 
   // Resolve shape and device images inside elements
@@ -407,6 +455,65 @@ function applyLayer(
       if (resolved) (el as DeviceElementModel).screenImageUrl = resolved;
     }
   }
+}
+
+/**
+ * Retourne la liste ordonnée des identifiants (du fond vers le 1er plan) uniquement si l'ordre
+ * actuel diffère de l'ordre naturel (éléments hérités dans l'ordre du parent + éléments ajoutés).
+ */
+function computeElementOrderDiff(
+  parentElements: CanvasElement[],
+  currentElements: CanvasElement[],
+  serializedElementsDict?: Record<string, Partial<CanvasElement>>
+): string[] | undefined {
+  const currentKeys = currentElements
+    .map(el => el.customId || el.id)
+    .filter((k): k is string => Boolean(k));
+
+  if (currentKeys.length <= 1) {
+    return undefined;
+  }
+
+  // Ordre naturel produit par applyLayer sans elementOrder :
+  // 1) Éléments hérités du parent toujours présents (dans l'ordre du parent)
+  const defaultKeys: string[] = [];
+  const inheritedSet = new Set<string>();
+  for (const baseEl of parentElements) {
+    const match = currentElements.find(
+      cur =>
+        (baseEl.customId && cur.customId === baseEl.customId) ||
+        (baseEl.id && cur.id === baseEl.id)
+    );
+    if (match) {
+      const key = match.customId || match.id;
+      if (key && !inheritedSet.has(key)) {
+        defaultKeys.push(key);
+        inheritedSet.add(key);
+      }
+    }
+  }
+
+  // 2) Éléments ajoutés dans cette couche (dans leur ordre d'apparition dans serializedElementsDict)
+  if (serializedElementsDict) {
+    for (const key of Object.keys(serializedElementsDict)) {
+      if (!inheritedSet.has(key) && currentKeys.includes(key)) {
+        defaultKeys.push(key);
+        inheritedSet.add(key);
+      }
+    }
+  }
+  for (const key of currentKeys) {
+    if (!inheritedSet.has(key)) {
+      defaultKeys.push(key);
+      inheritedSet.add(key);
+    }
+  }
+
+  const isSameOrder =
+    currentKeys.length === defaultKeys.length &&
+    currentKeys.every((key, idx) => key === defaultKeys[idx]);
+
+  return isSameOrder ? undefined : currentKeys;
 }
 
 /**
@@ -618,7 +725,43 @@ export function serializeCanvasToVariant(
     }
   }
 
-  // 5. Elements diff against parent (Master + Override)
+  // 5. Removed elements & Elements diff against parent (Master + Override)
+  if (parentComposition) {
+    const removedIds: string[] = [];
+    for (const baseEl of parentComposition.elements) {
+      const stillPresent = normalizedElements.some(
+        cur =>
+          (baseEl.customId && cur.customId === baseEl.customId) ||
+          (baseEl.id && cur.id === baseEl.id)
+      );
+      if (!stillPresent) {
+        const removedKey = baseEl.customId || baseEl.id;
+        if (removedKey && !removedIds.includes(removedKey)) {
+          removedIds.push(removedKey);
+        }
+      }
+    }
+    if (removedIds.length > 0) {
+      newConfig.removedElements = removedIds;
+      // Nettoyer les éventuelles entrées content/images pointant vers des éléments supprimés
+      const removedSet = new Set(removedIds);
+      if (newConfig.content) {
+        for (const k of Object.keys(newConfig.content)) {
+          if (removedSet.has(k)) delete newConfig.content[k];
+        }
+        if (Object.keys(newConfig.content).length === 0) delete newConfig.content;
+      }
+      if (newConfig.images) {
+        for (const k of Object.keys(newConfig.images)) {
+          if (removedSet.has(k)) delete newConfig.images[k];
+        }
+        if (Object.keys(newConfig.images).length === 0) delete newConfig.images;
+      }
+    } else {
+      delete newConfig.removedElements;
+    }
+  }
+
   const updatedElements: Record<string, Partial<CanvasElement>> =
     newConfig.elements && typeof newConfig.elements === 'object' && !Array.isArray(newConfig.elements)
       ? { ...newConfig.elements }
@@ -638,10 +781,15 @@ export function serializeCanvasToVariant(
       }
     }
   } else if (!Array.isArray(newConfig.elements)) {
+    const presentKeys = new Set<string>();
     for (const currentEl of normalizedElements) {
       const key = currentEl.customId || currentEl.id;
-      const baseEl = parentComposition.elements.find(e => (e.customId || e.id) === key || e.id === currentEl.id);
-      if (baseEl && key) {
+      if (!key) continue;
+      presentKeys.add(key);
+      const baseEl = parentComposition.elements.find(
+        e => (e.customId || e.id) === key || e.id === currentEl.id
+      );
+      if (baseEl) {
         const diff = computeElementDiff(baseEl, currentEl, true);
         if (newConfig.images && key in newConfig.images) {
           if (diff.screenImageUrl) {
@@ -662,6 +810,15 @@ export function serializeCanvasToVariant(
         } else {
           delete updatedElements[key];
         }
+      } else {
+        // Élément ajouté spécifiquement dans cette variante (absent du parent)
+        updatedElements[key] = deepClone(currentEl);
+      }
+    }
+    // Supprimer les entrées d'éléments qui ne sont plus présents sur le canvas
+    for (const existingKey of Object.keys(updatedElements)) {
+      if (!presentKeys.has(existingKey)) {
+        delete updatedElements[existingKey];
       }
     }
   }
@@ -671,6 +828,20 @@ export function serializeCanvasToVariant(
       newConfig.elements = updatedElements;
     } else {
       delete newConfig.elements;
+    }
+  }
+
+  // 6. Element z-order diff against parent (Master + Override)
+  if (parentComposition) {
+    const orderDiff = computeElementOrderDiff(
+      parentComposition.elements,
+      normalizedElements,
+      !Array.isArray(newConfig.elements) ? updatedElements : undefined
+    );
+    if (orderDiff) {
+      newConfig.elementOrder = orderDiff;
+    } else {
+      delete newConfig.elementOrder;
     }
   }
 
@@ -778,7 +949,42 @@ export function serializeCanvasToOverride(
     }
   }
 
-  // 5. Elements mapping (diff against master when masterConfig is provided)
+  // 5. Removed elements & Elements mapping (diff against master when masterConfig is provided)
+  if (parentComposition) {
+    const removedIds: string[] = [];
+    for (const baseEl of parentComposition.elements) {
+      const stillPresent = normalizedElements.some(
+        cur =>
+          (baseEl.customId && cur.customId === baseEl.customId) ||
+          (baseEl.id && cur.id === baseEl.id)
+      );
+      if (!stillPresent) {
+        const removedKey = baseEl.customId || baseEl.id;
+        if (removedKey && !removedIds.includes(removedKey)) {
+          removedIds.push(removedKey);
+        }
+      }
+    }
+    if (removedIds.length > 0) {
+      newConfig.removedElements = removedIds;
+      const removedSet = new Set(removedIds);
+      if (newConfig.content) {
+        for (const k of Object.keys(newConfig.content)) {
+          if (removedSet.has(k)) delete newConfig.content[k];
+        }
+        if (Object.keys(newConfig.content).length === 0) delete newConfig.content;
+      }
+      if (newConfig.images) {
+        for (const k of Object.keys(newConfig.images)) {
+          if (removedSet.has(k)) delete newConfig.images[k];
+        }
+        if (Object.keys(newConfig.images).length === 0) delete newConfig.images;
+      }
+    } else {
+      delete newConfig.removedElements;
+    }
+  }
+
   if (!Array.isArray(newConfig.elements)) {
     const updatedElements: Record<string, Partial<CanvasElement>> =
       newConfig.elements && typeof newConfig.elements === 'object' ? { ...newConfig.elements } : {};
@@ -797,10 +1003,15 @@ export function serializeCanvasToOverride(
         }
       }
     } else {
+      const presentKeys = new Set<string>();
       for (const currentEl of normalizedElements) {
         const key = currentEl.customId || currentEl.id;
-        const baseEl = parentComposition.elements.find(e => (e.customId || e.id) === key || e.id === currentEl.id);
-        if (baseEl && key) {
+        if (!key) continue;
+        presentKeys.add(key);
+        const baseEl = parentComposition.elements.find(
+          e => (e.customId || e.id) === key || e.id === currentEl.id
+        );
+        if (baseEl) {
           const ignoreText = Boolean(newConfig.content && key in newConfig.content);
           const diff = computeElementDiff(baseEl, currentEl, ignoreText);
           if (newConfig.images && key in newConfig.images) {
@@ -822,6 +1033,15 @@ export function serializeCanvasToOverride(
           } else {
             delete updatedElements[key];
           }
+        } else {
+          // Élément ajouté spécifiquement dans cet override (absent du Master)
+          updatedElements[key] = deepClone(currentEl);
+        }
+      }
+      // Nettoyer les entrées d'éléments supprimés du canvas
+      for (const existingKey of Object.keys(updatedElements)) {
+        if (!presentKeys.has(existingKey)) {
+          delete updatedElements[existingKey];
         }
       }
     }
@@ -830,6 +1050,27 @@ export function serializeCanvasToOverride(
       newConfig.elements = updatedElements;
     } else {
       delete newConfig.elements;
+    }
+
+    // 6. Element z-order diff against Master
+    if (parentComposition) {
+      const orderDiff = computeElementOrderDiff(
+        parentComposition.elements,
+        normalizedElements,
+        updatedElements
+      );
+      if (orderDiff) {
+        newConfig.elementOrder = orderDiff;
+      } else {
+        delete newConfig.elementOrder;
+      }
+    }
+  } else if (parentComposition) {
+    const orderDiff = computeElementOrderDiff(parentComposition.elements, normalizedElements);
+    if (orderDiff) {
+      newConfig.elementOrder = orderDiff;
+    } else {
+      delete newConfig.elementOrder;
     }
   }
 

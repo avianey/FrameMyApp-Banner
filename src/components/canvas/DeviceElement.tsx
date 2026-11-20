@@ -234,13 +234,6 @@ export const DeviceElement: React.FC<DeviceElementProps> = ({
   const isBrushedMetal = element.brushedMetal ?? true;
   const brushedMetalOpacity = element.brushedMetalOpacity ?? 8;
   const brushedMetalPattern = getBrushedMetalBackground(brushedMetalOpacity);
-  const brushedMetalStyle: React.CSSProperties = isBrushedMetal
-    ? {
-        backgroundImage: brushedMetalPattern,
-        backgroundRepeat: 'repeat',
-        backgroundSize: '80px 140px'
-      }
-    : {};
 
   const deviceType = element.deviceType || 'pixel-10';
   const showButtons = element.showButtons ?? true;

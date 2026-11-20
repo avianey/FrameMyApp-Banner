@@ -26,6 +26,7 @@ import {
   getDirectoryHandleFromIdb
 } from '../utils/bundleIo';
 import { assetManager, convertUrlsToRelativeAssetPaths } from '../utils/assetManager';
+import { cloneElementsForTarget } from '../utils/elementClipboardHelper';
 import { computeCanvasSignature } from './useDiskSync';
 
 interface UseBundleManagerOptions {
@@ -43,7 +44,12 @@ interface UseBundleManagerOptions {
   externalLoadedBundleRef?: React.MutableRefObject<LoadedBundle | null>;
   externalActiveBundleItemIdRef?: React.MutableRefObject<string | null>;
   recordHistory: () => void;
-  applyCompositionDirectly: (comp: any, recordHist?: boolean) => void;
+  applyCompositionDirectly: (
+    comp: any,
+    recordHist?: boolean,
+    fitMode?: 'always' | 'on-change' | 'never'
+  ) => void;
+  pasteIntoActiveCanvas?: (sourceElements: CanvasElement[], offsetPx?: number) => void;
   showSnackbar: (message: string, icon?: string) => void;
 }
 
@@ -63,16 +69,19 @@ export function useBundleManager({
   externalActiveBundleItemIdRef,
   recordHistory,
   applyCompositionDirectly,
+  pasteIntoActiveCanvas,
   showSnackbar
 }: UseBundleManagerOptions) {
   const [loadedBundle, setLoadedBundleState] = useState<LoadedBundle | null>(null);
   const loadedBundleRef = useRef<LoadedBundle | null>(null);
   const [activeBundleItemId, setActiveBundleItemIdState] = useState<string | null>(null);
+  const activeBundleItemIdRef = useRef<string | null>(null);
   const [savedCanvasSignatures, setSavedCanvasSignatures] = useState<Record<string, string>>({});
   const bundleDirHandleRef = useRef<any>(null);
 
   const setActiveBundleItemId = useCallback(
     (id: string | null) => {
+      activeBundleItemIdRef.current = id;
       if (externalActiveBundleItemIdRef) {
         externalActiveBundleItemIdRef.current = id;
       }
@@ -200,7 +209,10 @@ export function useBundleManager({
         );
       }
 
-      applyCompositionDirectly(resolved, false);
+      const isInitialLoad = !activeBundleItemIdRef.current;
+      const fitMode = item.type === 'master' || isInitialLoad ? 'always' : 'on-change';
+
+      applyCompositionDirectly(resolved, false, fitMode);
       setActiveBundleItemId(item.id);
 
       const initialSig = computeCanvasSignature(
@@ -455,6 +467,186 @@ export function useBundleManager({
     }
   }, [loadedBundle, projectName, background, elements, exportZone, canvasWidth, canvasHeight, showSnackbar]);
 
+  const copyElementsToTargets = useCallback(
+    async (
+      sourceElements: CanvasElement[],
+      targetItemIds: string[],
+      options?: { keepExactPosition?: boolean }
+    ): Promise<number> => {
+      const currentBundle = loadedBundleRef.current || loadedBundle;
+      if (!currentBundle || sourceElements.length === 0 || targetItemIds.length === 0) return 0;
+
+      const keepExactPosition = options?.keepExactPosition ?? true;
+      let dirHandle = currentBundle.directoryHandle || bundleDirHandleRef.current;
+      if (!dirHandle) {
+        dirHandle = await getDirectoryHandleFromIdb();
+        if (dirHandle) {
+          bundleDirHandleRef.current = dirHandle;
+          currentBundle.directoryHandle = dirHandle;
+        }
+      }
+
+      let hasWritePerm = false;
+      if (dirHandle) {
+        try {
+          hasWritePerm = await verifyDirectoryPermission(dirHandle, true);
+          if (hasWritePerm) {
+            await assetManager.saveAllToDirectory(dirHandle, true);
+          }
+        } catch (err) {
+          console.warn('Permission disque indisponible lors de la copie multi-cibles:', err);
+          hasWritePerm = false;
+        }
+      }
+
+      let updatedBundle: LoadedBundle = {
+        ...currentBundle,
+        overrides: { ...(currentBundle.overrides || {}) },
+        variants: [...(currentBundle.variants || [])]
+      };
+
+      let copiedCount = 0;
+      let persistedCount = 0;
+      const masterConfigBase = (updatedBundle.master?.config as BannerMasterConfig) || {};
+      const activeAssets = updatedBundle.assets || {};
+
+      for (const targetId of targetItemIds) {
+        if (targetId === activeBundleItemIdRef.current) {
+          pasteIntoActiveCanvas?.(sourceElements, 24);
+          copiedCount++;
+          continue;
+        }
+
+        const targetItem: BundleItem | undefined =
+          (updatedBundle.master?.id === targetId ? updatedBundle.master : undefined) ||
+          Object.values(updatedBundle.overrides).find(o => o.id === targetId) ||
+          updatedBundle.variants.find(v => v.id === targetId);
+
+        if (!targetItem) continue;
+
+        const currentMasterCfg = (updatedBundle.master?.config as BannerMasterConfig) || masterConfigBase;
+        const matchingOverride =
+          targetItem.type === 'variant' ? updatedBundle.overrides[targetItem.slug] : undefined;
+
+        const resolved =
+          targetItem.type === 'master'
+            ? resolveComposition(
+                targetItem.config as BannerMasterConfig,
+                undefined,
+                undefined,
+                activeAssets,
+                targetItem.path
+              )
+            : targetItem.type === 'override'
+            ? resolveComposition(
+                currentMasterCfg,
+                targetItem.config as BannerOverrideConfig,
+                undefined,
+                activeAssets,
+                targetItem.path
+              )
+            : resolveComposition(
+                currentMasterCfg,
+                matchingOverride?.config as BannerOverrideConfig | undefined,
+                targetItem.config as BannerVariantConfig,
+                activeAssets,
+                targetItem.path
+              );
+
+        const clones = cloneElementsForTarget(sourceElements, resolved.elements, {
+          offsetPx: keepExactPosition ? 0 : 24,
+          preferOriginalCustomId: true,
+          assetsMap: activeAssets,
+          targetItemPath: targetItem.path
+        });
+        const nextElements = [...resolved.elements, ...clones];
+
+        let serializedConfig: any;
+        if (targetItem.type === 'master') {
+          serializedConfig = serializeCanvasToMaster(
+            targetItem.name || 'Master',
+            resolved.background,
+            nextElements,
+            resolved.exportZone,
+            resolved.canvasWidth,
+            resolved.canvasHeight
+          );
+        } else if (targetItem.type === 'override') {
+          serializedConfig = serializeCanvasToOverride(
+            targetItem,
+            resolved.background,
+            nextElements,
+            resolved.exportZone,
+            currentMasterCfg,
+            resolved.canvasWidth,
+            resolved.canvasHeight
+          );
+        } else {
+          serializedConfig = serializeCanvasToVariant(
+            targetItem,
+            nextElements,
+            currentMasterCfg,
+            matchingOverride?.config as BannerOverrideConfig | undefined,
+            resolved.background,
+            resolved.exportZone,
+            resolved.canvasWidth,
+            resolved.canvasHeight
+          );
+        }
+
+        const cleanConfig = convertUrlsToRelativeAssetPaths(serializedConfig, activeAssets);
+        const yamlContent = stringifyYaml(cleanConfig);
+
+        if (dirHandle && hasWritePerm) {
+          try {
+            await writeTextToDirectory(dirHandle, targetItem.path, yamlContent);
+            persistedCount++;
+          } catch (err) {
+            console.error(`Erreur d'écriture dans ${targetItem.path}:`, err);
+          }
+        }
+
+        const updatedItem: BundleItem = {
+          ...targetItem,
+          rawContent: yamlContent,
+          config: cleanConfig
+        };
+
+        if (targetItem.type === 'master') {
+          updatedBundle = { ...updatedBundle, master: updatedItem };
+        } else if (targetItem.type === 'override') {
+          updatedBundle = {
+            ...updatedBundle,
+            overrides: { ...updatedBundle.overrides, [targetItem.slug]: updatedItem }
+          };
+        } else {
+          updatedBundle = {
+            ...updatedBundle,
+            variants: updatedBundle.variants.map(v => (v.id === targetItem.id ? updatedItem : v))
+          };
+        }
+
+        copiedCount++;
+      }
+
+      loadedBundleRef.current = updatedBundle;
+      if (externalLoadedBundleRef) {
+        externalLoadedBundleRef.current = updatedBundle;
+      }
+      setLoadedBundleState(updatedBundle);
+
+      if (copiedCount > 0) {
+        const elWord = sourceElements.length > 1 ? `${sourceElements.length} éléments copiés` : 'Élément copié';
+        const targetWord = copiedCount > 1 ? `${copiedCount} cibles` : '1 cible';
+        const diskInfo = persistedCount > 0 ? ' (enregistré sur disque)' : '';
+        showSnackbar(`${elWord} dans ${targetWord}${diskInfo}`, 'content_paste_go');
+      }
+
+      return copiedCount;
+    },
+    [loadedBundle, pasteIntoActiveCanvas, externalLoadedBundleRef, showSnackbar]
+  );
+
   return {
     loadedBundle,
     setLoadedBundle,
@@ -467,6 +659,7 @@ export function useBundleManager({
     markItemSaved,
     applyBundleItem,
     saveBundleItemToDisk,
+    copyElementsToTargets,
     exportCanvasAsTemplateYaml,
     exportCanvasAsBundleZip
   };

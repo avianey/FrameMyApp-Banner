@@ -1,67 +1,65 @@
 ---
 name: documentation-maintenance
-description: Protocole opérationnel pour maintenir la documentation du système de templates (docs/DOCUMENTATION.md) synchronisée avec chaque évolution touchant aux templates, à la cascade Master/Overrides/Variants, aux identifiants personnalisés (customId), à la syntaxe YAML, aux assets ou au Batch Export dans FrameMyApp-Banner.
+description: Protocole opérationnel pour maintenir l'ensemble de la documentation du projet FrameMyApp-Banner synchronisée (docs/TEMPLATE_SYSTEM.md, CHANGELOG.md, README.md et .skills/) avec chaque évolution du code, des templates YAML, de la CLI headless ou de l'architecture.
 metadata:
   author: FrameMyApp
-  version: 2.0.0
+  version: 3.0.0
   category: Documentation
-  last-updated: '2026-09-01'
+  last-updated: '2026-11-19'
   keywords:
     - FrameMyApp
     - Banner Studio
     - Documentation
-    - Templates
+    - Template System
+    - Changelog
+    - Skills Maintenance
     - YAML
     - CustomId
     - Cascade
     - Assets
     - Batch Export
+    - Headless CLI
 ---
 
-# Protocole de Maintenance de la Documentation du Système de Templates (FrameMyApp-Banner)
+# Protocole de Maintenance Documentaire, Changelog & Skills (FrameMyApp-Banner)
 
-Ce document formalise la politique de maintenance documentaire pour le **système de templates, cascade, YAML, identifiants (`customId`), résolution d'assets et Batch Export** de **FrameMyApp-Banner**.
-
----
-
-## 1. Périmètre & Règle d'Application
-
-> **RÈGLE :**
-> **Toute modification ou évolution impactant le système de templates (moteur en cascade, syntaxe des fichiers YAML, identifiants `customId`, arborescence de bundle, résolution d'assets ou Batch Export) doit être immédiatement et fidèlement reflétée dans le fichier [docs/DOCUMENTATION.md](file:///home/avianey/workspace/FrameMyApp-Banner/docs/DOCUMENTATION.md).**
->
-> Les modifications d'interface générale (boutons, thèmes, canevas, contrôles UI, raccourcis clavier) ne font plus l'objet d'une documentation obligatoire dans ce fichier.
+Ce document formalise la politique de synchronisation entre le **code source**, la **documentation de référence**, le **CHANGELOG** et les **skills IA** de **FrameMyApp-Banner**.
 
 ---
 
-## 2. Matrice des Déclencheurs & Sections Cibles dans `docs/DOCUMENTATION.md`
+## 1. Sources de Vérité du Projet
 
-| Fichier / Composant Modifié | Nature du Changement | Section Cible dans `docs/DOCUMENTATION.md` | Action Requise |
+| Fichier | Rôle (Source Unique de Vérité) |
+|---|---|
+| [docs/TEMPLATE_SYSTEM.md](file:///home/avianey/workspace/FrameMyApp-Banner/docs/TEMPLATE_SYSTEM.md) | Spécification normative complète du système de templates, schéma YAML (`master.yml`, `overrides/`, `variants/`), `version` de construction, `customId`, résolution d'assets, Batch Export UI et CLI Headless CI/CD. |
+| [CHANGELOG.md](file:///home/avianey/workspace/FrameMyApp-Banner/CHANGELOG.md) | Historique chronologique des évolutions (`## [Unreleased]` en continu + releases SemVer taggées). |
+| [README.md](file:///home/avianey/workspace/FrameMyApp-Banner/README.md) | Présentation synthétique, démarrage rapide (dev, mode IA Gemini, CLI headless), architecture haut niveau et liens vers les docs. |
+| [AGENTS.md](file:///home/avianey/workspace/FrameMyApp-Banner/AGENTS.md) | Règles d'exécution obligatoires pour les agents IA (outillage, interdictions, registre des skills et devoirs de maintenance). |
+| `.skills/*/SKILL.md` | Protocoles spécialisés (`frugal-workflow`, `banner-template-architecture`, `documentation-maintenance`, `release-versioning`). |
+
+> **RÈGLE** : Ne jamais créer de doublon documentaire (ex. recréer un second guide templates). Toute spécification de template, YAML, asset ou Batch/CLI vit exclusivement dans [docs/TEMPLATE_SYSTEM.md](file:///home/avianey/workspace/FrameMyApp-Banner/docs/TEMPLATE_SYSTEM.md).
+
+---
+
+## 2. Matrice des Déclencheurs & Actions Obligatoires
+
+| Zone / Fichier Modifié | Nature du Changement | Cible(s) à Mettre à Jour | Action Requise |
 |---|---|---|---|
-| `src/utils/templateEngine.ts`, `src/types/template.ts` | Évolution de la cascade Master / Overrides / Variants, règles de fusion `resolveComposition` | **Section 1 : Système de Templates & Déclinaisons en Cascade** | Actualiser l'arborescence, l'ordre d'application de la cascade et les règles de fusion. |
-| `src/context/EditorContext.tsx`, `LeftSidebar.tsx` (Mapping customId) | Identifiants sémantiques, fonction Auto-ID, règles de mapping | **Section 2 : Identifiants Personnalisés (customId)** | Expliquer l'attribution du nouvel identifiant et son utilisation dans les templates. |
-| `master.yml`, `overrides/*.yml`, `variants/**/*.yml` | Nouveaux blocs, syntaxes `elements.*`, `content.*`, `images.*` ou `background.*` | **Section 3 : Spécification & Syntaxe des Fichiers YAML** | Mettre à jour les exemples annotés de `master.yml`, surcharges et variantes. |
-| `src/utils/bundleIo.ts`, `assetManager.ts` | Résolution des images, arborescence sous `assets/` | **Section 4 : Gestion des Assets Graphiques & Résolution en Cascade** | Préciser les règles de remontée d'arborescence et les chemins relatifs supportés. |
-| `src/components/modal/BatchExportModal.tsx`, `src/utils/batchExportRenderer.ts` | File System Access API, sous-dossier horodaté, archive ZIP, CJK | **Section 5 : Batch Export (Export par Lot) & Archives ZIP** | Documenter les options d'export par lot, formats de sortie et arborescence générée. |
-| `src/types/index.ts`, `test-template-engine.mjs` | Nouveaux attributs d'éléments, correspondances TypeScript / YAML | **Section 6 : Architecture, Types & Tests du Moteur de Templates** | Synchroniser la matrice de correspondance et les procédures de tests. |
+| Toute feature, changement notable ou bugfix utilisateur | Évolution fonctionnelle ou correctif | [CHANGELOG.md](file:///home/avianey/workspace/FrameMyApp-Banner/CHANGELOG.md) | Ajouter une entrée concise sous `## [Unreleased]` (`Added`, `Changed`, `Fixed`, `Removed`). |
+| `src/types/index.ts`, `src/types/template.ts`, `src/utils/templateEngine.ts` | Nouveau paramètre YAML, évolution cascade, `APP_VERSION`, diff auto | [docs/TEMPLATE_SYSTEM.md](file:///home/avianey/workspace/FrameMyApp-Banner/docs/TEMPLATE_SYSTEM.md) + [.skills/banner-template-architecture/SKILL.md](file:///home/avianey/workspace/FrameMyApp-Banner/.skills/banner-template-architecture/SKILL.md) | Mettre à jour le schéma YAML, la matrice YAML ↔ TypeScript et les exemples. |
+| `src/utils/bundleIo.ts`, `src/utils/assetManager.ts` | Résolution d'assets, chemins relatifs, export ZIP | [docs/TEMPLATE_SYSTEM.md](file:///home/avianey/workspace/FrameMyApp-Banner/docs/TEMPLATE_SYSTEM.md) | Mettre à jour la section 4 (Cascade & Assets). |
+| `src/components/modal/BatchExportModal.tsx`, `src/utils/batchExportRenderer.ts` | Options Batch Export UI, formats, CJK | [docs/TEMPLATE_SYSTEM.md](file:///home/avianey/workspace/FrameMyApp-Banner/docs/TEMPLATE_SYSTEM.md) | Mettre à jour la section 4.3 (Batch Export Interactif & CJK). |
+| `generateBatchForBundle.sh`, `scripts/generate-batch-cli.mjs`, `src/components/HeadlessExportBridge.tsx` | Nouveaux arguments CLI, contrôle de version, comportement CI/CD | [docs/TEMPLATE_SYSTEM.md](file:///home/avianey/workspace/FrameMyApp-Banner/docs/TEMPLATE_SYSTEM.md) + [README.md](file:///home/avianey/workspace/FrameMyApp-Banner/README.md) | Mettre à jour la section 8 (CLI CI/CD & workflow GitHub Actions) et le Quickstart. |
+| `config.ia.yaml`, `vite.config.ts`, `package.json` (scripts) | Nouveau script NPM, nouvelle variable d'env, évolution IA | [README.md](file:///home/avianey/workspace/FrameMyApp-Banner/README.md) + `.skills/frugal-workflow/SKILL.md` | Mettre à jour les instructions de démarrage et la cartographie. |
+| Nouvelle couche architecturale, nouveau hook/dossier majeur, changement de convention | Évolution structurante du dépôt | `.skills/<skill>/SKILL.md` + [AGENTS.md](file:///home/avianey/workspace/FrameMyApp-Banner/AGENTS.md) | Mettre à jour la skill concernée (`last-updated` + contenu) et `AGENTS.md` si une règle globale évolue. |
+| Saut de version / Tag Git | Release `X.Y.Z` | Suivre [.skills/release-versioning/SKILL.md](file:///home/avianey/workspace/FrameMyApp-Banner/.skills/release-versioning/SKILL.md) | Promouvoir `[Unreleased]`, tagger `X.Y.Z`, mettre à jour la matrice de compatibilité et préparer l'itération suivante. |
 
 ---
 
 ## 3. Protocole Opérationnel
 
-Chaque fois que vous modifiez le système de templates de FrameMyApp-Banner :
-
-### Action 1 : Localiser la section cible
-- Consulter le sommaire de `docs/DOCUMENTATION.md`.
-- Repérer le numéro de section (`## X. ...`) et le sous-titre (`### X.Y ...`).
-
-### Action 2 : Édition chirurgicale
-- Utiliser impérativement les outils d'édition ciblée : `replace_file_content` ou `multi_replace_file_content`.
-
-### Action 3 : Validation des Exemples YAML
-- Tout exemple YAML fourni dans la documentation doit être syntaxiquement valide et directement utilisable par le moteur `templateEngine.ts`.
-
-### Action 4 : Validation des Tests
-- Exécuter les tests du moteur de template :
-  ```bash
-  npm test
-  ```
+1. **Localiser la section cible** : Repérer le numéro de section (`## X. ...`) dans le document cible sans le réécrire intégralement.
+2. **Édition chirurgicale** : Utiliser `replace_file_content` ou `multi_replace_file_content`.
+3. **Vérifier la validité des exemples YAML** : Les types énumérés (`shapeType`, `deviceType`, `fillType`, `zoomBlurOrigin`, etc.) doivent correspondre littéralement aux unions TypeScript de [src/types/index.ts](file:///home/avianey/workspace/FrameMyApp-Banner/src/types/index.ts).
+4. **Synchroniser les métadonnées des skills** : Lors de toute modification substantielle d'une skill, actualiser `metadata.last-updated` (et `metadata.version` si le protocole change).
+5. **Valider les tests si le moteur a changé** : Exécuter `npm test`.

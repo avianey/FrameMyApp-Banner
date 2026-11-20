@@ -356,7 +356,7 @@ export function convertUrlsToRelativeAssetPaths<T extends Record<string, any>>(
 
   // Convert elements (Array in Master, or Record dictionary in Override/Variant)
   if (Array.isArray(cloned.elements)) {
-    cloned.elements = cloned.elements.map((el: any) => {
+    (cloned as any).elements = cloned.elements.map((el: any) => {
       const copy = { ...el };
       delete copy.imageNaturalWidth;
       delete copy.imageNaturalHeight;

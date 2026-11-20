@@ -4,10 +4,44 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer } from 'vite';
+import yaml from 'js-yaml';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PROJECT_ROOT = path.resolve(__dirname, '..');
+
+function getEngineVersion() {
+  try {
+    const pkgPath = path.join(PROJECT_ROOT, 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    return typeof pkg.version === 'string' ? pkg.version : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function detectMasterVersion(entries) {
+  const masterEntry = entries.find(e => {
+    const lower = e.path.toLowerCase();
+    return (
+      lower === 'master.yml' ||
+      lower === 'master.yaml' ||
+      lower === 'master.json' ||
+      lower.endsWith('/master.yml') ||
+      lower.endsWith('/master.yaml')
+    );
+  });
+  if (!masterEntry || !masterEntry.content) return null;
+  try {
+    const parsed = yaml.load(masterEntry.content);
+    if (parsed && typeof parsed === 'object' && parsed.version !== undefined && parsed.version !== null) {
+      return String(parsed.version).trim();
+    }
+  } catch {
+    // Ignore YAML parsing errors here; the browser engine will report them
+  }
+  return null;
+}
 
 function printHelp() {
   console.log(`
@@ -184,13 +218,30 @@ async function main() {
     process.exit(1);
   }
 
+  const engineVersion = getEngineVersion();
   const bundleName = path.basename(inDirAbs);
-  console.log(`📦 Lecture du bundle FrameMyApp : ${inDirAbs}`);
+  console.log(`📦 Lecture du bundle FrameMyApp : ${inDirAbs} (moteur v${engineVersion})`);
   const entries = readBundleFromDisk(inDirAbs);
 
   if (entries.length === 0) {
     console.error(`❌ Erreur : Aucun fichier YAML/JSON ou asset trouvé dans ${inDirAbs}`);
     process.exit(1);
+  }
+
+  const masterVersion = detectMasterVersion(entries);
+  if (masterVersion) {
+    console.log(`   → Version référencée dans master.yml : ${masterVersion}`);
+    if (engineVersion !== 'unknown' && masterVersion !== engineVersion) {
+      console.warn(
+        `⚠️  Avertissement de version : master.yml a été construit avec FrameMyApp ${masterVersion}, ` +
+          `mais le moteur headless exécuté est en ${engineVersion}. ` +
+          `Pour un rendu strictement identique, invoquez le moteur sur le tag Git "${masterVersion}".`
+      );
+    }
+  } else {
+    console.warn(
+      `⚠️  Aucune version référencée dans master.yml (champ "version" absent). Exécution avec le moteur ${engineVersion}.`
+    );
   }
 
   console.log(`   → ${entries.length} fichier(s) chargé(s) depuis le bundle.`);

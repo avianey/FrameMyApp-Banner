@@ -20,7 +20,7 @@ export const TextElement: React.FC<TextElementProps> = ({
 }) => {
   const { selectElement, updateElement, state, recordHistory } = useEditor();
   const nodeRef = useRef<HTMLDivElement>(null);
-  const textInnerRef = useRef<HTMLDivElement>(null);
+  const textInnerRef = useRef<HTMLDivElement | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const currentZoom = state.zoom || 1;
 

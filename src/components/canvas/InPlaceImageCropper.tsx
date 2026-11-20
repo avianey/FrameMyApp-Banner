@@ -280,10 +280,10 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
     // Déclenche l'animation de retour élastique si l'image dépassait
     if (dragOffset.x !== clamped.offsetX || dragOffset.y !== clamped.offsetY) {
       setIsSpringing(true);
-      setDragOffset(clamped);
+      setDragOffset({ x: clamped.offsetX, y: clamped.offsetY });
       setTimeout(() => setIsSpringing(false), 300);
     } else {
-      setDragOffset(clamped);
+      setDragOffset({ x: clamped.offsetX, y: clamped.offsetY });
     }
 
     dragStartRef.current = null;
@@ -357,10 +357,10 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
       // Si le bord a été réajusté pour éviter un trou, retour élastique fluide
       if (clamped.offsetX !== targetOffsetX || clamped.offsetY !== targetOffsetY || nextScale === minScale) {
         setIsSpringing(true);
-        setDragOffset(clamped);
+        setDragOffset({ x: clamped.offsetX, y: clamped.offsetY });
         setTimeout(() => setIsSpringing(false), 250);
       } else {
-        setDragOffset(clamped);
+        setDragOffset({ x: clamped.offsetX, y: clamped.offsetY });
       }
 
       onUpdate({
@@ -406,6 +406,8 @@ export const InPlaceImageCropper: React.FC<InPlaceImageCropperProps> = ({
             ? {
                 width: `${geom.renderW}px`,
                 height: `${geom.renderH}px`,
+                maxWidth: 'none',
+                maxHeight: 'none',
                 left: `${imgLeft}px`,
                 top: `${imgTop}px`,
                 objectFit: imageFit === 'contain' ? 'contain' : 'cover',

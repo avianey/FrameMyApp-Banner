@@ -1,6 +1,14 @@
 import { useState, useRef, useCallback } from 'react';
 import { ExportZone } from '../types';
 
+export type ViewportFitMode = 'always' | 'on-change' | 'never';
+
+export interface SetCanvasDimensionsOptions {
+  recordHistory?: boolean;
+  syncExportZone?: boolean;
+  fitMode?: ViewportFitMode;
+}
+
 interface UseViewportNavigationOptions {
   viewportRef: React.RefObject<HTMLDivElement>;
   recordHistory: () => void;
@@ -30,8 +38,14 @@ export function useViewportNavigation({
   initialCanvasHeight = 600,
   initialExportZone = defaultExportZone
 }: UseViewportNavigationOptions) {
-  const [canvasWidth, setCanvasWidth] = useState<number>(initialCanvasWidth);
-  const [canvasHeight, setCanvasHeight] = useState<number>(initialCanvasHeight);
+  const [canvasWidth, setCanvasWidthState] = useState<number>(initialCanvasWidth);
+  const canvasWidthRef = useRef<number>(canvasWidth);
+  canvasWidthRef.current = canvasWidth;
+
+  const [canvasHeight, setCanvasHeightState] = useState<number>(initialCanvasHeight);
+  const canvasHeightRef = useRef<number>(canvasHeight);
+  canvasHeightRef.current = canvasHeight;
+
   const [exportZone, setExportZoneState] = useState<ExportZone>(initialExportZone);
   const [isDrawingExportMode, setIsDrawingExportModeState] = useState<boolean>(false);
 
@@ -43,6 +57,28 @@ export function useViewportNavigation({
   const panRef = useRef(pan);
   panRef.current = pan;
 
+  const setCanvasWidth = useCallback(
+    (widthOrUpdater: number | ((prev: number) => number)) => {
+      setCanvasWidthState(prev => {
+        const next = typeof widthOrUpdater === 'function' ? widthOrUpdater(prev) : widthOrUpdater;
+        canvasWidthRef.current = next;
+        return next;
+      });
+    },
+    []
+  );
+
+  const setCanvasHeight = useCallback(
+    (heightOrUpdater: number | ((prev: number) => number)) => {
+      setCanvasHeightState(prev => {
+        const next = typeof heightOrUpdater === 'function' ? heightOrUpdater(prev) : heightOrUpdater;
+        canvasHeightRef.current = next;
+        return next;
+      });
+    },
+    []
+  );
+
   const updateExportZone = useCallback((updates: Partial<ExportZone>) => {
     setExportZoneState(prev => ({ ...prev, ...updates }));
   }, []);
@@ -51,13 +87,88 @@ export function useViewportNavigation({
     setIsDrawingExportModeState(mode);
   }, []);
 
-  const setPan = useCallback((panOrUpdater: { x: number; y: number } | ((prev: { x: number; y: number }) => { x: number; y: number })) => {
-    setPanState(prev => {
-      const next = typeof panOrUpdater === 'function' ? panOrUpdater(prev) : panOrUpdater;
-      panRef.current = next;
-      return next;
-    });
-  }, []);
+  const setPan = useCallback(
+    (
+      panOrUpdater:
+        | { x: number; y: number }
+        | ((prev: { x: number; y: number }) => { x: number; y: number })
+    ) => {
+      setPanState(prev => {
+        const next = typeof panOrUpdater === 'function' ? panOrUpdater(prev) : panOrUpdater;
+        panRef.current = next;
+        return next;
+      });
+    },
+    []
+  );
+
+  /**
+   * Calcule la zone libre du viewport non couverte par la BottomBar ni par les panneaux latéraux ouverts.
+   */
+  const getSafeViewportBounds = useCallback(() => {
+    const vp = viewportRef.current;
+    if (!vp) return null;
+
+    const vpRect = vp.getBoundingClientRect();
+    const vpWidth = vp.clientWidth;
+    const vpHeight = vp.clientHeight;
+
+    const topInset = 24;
+    let bottomInset = 108; // Fallback sûr pour la BottomBar flottante (bottom-6 + hauteur + marge)
+
+    if (typeof document !== 'undefined') {
+      const bottomBar = document.querySelector('[data-bottom-bar="true"]') as HTMLElement | null;
+      if (bottomBar) {
+        const barRect = bottomBar.getBoundingClientRect();
+        if (barRect.height > 0 && barRect.top < vpRect.bottom) {
+          bottomInset = Math.max(96, Math.ceil(vpRect.bottom - barRect.top) + 20);
+        }
+      }
+    }
+
+    let leftInset = 32;
+    let rightInset = 32;
+
+    if (typeof document !== 'undefined') {
+      const leftSidebar = document.getElementById('left-sidebar');
+      if (
+        leftSidebar &&
+        !leftSidebar.classList.contains('-translate-x-full') &&
+        leftSidebar.offsetWidth > 0
+      ) {
+        leftInset = leftSidebar.offsetWidth + 24;
+      }
+
+      const sideDrawer = document.getElementById('side-drawer');
+      if (
+        sideDrawer &&
+        !sideDrawer.classList.contains('translate-x-full') &&
+        sideDrawer.offsetWidth > 0
+      ) {
+        rightInset = sideDrawer.offsetWidth + 24;
+      }
+    }
+
+    // Sur écran étroit, si les tiroirs ne laissent pas assez d'espace horizontal, recentrer sur tout le viewport
+    if (vpWidth - leftInset - rightInset < 220) {
+      leftInset = 24;
+      rightInset = 24;
+    }
+
+    const availW = Math.max(100, vpWidth - leftInset - rightInset);
+    const availH = Math.max(100, vpHeight - topInset - bottomInset);
+
+    return {
+      vpWidth,
+      vpHeight,
+      topInset,
+      bottomInset,
+      leftInset,
+      rightInset,
+      availW,
+      availH
+    };
+  }, [viewportRef]);
 
   const setZoom = useCallback(
     (
@@ -66,7 +177,7 @@ export function useViewportNavigation({
     ) => {
       const prevZoom = zoomRef.current;
       const targetRaw = typeof zoomOrUpdater === 'function' ? zoomOrUpdater(prevZoom) : zoomOrUpdater;
-      const nextZoom = Math.min(3.5, Math.max(0.2, Math.round(targetRaw * 100) / 100));
+      const nextZoom = Math.min(3.5, Math.max(0.1, Math.round(targetRaw * 100) / 100));
 
       if (nextZoom === prevZoom) return;
 
@@ -89,8 +200,8 @@ export function useViewportNavigation({
         focalVpY = focalPoint.clientY - vpRect.top;
       } else {
         // Zoom via loupes de la toolbar / boutons +/- : le CENTRE DE LA COMPOSITION
-        focalVpX = currentPan.x + (canvasWidth / 2) * prevZoom;
-        focalVpY = currentPan.y + (canvasHeight / 2) * prevZoom;
+        focalVpX = currentPan.x + (canvasWidthRef.current / 2) * prevZoom;
+        focalVpY = currentPan.y + (canvasHeightRef.current / 2) * prevZoom;
       }
 
       // Coordonnées du point focal dans le document de composition
@@ -107,7 +218,7 @@ export function useViewportNavigation({
       setPanState({ x: newPanX, y: newPanY });
       panRef.current = { x: newPanX, y: newPanY };
     },
-    [canvasWidth, canvasHeight, viewportRef]
+    [viewportRef]
   );
 
   const zoomIn = useCallback(() => {
@@ -115,93 +226,36 @@ export function useViewportNavigation({
   }, [setZoom]);
 
   const zoomOut = useCallback(() => {
-    setZoom(prev => Math.max(0.2, prev - 0.15));
+    setZoom(prev => Math.max(0.1, prev - 0.15));
   }, [setZoom]);
 
   const resetZoom = useCallback(() => {
     setZoomState(1.0);
     zoomRef.current = 1.0;
-    if (viewportRef.current) {
-      const vp = viewportRef.current;
-      const centeredX = Math.round((vp.clientWidth - canvasWidth) / 2);
-      const centeredY = Math.round((vp.clientHeight - canvasHeight) / 2);
+    const bounds = getSafeViewportBounds();
+    if (bounds) {
+      const centeredX = Math.round(bounds.leftInset + (bounds.availW - canvasWidthRef.current) / 2);
+      const centeredY = Math.round(bounds.topInset + (bounds.availH - canvasHeightRef.current) / 2);
       setPanState({ x: centeredX, y: centeredY });
       panRef.current = { x: centeredX, y: centeredY };
       showSnackbar('Vue recentrée (100%)', 'center_focus_strong');
     }
-  }, [canvasWidth, canvasHeight, showSnackbar, viewportRef]);
-
-  const setCanvasDimensions = useCallback(
-    (width: number, height: number) => {
-      recordHistory();
-      setCanvasWidth(width);
-      setCanvasHeight(height);
-
-      // Synchroniser la zone d'exportation si elle couvrait le plein canevas ou dépasse les nouvelles bornes
-      setExportZoneState(prevZone => {
-        const wasFull =
-          prevZone.preset === 'full' ||
-          (prevZone.x === 0 &&
-            prevZone.y === 0 &&
-            Math.abs(prevZone.width - canvasWidth) < 2 &&
-            Math.abs(prevZone.height - canvasHeight) < 2);
-        if (wasFull || prevZone.x + prevZone.width > width || prevZone.y + prevZone.height > height) {
-          const newRatio = width / height;
-          return {
-            ...prevZone,
-            x: 0,
-            y: 0,
-            width,
-            height,
-            targetWidth: wasFull ? width : prevZone.targetWidth,
-            targetHeight: wasFull ? height : Math.round(prevZone.targetWidth / newRatio),
-            ratio: newRatio,
-            preset: wasFull ? 'full' : prevZone.preset
-          };
-        }
-        return prevZone;
-      });
-
-      // Adapter le zoom et centrer la scène dans le viewport si nécessaire
-      if (viewportRef.current) {
-        const vpW = viewportRef.current.clientWidth - 80;
-        const vpH = viewportRef.current.clientHeight - 80;
-        if (vpW > 100 && vpH > 100 && (width > vpW || height > vpH)) {
-          const fitZoom = Math.min(1.0, Math.max(0.1, Math.min(vpW / width, vpH / height)));
-          const roundFit = Math.round(fitZoom * 100) / 100;
-          setZoomState(roundFit);
-          zoomRef.current = roundFit;
-          const newPanX = Math.round((viewportRef.current.clientWidth - width * roundFit) / 2);
-          const newPanY = Math.round((viewportRef.current.clientHeight - height * roundFit) / 2);
-          setPanState({ x: newPanX, y: newPanY });
-          panRef.current = { x: newPanX, y: newPanY };
-        } else {
-          const currentZ = zoomRef.current || 1.0;
-          const newPanX = Math.round((viewportRef.current.clientWidth - width * currentZ) / 2);
-          const newPanY = Math.round((viewportRef.current.clientHeight - height * currentZ) / 2);
-          setPanState({ x: newPanX, y: newPanY });
-          panRef.current = { x: newPanX, y: newPanY };
-        }
-      }
-    },
-    [recordHistory, viewportRef]
-  );
+  }, [getSafeViewportBounds, showSnackbar]);
 
   const centerCanvas = useCallback(
     (customWidth?: number, customHeight?: number, autoFit = true) => {
-      const w = customWidth || canvasWidth;
-      const h = customHeight || canvasHeight;
+      const w = customWidth || canvasWidthRef.current;
+      const h = customHeight || canvasHeightRef.current;
 
-      if (!viewportRef.current) return;
-      const vp = viewportRef.current;
-      const vpW = vp.clientWidth - 80;
-      const vpH = vp.clientHeight - 80;
+      const bounds = getSafeViewportBounds();
+      if (!bounds) return;
 
       let fitZoom = zoomRef.current || 1.0;
-      if (autoFit && vpW > 100 && vpH > 100) {
-        if (w > vpW || h > vpH) {
-          fitZoom = Math.min(1.0, Math.max(0.1, Math.min(vpW / w, vpH / h)));
-          fitZoom = Math.round(fitZoom * 100) / 100;
+      if (autoFit) {
+        if (w > bounds.availW || h > bounds.availH) {
+          const rawFit = Math.min(bounds.availW / w, bounds.availH / h);
+          // Math.floor garantit que le canvas scalé reste entièrement au-dessus de la BottomBar
+          fitZoom = Math.min(1.0, Math.max(0.1, Math.floor(rawFit * 100) / 100));
         } else {
           fitZoom = 1.0;
         }
@@ -209,13 +263,63 @@ export function useViewportNavigation({
         zoomRef.current = fitZoom;
       }
 
-      const newPanX = Math.round((vp.clientWidth - w * fitZoom) / 2);
-      const newPanY = Math.round((vp.clientHeight - h * fitZoom) / 2);
+      const newPanX = Math.round(bounds.leftInset + (bounds.availW - w * fitZoom) / 2);
+      const newPanY = Math.round(bounds.topInset + (bounds.availH - h * fitZoom) / 2);
 
       setPanState({ x: newPanX, y: newPanY });
       panRef.current = { x: newPanX, y: newPanY };
     },
-    [canvasWidth, canvasHeight, viewportRef]
+    [getSafeViewportBounds]
+  );
+
+  const setCanvasDimensions = useCallback(
+    (width: number, height: number, options?: SetCanvasDimensionsOptions) => {
+      const prevW = canvasWidthRef.current;
+      const prevH = canvasHeightRef.current;
+      const dimensionsChanged = prevW !== width || prevH !== height;
+      const shouldRecordHistory = options?.recordHistory ?? true;
+      const shouldSyncExportZone = options?.syncExportZone ?? true;
+      const fitMode: ViewportFitMode = options?.fitMode ?? 'always';
+
+      if (shouldRecordHistory) {
+        recordHistory();
+      }
+      setCanvasWidth(width);
+      setCanvasHeight(height);
+
+      // Synchroniser la zone d'exportation si elle couvrait le plein canevas ou dépasse les nouvelles bornes
+      if (shouldSyncExportZone) {
+        setExportZoneState(prevZone => {
+          const wasFull =
+            prevZone.preset === 'full' ||
+            (prevZone.x === 0 &&
+              prevZone.y === 0 &&
+              Math.abs(prevZone.width - prevW) < 2 &&
+              Math.abs(prevZone.height - prevH) < 2);
+          if (wasFull || prevZone.x + prevZone.width > width || prevZone.y + prevZone.height > height) {
+            const newRatio = width / height;
+            return {
+              ...prevZone,
+              x: 0,
+              y: 0,
+              width,
+              height,
+              targetWidth: wasFull ? width : prevZone.targetWidth,
+              targetHeight: wasFull ? height : Math.round(prevZone.targetWidth / newRatio),
+              ratio: newRatio,
+              preset: wasFull ? 'full' : prevZone.preset
+            };
+          }
+          return prevZone;
+        });
+      }
+
+      // Adapter le zoom et centrer la scène dans la zone visible non couverte selon le fitMode
+      if (fitMode === 'always' || (fitMode === 'on-change' && dimensionsChanged)) {
+        centerCanvas(width, height, true);
+      }
+    },
+    [recordHistory, setCanvasWidth, setCanvasHeight, centerCanvas]
   );
 
   return {

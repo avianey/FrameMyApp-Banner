@@ -10,7 +10,7 @@ const devicePresets: { id: DeviceModelType; label: string; icon: string }[] = [
 ];
 
 export const BottomBar: React.FC = () => {
-  const { state, setActivePanel, addText, addShape, addDevice } = useEditor();
+  const { state, setActivePanel, addText, addShape, addDevice, clipboardElements, pasteElements } = useEditor();
   const [showDeviceMenu, setShowDeviceMenu] = useState(false);
   const deviceMenuRef = useRef<HTMLDivElement>(null);
 
@@ -43,7 +43,10 @@ export const BottomBar: React.FC = () => {
   const isExportActive = state.activePanel === 'export';
 
   return (
-    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center space-x-3 z-30 p-2 bg-m3-sys-surfaceContainerHigh/95 backdrop-blur-md rounded-full shadow-m3-3 border border-m3-sys-outlineVariant/50 select-none transition-all">
+    <div
+      data-bottom-bar="true"
+      className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center space-x-3 z-30 p-2 bg-m3-sys-surfaceContainerHigh/95 backdrop-blur-md rounded-full shadow-m3-3 border border-m3-sys-outlineVariant/50 select-none transition-all"
+    >
       {/* Bouton Fond */}
       <button
         onClick={() => setActivePanel(isBgActive ? null : 'bg')}
@@ -132,6 +135,22 @@ export const BottomBar: React.FC = () => {
           </div>
         )}
       </div>
+
+      {clipboardElements.length > 0 && (
+        <button
+          onClick={pasteElements}
+          title={`Coller ${clipboardElements.length} élément(s) copié(s) (Ctrl+V)`}
+          className="flex items-center space-x-1.5 px-3.5 py-2.5 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 active:scale-95 transition-all text-sm font-semibold cursor-pointer"
+        >
+          <span className="material-symbols-rounded text-lg leading-none flex items-center justify-center">
+            content_paste
+          </span>
+          <span className="hidden md:inline">Coller</span>
+          <span className="text-[11px] font-mono bg-emerald-500/25 px-1.5 py-0.2 rounded-full">
+            {clipboardElements.length}
+          </span>
+        </button>
+      )}
 
       <div className="w-px h-6 bg-m3-sys-outlineVariant/60 mx-1" />
 

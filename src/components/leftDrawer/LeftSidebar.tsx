@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { useEditor, extractAssetsFromConfig } from '../../context/EditorContext';
-import { BundleItem, CanvasElement } from '../../types';
+import { BundleItem, CanvasElement, LoadedBundle } from '../../types';
 import {
   readFilesBundle,
   readZipBundle,
@@ -39,14 +39,35 @@ export const LeftSidebar: React.FC = () => {
     setSyncDirectoryName,
     setSyncDirectoryHandle,
     bringForward,
-    sendBackward
+    sendBackward,
+    clipboardElements,
+    copyElements,
+    pasteElements,
+    openCopyToModal
   } = useEditor();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [isNewVariantModalOpen, setIsNewVariantModalOpen] = useState(false);
+  const [variantModalOverrideSlug, setVariantModalOverrideSlug] = useState<string | null>(null);
+  const [variantModalDuplicateSource, setVariantModalDuplicateSource] = useState<BundleItem | null>(null);
   const [isNewOverrideModalOpen, setIsNewOverrideModalOpen] = useState(false);
+
+  const openNewVariantModal = (options?: {
+    overrideSlug?: string | null;
+    duplicateFrom?: BundleItem | null;
+  }) => {
+    setVariantModalOverrideSlug(options?.overrideSlug ?? null);
+    setVariantModalDuplicateSource(options?.duplicateFrom ?? null);
+    setIsNewVariantModalOpen(true);
+  };
+
+  const closeNewVariantModal = () => {
+    setIsNewVariantModalOpen(false);
+    setVariantModalOverrideSlug(null);
+    setVariantModalDuplicateSource(null);
+  };
 
   const hasFsSupport = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 
@@ -687,26 +708,40 @@ export const LeftSidebar: React.FC = () => {
                             </div>
                           </div>
 
-                          <button
-                            onClick={e => {
-                              e.stopPropagation();
-                              saveBundleItemToDisk(override);
-                            }}
-                            title={
-                              isItemDirty(override.id)
-                                ? `Modifications non enregistrées — Cliquer pour sauvegarder dans ${override.slug}.yml`
-                                : `Sauvegarder dans ${override.slug}.yml`
-                            }
-                            className={`w-7 h-7 rounded-lg transition-all flex items-center justify-center cursor-pointer flex-shrink-0 ${
-                              isItemDirty(override.id)
-                                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/50 hover:bg-rose-500 hover:text-white shadow-sm animate-pulse'
-                                : activeBundleItemId === override.id
-                                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25'
-                                : 'text-m3-sys-onSurfaceVariant/40 hover:text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainerHighest'
-                            }`}
-                          >
-                            <span className="material-symbols-rounded text-base">save</span>
-                          </button>
+                          <div className="flex items-center space-x-1 flex-shrink-0">
+                            <button
+                              onClick={e => {
+                                e.stopPropagation();
+                                openNewVariantModal({ overrideSlug: override.slug });
+                              }}
+                              title={`Décliner une variante à partir de ${override.name}`}
+                              className="px-2 h-7 rounded-lg transition-all flex items-center space-x-1 cursor-pointer flex-shrink-0 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 text-[10px] font-bold"
+                            >
+                              <span className="material-symbols-rounded text-xs">call_split</span>
+                              <span>Décliner</span>
+                            </button>
+
+                            <button
+                              onClick={e => {
+                                e.stopPropagation();
+                                saveBundleItemToDisk(override);
+                              }}
+                              title={
+                                isItemDirty(override.id)
+                                  ? `Modifications non enregistrées — Cliquer pour sauvegarder dans ${override.slug}.yml`
+                                  : `Sauvegarder dans ${override.slug}.yml`
+                              }
+                              className={`w-7 h-7 rounded-lg transition-all flex items-center justify-center cursor-pointer flex-shrink-0 ${
+                                isItemDirty(override.id)
+                                  ? 'bg-rose-500/20 text-rose-400 border border-rose-500/50 hover:bg-rose-500 hover:text-white shadow-sm animate-pulse'
+                                  : activeBundleItemId === override.id
+                                  ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25'
+                                  : 'text-m3-sys-onSurfaceVariant/40 hover:text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainerHighest'
+                              }`}
+                            >
+                              <span className="material-symbols-rounded text-base">save</span>
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -736,7 +771,7 @@ export const LeftSidebar: React.FC = () => {
                       <span>Variantes</span>
                     </span>
                     <button
-                      onClick={() => setIsNewVariantModalOpen(true)}
+                      onClick={() => openNewVariantModal()}
                       title="Créer une nouvelle déclinaison / variante"
                       className="px-2 py-0.5 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-[10px] font-bold flex items-center space-x-1 transition-all cursor-pointer"
                     >
@@ -782,26 +817,39 @@ export const LeftSidebar: React.FC = () => {
                                 </div>
                               </div>
 
-                              <button
-                                onClick={e => {
-                                  e.stopPropagation();
-                                  saveBundleItemToDisk(variant);
-                                }}
-                                title={
-                                  isItemDirty(variant.id)
-                                    ? `Modifications non enregistrées — Cliquer pour sauvegarder dans ${variant.path}`
-                                    : `Sauvegarder dans ${variant.path}`
-                                }
-                                className={`w-7 h-7 rounded-lg transition-all flex items-center justify-center cursor-pointer flex-shrink-0 ${
-                                  isItemDirty(variant.id)
-                                    ? 'bg-rose-500/20 text-rose-400 border border-rose-500/50 hover:bg-rose-500 hover:text-white shadow-sm animate-pulse'
-                                    : activeBundleItemId === variant.id
-                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25'
-                                    : 'text-m3-sys-onSurfaceVariant/40 hover:text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainerHighest'
-                                }`}
-                              >
-                                <span className="material-symbols-rounded text-base">save</span>
-                              </button>
+                              <div className="flex items-center space-x-1 flex-shrink-0">
+                                <button
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    openNewVariantModal({ duplicateFrom: variant });
+                                  }}
+                                  title={`Dupliquer la variante ${variant.name}`}
+                                  className="w-7 h-7 rounded-lg transition-all flex items-center justify-center cursor-pointer flex-shrink-0 text-m3-sys-onSurfaceVariant/60 hover:text-emerald-400 hover:bg-emerald-500/15"
+                                >
+                                  <span className="material-symbols-rounded text-base">content_copy</span>
+                                </button>
+
+                                <button
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    saveBundleItemToDisk(variant);
+                                  }}
+                                  title={
+                                    isItemDirty(variant.id)
+                                      ? `Modifications non enregistrées — Cliquer pour sauvegarder dans ${variant.path}`
+                                      : `Sauvegarder dans ${variant.path}`
+                                  }
+                                  className={`w-7 h-7 rounded-lg transition-all flex items-center justify-center cursor-pointer flex-shrink-0 ${
+                                    isItemDirty(variant.id)
+                                      ? 'bg-rose-500/20 text-rose-400 border border-rose-500/50 hover:bg-rose-500 hover:text-white shadow-sm animate-pulse'
+                                      : activeBundleItemId === variant.id
+                                      ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25'
+                                      : 'text-m3-sys-onSurfaceVariant/40 hover:text-m3-sys-onSurface hover:bg-m3-sys-surfaceContainerHighest'
+                                  }`}
+                                >
+                                  <span className="material-symbols-rounded text-base">save</span>
+                                </button>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -813,7 +861,7 @@ export const LeftSidebar: React.FC = () => {
                         Aucune variante définie dans ce bundle.
                       </p>
                       <button
-                        onClick={() => setIsNewVariantModalOpen(true)}
+                        onClick={() => openNewVariantModal()}
                         className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-xs font-semibold inline-flex items-center space-x-1 transition-all cursor-pointer"
                       >
                         <span className="material-symbols-rounded text-sm">add</span>
@@ -863,14 +911,27 @@ export const LeftSidebar: React.FC = () => {
                 </p>
               </div>
 
-              <button
-                onClick={autoGenerateCustomIds}
-                title="Générer automatiquement des IDs personnalisés pour les éléments sans ID"
-                className="px-2.5 py-1.5 rounded-full bg-m3-sys-primary/10 hover:bg-m3-sys-primary/20 text-m3-sys-primary text-[11px] font-semibold transition-all active:scale-95 cursor-pointer flex items-center space-x-1"
-              >
-                <span className="material-symbols-rounded text-sm">magic_button</span>
-                <span>Auto-ID</span>
-              </button>
+              <div className="flex items-center space-x-1.5">
+                {clipboardElements.length > 0 && (
+                  <button
+                    onClick={pasteElements}
+                    title={`Coller ${clipboardElements.length} élément(s) du presse-papiers (Ctrl+V)`}
+                    className="px-2.5 py-1.5 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 text-[11px] font-semibold transition-all active:scale-95 cursor-pointer flex items-center space-x-1"
+                  >
+                    <span className="material-symbols-rounded text-sm">content_paste</span>
+                    <span>Coller ({clipboardElements.length})</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={autoGenerateCustomIds}
+                  title="Générer automatiquement des IDs personnalisés pour les éléments sans ID"
+                  className="px-2.5 py-1.5 rounded-full bg-m3-sys-primary/10 hover:bg-m3-sys-primary/20 text-m3-sys-primary text-[11px] font-semibold transition-all active:scale-95 cursor-pointer flex items-center space-x-1"
+                >
+                  <span className="material-symbols-rounded text-sm">magic_button</span>
+                  <span>Auto-ID</span>
+                </button>
+              </div>
             </div>
 
             {/* Elements List ordered from Front (last index) to Back (index 0) */}
@@ -932,6 +993,28 @@ export const LeftSidebar: React.FC = () => {
                         <span className="text-[10px] font-mono text-m3-sys-onSurfaceVariant/70 px-1">
                           #{realIndex + 1}
                         </span>
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            copyElements([el.id]);
+                          }}
+                          title="Copier cet élément (Ctrl+C)"
+                          className="w-6 h-6 rounded-full flex items-center justify-center text-m3-sys-onSurfaceVariant hover:text-m3-sys-primary hover:bg-m3-sys-primary/10 transition-all cursor-pointer"
+                        >
+                          <span className="material-symbols-rounded text-sm">content_copy</span>
+                        </button>
+                        {loadedBundle && (
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              openCopyToModal([el.id]);
+                            }}
+                            title="Copier vers un autre Master, Override ou Variante..."
+                            className="w-6 h-6 rounded-full flex items-center justify-center text-m3-sys-onSurfaceVariant hover:text-m3-sys-primary hover:bg-m3-sys-primary/10 transition-all cursor-pointer"
+                          >
+                            <span className="material-symbols-rounded text-sm">drive_file_move</span>
+                          </button>
+                        )}
                         <button
                           onClick={e => {
                             e.stopPropagation();
@@ -1028,10 +1111,12 @@ export const LeftSidebar: React.FC = () => {
         )}
       </aside>
 
-      {/* Modal to create a new variant */}
+      {/* Modal to create or duplicate a variant */}
       <NewVariantModal
         isOpen={isNewVariantModalOpen}
-        onClose={() => setIsNewVariantModalOpen(false)}
+        onClose={closeNewVariantModal}
+        initialOverrideSlug={variantModalOverrideSlug}
+        duplicateFromVariant={variantModalDuplicateSource}
       />
 
       {/* Modal to create a new override */}

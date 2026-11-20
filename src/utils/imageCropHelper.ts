@@ -46,8 +46,9 @@ export function computeImageCropGeometry(
   const baseW = safeNatW * baseScale;
   const baseH = safeNatH * baseScale;
 
-  const renderW = Math.round(baseW * effectiveZoom);
-  const renderH = Math.round(baseH * effectiveZoom);
+  // En mode cover, arrondir au supérieur garantit qu'aucun écart sub-pixel n'apparaît sur les bords
+  const renderW = imageFit === 'cover' ? Math.ceil(baseW * effectiveZoom) : Math.round(baseW * effectiveZoom);
+  const renderH = imageFit === 'cover' ? Math.ceil(baseH * effectiveZoom) : Math.round(baseH * effectiveZoom);
 
   // Position centrée par défaut
   const centerLeft = (containerW - renderW) / 2;

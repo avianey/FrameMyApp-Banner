@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useEditor } from '../../context/EditorContext';
 import { Artboard } from './Artboard';
-import { computeDeviceHeightFromWidth } from '../../utils/deviceHelper';
 import { computeImageCropGeometry, clampImageOffset } from '../../utils/imageCropHelper';
 import { isSupportedImageFile, ensureBlobMimeType } from '../../utils/assetManager';
 import { ShapeElementModel } from '../../types';
@@ -14,7 +13,6 @@ export const CanvasViewport: React.FC = () => {
     setBackground,
     applyBackgroundImage,
     setActivePanel,
-    showSnackbar,
     setZoom,
     zoomIn,
     zoomOut,

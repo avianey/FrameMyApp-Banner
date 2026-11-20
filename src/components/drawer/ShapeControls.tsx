@@ -1,10 +1,16 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import { useEditor } from '../../context/EditorContext';
-import { ShapeElementModel, ShapeType, FillType, GradientStop } from '../../types';
+import { ShapeElementModel, ShapeType, FillType, GradientStop, QuadPoints } from '../../types';
 import { ColorAlphaPicker } from '../common/ColorAlphaPicker';
 import { ImageUploadField } from '../common/ImageUploadField';
 import { assetManager } from '../../utils/assetManager';
 import { resolveAsset } from '../../utils/templateEngine';
+import {
+  DEFAULT_QUAD_POINTS,
+  INITIAL_QUAD_PERSPECTIVE_POINTS,
+  getEffectiveQuadPoints,
+  isConvexQuad
+} from '../../utils/quadHelper';
 import { LayerOrderControls } from './LayerOrderControls';
 import { SceneAlignmentControls } from './SceneAlignmentControls';
 import EffectsControls from './EffectsControls';
@@ -13,7 +19,7 @@ const shapesList: { id: ShapeType; label: string; icon: string }[] = [
   { id: 'rectangle', label: 'Rectangle', icon: 'rectangle' },
   { id: 'rounded-rect', label: 'Arrondi', icon: 'crop_square' },
   { id: 'circle', label: 'Cercle', icon: 'circle' },
-  { id: 'pill', label: 'Pilule', icon: 'pill' },
+  { id: 'quadrilateral', label: 'Quadrilatère', icon: 'transform' },
   { id: 'star', label: 'Étoile', icon: 'star' },
   { id: 'hexagon', label: 'Hexagone', icon: 'hexagon' }
 ];
@@ -31,7 +37,6 @@ export const ShapeControls: React.FC<ShapeControlsProps> = ({ element }) => {
     showSnackbar,
     recordHistory,
     persistAsset,
-    state,
     loadedBundle
   } = useEditor();
 
@@ -79,21 +84,169 @@ export const ShapeControls: React.FC<ShapeControlsProps> = ({ element }) => {
           {shapesList.map(s => (
             <button
               key={s.id}
-              onClick={() => handleUpdate({ shapeType: s.id })}
+              onClick={() => {
+                if (s.id === 'quadrilateral') {
+                  const updates: Partial<ShapeElementModel> = { shapeType: 'quadrilateral' };
+                  if (!element.quadPoints) {
+                    updates.quadPoints = {
+                      tl: { ...INITIAL_QUAD_PERSPECTIVE_POINTS.tl },
+                      tr: { ...INITIAL_QUAD_PERSPECTIVE_POINTS.tr },
+                      br: { ...INITIAL_QUAD_PERSPECTIVE_POINTS.br },
+                      bl: { ...INITIAL_QUAD_PERSPECTIVE_POINTS.bl }
+                    };
+                  }
+                  if (element.quadImageFit === undefined) {
+                    updates.quadImageFit = true;
+                  }
+                  handleUpdate(updates);
+                } else {
+                  handleUpdate({ shapeType: s.id });
+                }
+              }}
               className={`p-2 rounded-xl flex flex-col items-center justify-center border cursor-pointer active:scale-95 transition-all ${
                 element.shapeType === s.id
                   ? 'border-m3-sys-primary bg-m3-sys-primaryContainer/30 text-m3-sys-primary'
                   : 'border-m3-sys-outlineVariant/40 bg-m3-sys-surfaceContainer hover:bg-m3-sys-surfaceContainerHighest text-m3-sys-onSurface'
               }`}
             >
-              <span className="material-symbols-rounded text-lg mb-1 leading-none flex items-center justify-center">
-                {s.icon}
-              </span>
+              {s.id === 'quadrilateral' ? (
+                <svg
+                  className="w-[18px] h-[18px] mb-1"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinejoin="round"
+                >
+                  <polygon points="5,5 19,4 22,20 2,19" />
+                  <circle cx="5" cy="5" r="1.5" fill="currentColor" />
+                  <circle cx="19" cy="4" r="1.5" fill="currentColor" />
+                  <circle cx="22" cy="20" r="1.5" fill="currentColor" />
+                  <circle cx="2" cy="19" r="1.5" fill="currentColor" />
+                </svg>
+              ) : (
+                <span className="material-symbols-rounded text-lg mb-1 leading-none flex items-center justify-center">
+                  {s.icon}
+                </span>
+              )}
               <span className="text-[11px] font-medium">{s.label}</span>
             </button>
           ))}
         </div>
       </div>
+
+      {/* Contrôle précis des 4 angles pour le Quadrilatère */}
+      {element.shapeType === 'quadrilateral' && (() => {
+        const qp = getEffectiveQuadPoints(element.quadPoints);
+        const corners: { key: keyof QuadPoints; label: string }[] = [
+          { key: 'tl', label: 'Haut-Gauche' },
+          { key: 'tr', label: 'Haut-Droit' },
+          { key: 'bl', label: 'Bas-Gauche' },
+          { key: 'br', label: 'Bas-Droit' }
+        ];
+        const updateCorner = (corner: keyof QuadPoints, axis: 'x' | 'y', pctVal: number) => {
+          const clamped = Math.max(0, Math.min(100, Number.isFinite(pctVal) ? pctVal : 0)) / 100;
+          const candidate: QuadPoints = {
+            ...qp,
+            [corner]: { ...qp[corner], [axis]: Math.round(clamped * 10000) / 10000 }
+          };
+          if (isConvexQuad(candidate)) {
+            handleUpdate({ quadPoints: candidate });
+          }
+        };
+
+        return (
+          <div className="space-y-3 bg-m3-sys-surfaceContainer p-3.5 rounded-2xl border border-m3-sys-outlineVariant/30">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-m3-sys-onSurfaceVariant uppercase flex items-center space-x-1.5">
+                <span className="w-2.5 h-2.5 bg-amber-400 rotate-45 inline-block rounded-[2px]" />
+                <span>Angles du quadrilatère</span>
+              </span>
+              <div className="flex items-center space-x-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    recordHistory();
+                    handleUpdate({
+                      quadPoints: {
+                        tl: { ...INITIAL_QUAD_PERSPECTIVE_POINTS.tl },
+                        tr: { ...INITIAL_QUAD_PERSPECTIVE_POINTS.tr },
+                        br: { ...INITIAL_QUAD_PERSPECTIVE_POINTS.br },
+                        bl: { ...INITIAL_QUAD_PERSPECTIVE_POINTS.bl }
+                      }
+                    });
+                  }}
+                  title="Appliquer une perspective standard"
+                  className="px-2 py-0.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 text-[10px] font-semibold cursor-pointer transition-colors"
+                >
+                  Perspective
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    recordHistory();
+                    handleUpdate({
+                      quadPoints: {
+                        tl: { ...DEFAULT_QUAD_POINTS.tl },
+                        tr: { ...DEFAULT_QUAD_POINTS.tr },
+                        br: { ...DEFAULT_QUAD_POINTS.br },
+                        bl: { ...DEFAULT_QUAD_POINTS.bl }
+                      }
+                    });
+                  }}
+                  title="Réinitialiser les 4 angles en rectangle"
+                  className="px-2 py-0.5 rounded-lg bg-m3-sys-surfaceContainerHighest hover:bg-m3-sys-outlineVariant/30 text-m3-sys-onSurfaceVariant text-[10px] font-semibold cursor-pointer transition-colors"
+                >
+                  Réinitialiser
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {corners.map(({ key, label }) => (
+                <div
+                  key={key}
+                  className="p-2 rounded-xl bg-m3-sys-surfaceContainerLow border border-m3-sys-outlineVariant/30 space-y-1"
+                >
+                  <span className="text-[10px] font-semibold text-m3-sys-onSurfaceVariant block">
+                    {label}
+                  </span>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <label className="flex items-center space-x-1 text-[10px] text-m3-sys-onSurfaceVariant">
+                      <span className="font-mono">X</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={Math.round(qp[key].x * 100)}
+                        onChange={e => updateCorner(key, 'x', parseFloat(e.target.value))}
+                        className="w-full px-1.5 py-0.5 rounded bg-m3-sys-surfaceContainerHighest border border-m3-sys-outlineVariant/40 text-[11px] font-mono text-m3-sys-onSurface focus:outline-none focus:ring-1 focus:ring-amber-400"
+                      />
+                    </label>
+                    <label className="flex items-center space-x-1 text-[10px] text-m3-sys-onSurfaceVariant">
+                      <span className="font-mono">Y</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={Math.round(qp[key].y * 100)}
+                        onChange={e => updateCorner(key, 'y', parseFloat(e.target.value))}
+                        className="w-full px-1.5 py-0.5 rounded bg-m3-sys-surfaceContainerHighest border border-m3-sys-outlineVariant/40 text-[11px] font-mono text-m3-sys-onSurface focus:outline-none focus:ring-1 focus:ring-amber-400"
+                      />
+                    </label>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <p className="text-[10px] text-m3-sys-onSurfaceVariant/75 italic">
+              Déplacez directement les 4 poignées losanges ambre sur le canevas (maintenez Alt pour désactiver l'aimantation aux bords).
+            </p>
+          </div>
+        );
+      })()}
 
       {/* Remplissage (Fill) */}
       <div className="space-y-2">
@@ -502,35 +655,64 @@ export const ShapeControls: React.FC<ShapeControlsProps> = ({ element }) => {
                 objectFit={element.imageFit === 'contain' ? 'contain' : 'cover'}
               >
                 <div className="space-y-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setEditingImageElementId(editingImageElementId === element.id ? null : element.id)}
-                    className={`w-full py-1.5 px-3 rounded-xl border flex items-center justify-center space-x-1.5 text-xs font-bold transition-all cursor-pointer shadow-sm ${
-                      editingImageElementId === element.id
-                        ? 'bg-indigo-500 text-white border-indigo-600'
-                        : 'bg-m3-sys-surfaceContainerHighest hover:bg-indigo-500/15 text-indigo-400 border-indigo-500/30'
-                    }`}
-                  >
-                    <span className="material-symbols-rounded text-sm">crop</span>
-                    <span>{editingImageElementId === element.id ? 'Terminer le recadrage' : "Ajuster / Déplacer l'image"}</span>
-                  </button>
+                  {element.shapeType === 'quadrilateral' && (
+                    <label className="flex items-start space-x-2.5 p-2.5 rounded-xl bg-m3-sys-surfaceContainerLow border border-m3-sys-outlineVariant/40 cursor-pointer hover:bg-m3-sys-surfaceContainerHighest/60 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={element.quadImageFit !== false}
+                        onChange={e => {
+                          const checked = e.target.checked;
+                          if (checked && editingImageElementId === element.id) {
+                            setEditingImageElementId(null);
+                          }
+                          handleUpdate({ quadImageFit: checked });
+                        }}
+                        className="mt-0.5 w-4 h-4 accent-m3-sys-primary cursor-pointer flex-shrink-0"
+                      />
+                      <div className="space-y-0.5">
+                        <span className="text-xs font-semibold text-m3-sys-onSurface block">
+                          Adapter à la forme (Perspective)
+                        </span>
+                        <span className="text-[10px] text-m3-sys-onSurfaceVariant leading-snug block">
+                          Positionne les 4 coins de l'image dans les 4 angles du quadrilatère.
+                        </span>
+                      </div>
+                    </label>
+                  )}
 
-                  <div className="flex items-center justify-between text-[11px] px-1">
-                    <span className="text-m3-sys-onSurfaceVariant">
-                      Zoom : {Math.round((element.imageScale || 1.0) * 100)}%
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleUpdate({ imageOffsetX: 0, imageOffsetY: 0, imageScale: 1.0 })}
-                      className="text-indigo-400 hover:underline cursor-pointer text-[10px]"
-                    >
-                      Recentrer
-                    </button>
-                  </div>
+                  {!(element.shapeType === 'quadrilateral' && element.quadImageFit !== false) && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setEditingImageElementId(editingImageElementId === element.id ? null : element.id)}
+                        className={`w-full py-1.5 px-3 rounded-xl border flex items-center justify-center space-x-1.5 text-xs font-bold transition-all cursor-pointer shadow-sm ${
+                          editingImageElementId === element.id
+                            ? 'bg-indigo-500 text-white border-indigo-600'
+                            : 'bg-m3-sys-surfaceContainerHighest hover:bg-indigo-500/15 text-indigo-400 border-indigo-500/30'
+                        }`}
+                      >
+                        <span className="material-symbols-rounded text-sm">crop</span>
+                        <span>{editingImageElementId === element.id ? 'Terminer le recadrage' : "Ajuster / Déplacer l'image"}</span>
+                      </button>
 
-                  <p className="text-[10px] text-m3-sys-onSurfaceVariant/70 italic text-center">
-                    Astuce : Double-cliquez sur la forme sur le canevas pour déplacer ou zoomer l'image.
-                  </p>
+                      <div className="flex items-center justify-between text-[11px] px-1">
+                        <span className="text-m3-sys-onSurfaceVariant">
+                          Zoom : {Math.round((element.imageScale || 1.0) * 100)}%
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleUpdate({ imageOffsetX: 0, imageOffsetY: 0, imageScale: 1.0 })}
+                          className="text-indigo-400 hover:underline cursor-pointer text-[10px]"
+                        >
+                          Recentrer
+                        </button>
+                      </div>
+
+                      <p className="text-[10px] text-m3-sys-onSurfaceVariant/70 italic text-center">
+                        Astuce : Double-cliquez sur la forme sur le canevas pour déplacer ou zoomer l'image.
+                      </p>
+                    </>
+                  )}
                 </div>
               </ImageUploadField>
             );

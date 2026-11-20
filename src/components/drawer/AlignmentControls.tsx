@@ -8,7 +8,10 @@ export const AlignmentControls: React.FC = () => {
     alignSelected,
     distributeSelected,
     selectElement,
-    deleteSelectedElements
+    deleteSelectedElements,
+    copyElements,
+    openCopyToModal,
+    loadedBundle
   } = useEditor();
 
   const { selectedElementIds, elements } = state;
@@ -319,6 +322,30 @@ export const AlignmentControls: React.FC = () => {
 
       {/* Actions globales sur la sélection */}
       <div className="pt-2 space-y-2">
+        <div className={`grid ${loadedBundle ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
+          <button
+            type="button"
+            onClick={() => copyElements()}
+            title="Copier les éléments sélectionnés (Ctrl+C)"
+            className="py-2.5 px-3 rounded-xl bg-m3-sys-surfaceContainerHighest hover:bg-m3-sys-primaryContainer hover:text-m3-sys-onPrimaryContainer text-xs font-medium text-m3-sys-onSurface active:scale-98 transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+          >
+            <span className="material-symbols-rounded text-sm">content_copy</span>
+            <span>Copier ({selectedElementIds.length})</span>
+          </button>
+
+          {loadedBundle && (
+            <button
+              type="button"
+              onClick={() => openCopyToModal()}
+              title="Copier vers un autre Master, Override ou Variante..."
+              className="py-2.5 px-3 rounded-xl bg-m3-sys-primary/15 hover:bg-m3-sys-primary/25 text-m3-sys-primary text-xs font-semibold active:scale-98 transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+            >
+              <span className="material-symbols-rounded text-sm">drive_file_move</span>
+              <span>Copier vers…</span>
+            </button>
+          )}
+        </div>
+
         <button
           type="button"
           onClick={() => selectElement(null)}

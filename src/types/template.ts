@@ -2,6 +2,10 @@ import { BackgroundConfig, CanvasElement, ExportZone } from './index';
 
 export interface BannerMasterConfig {
   name?: string;
+  /**
+   * Version de FrameMy.App Studio (issue de package.json / tag Git) utilisée pour construire ce master.
+   * Permet d'invoquer la CLI headless CI/CD sur le tag exact correspondant.
+   */
   version?: string;
   canvasWidth?: number;
   canvasHeight?: number;
@@ -24,6 +28,10 @@ export interface BannerOverrideConfig {
   exportZone?: Partial<ExportZone>;
   background?: Partial<BackgroundConfig>;
   elements?: (Partial<CanvasElement> & { customId?: string; id?: string })[] | Record<string, Partial<CanvasElement>>;
+  /** Identifiants (customId ou id) des éléments du Master supprimés par cet override */
+  removedElements?: string[];
+  /** Ordre personnalisé des plans (du fond vers le 1er plan), par customId ou id, lorsqu'il diffère du Master */
+  elementOrder?: string[];
   content?: Record<string, string>;
   images?: Record<string, string>;
   metadata?: Record<string, any>;
@@ -39,6 +47,10 @@ export interface BannerVariantConfig {
   exportZone?: Partial<ExportZone>;
   background?: Partial<BackgroundConfig>;
   elements?: (Partial<CanvasElement> & { customId?: string; id?: string })[] | Record<string, Partial<CanvasElement>>;
+  /** Identifiants (customId ou id) des éléments du parent (Master / Override) supprimés par cette variante */
+  removedElements?: string[];
+  /** Ordre personnalisé des plans (du fond vers le 1er plan), par customId ou id, lorsqu'il diffère du parent */
+  elementOrder?: string[];
   content?: Record<string, string>;
   images?: Record<string, string>;
   metadata?: Record<string, any>;
