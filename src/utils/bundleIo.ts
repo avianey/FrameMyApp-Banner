@@ -37,7 +37,7 @@ function extractLang(path: string): string | undefined {
  * Builds a LoadedBundle from an in-memory map of paths to File or string content.
  */
 export async function buildBundleFromEntries(
-  entries: { path: string; getContent: () => Promise<string>; getBlob?: () => Promise<Blob> }[],
+  entries: { path: string; getContent: () => Promise<string>; getBlob?: () => Promise<Blob>; assetUrl?: string }[],
   bundleName = 'frameyourapp',
   preferredMasterPath?: string
 ): Promise<LoadedBundle> {
@@ -65,6 +65,27 @@ export async function buildBundleFromEntries(
     return { ...entry, cleanPath: clean };
   });
 
+  const registerAssetUrl = (p: string, url: string) => {
+    const normalizedP = p.replace(/\\/g, '/').replace(/^\/+/, '');
+    assets[p] = url;
+    assets[normalizedP] = url;
+
+    // Register both relative subpath and full assets/ path for flexible lookup
+    if (normalizedP.startsWith('assets/')) {
+      const subPath = normalizedP.substring(7);
+      assets[subPath] = url;
+    } else {
+      assets[`assets/${normalizedP}`] = url;
+    }
+
+    const filename = normalizedP.split('/').pop();
+    if (filename && !assets[filename]) {
+      assets[filename] = url;
+    }
+
+    return normalizedP.startsWith('assets/') ? normalizedP : `assets/${normalizedP}`;
+  };
+
   for (const entry of normalizedEntries) {
     const p = entry.cleanPath;
     const lower = p.toLowerCase();
@@ -76,29 +97,17 @@ export async function buildBundleFromEntries(
       lower.startsWith('banners/') ||
       /\.(png|jpe?g|webp|svg|gif)$/i.test(lower)
     ) {
-      if (entry.getBlob) {
+      if (entry.assetUrl) {
+        // Direct HTTP URL (e.g. headless CLI Vite middleware) — loaded lazily on demand by the browser
+        const cleanPath = registerAssetUrl(p, entry.assetUrl);
+        assetManager.registerUrlMapping(entry.assetUrl, cleanPath);
+      } else if (entry.getBlob) {
         const rawBlob = await entry.getBlob();
         const blob = ensureBlobMimeType(rawBlob, p);
         const objectUrl = URL.createObjectURL(blob);
-        const normalizedP = p.replace(/\\/g, '/').replace(/^\/+/, '');
-        assets[p] = objectUrl;
-        assets[normalizedP] = objectUrl;
-
-        // Register both relative subpath and full assets/ path for flexible lookup
-        if (normalizedP.startsWith('assets/')) {
-          const subPath = normalizedP.substring(7);
-          assets[subPath] = objectUrl;
-        } else {
-          assets[`assets/${normalizedP}`] = objectUrl;
-        }
-
-        const filename = normalizedP.split('/').pop();
-        if (filename && !assets[filename]) {
-          assets[filename] = objectUrl;
-        }
+        const cleanPath = registerAssetUrl(p, objectUrl);
 
         // Register in assetManager strictly with its canonical path preserving subdirectories
-        const cleanPath = normalizedP.startsWith('assets/') ? normalizedP : `assets/${normalizedP}`;
         assetManager.registerExistingAsset(cleanPath, blob, objectUrl);
       }
       continue;

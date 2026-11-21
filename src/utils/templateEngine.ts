@@ -250,7 +250,8 @@ export function resolveAsset(
   if (
     assetPath.startsWith('data:') ||
     assetPath.startsWith('http://') ||
-    assetPath.startsWith('https://')
+    assetPath.startsWith('https://') ||
+    assetPath.startsWith('/__bundle_assets__/')
   ) {
     return assetPath;
   }

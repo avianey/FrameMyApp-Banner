@@ -4,11 +4,12 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer } from 'vite';
-import yaml from 'js-yaml';
+import { load as yamlLoad } from 'js-yaml';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PROJECT_ROOT = path.resolve(__dirname, '..');
+const BUNDLE_ASSETS_PREFIX = '/__bundle_assets__/';
 
 function getEngineVersion() {
   try {
@@ -20,27 +21,71 @@ function getEngineVersion() {
   }
 }
 
-function detectMasterVersion(entries) {
-  const masterEntry = entries.find(e => {
-    const lower = e.path.toLowerCase();
+function stripBundlePrefix(entryPath, bundleName) {
+  let clean = entryPath.replace(/^\/+/, '');
+  const firstSlash = clean.indexOf('/');
+  if (firstSlash !== -1) {
+    const topDir = clean.substring(0, firstSlash).toLowerCase();
+    if (
+      topDir === 'frameyourapp' ||
+      topDir === bundleName.toLowerCase() ||
+      topDir === 'bannerbundle'
+    ) {
+      clean = clean.substring(firstSlash + 1);
+    }
+  }
+  return clean;
+}
+
+function findMasterEntry(entries, bundleName) {
+  const configEntries = entries
+    .filter(e => typeof e.content === 'string')
+    .map(e => ({ entry: e, cleanPath: stripBundlePrefix(e.path, bundleName) }));
+
+  // 1. Standard master.yml / master.yaml / master.json
+  const standardMaster = configEntries.find(({ cleanPath }) => {
+    const lower = cleanPath.toLowerCase();
     return (
       lower === 'master.yml' ||
       lower === 'master.yaml' ||
-      lower === 'master.json' ||
-      lower.endsWith('/master.yml') ||
-      lower.endsWith('/master.yaml')
+      lower === 'master.json'
     );
   });
-  if (!masterEntry || !masterEntry.content) return null;
+  if (standardMaster) return standardMaster.entry;
+
+  // 2. Legacy banner_template.yml / banner_template.yaml
+  const legacyMaster = configEntries.find(({ cleanPath }) => {
+    const lower = cleanPath.toLowerCase();
+    return lower === 'banner_template.yml' || lower === 'banner_template.yaml';
+  });
+  if (legacyMaster) return legacyMaster.entry;
+
+  // 3. Fallback: root YAML/JSON file (e.g. sunrise.yml, yatzy.yml), mirroring bundleIo.ts
+  const rootCandidates = configEntries.filter(({ cleanPath }) => !cleanPath.includes('/'));
+  if (rootCandidates.length > 0) {
+    const preferred = rootCandidates.find(({ cleanPath }) =>
+      cleanPath.toLowerCase().startsWith(bundleName.toLowerCase())
+    );
+    return (preferred || rootCandidates[0]).entry;
+  }
+
+  return null;
+}
+
+function detectMasterVersion(entries, bundleName) {
+  const masterEntry = findMasterEntry(entries, bundleName);
+  if (!masterEntry || !masterEntry.content) {
+    return { version: null, masterPath: null };
+  }
   try {
-    const parsed = yaml.load(masterEntry.content);
+    const parsed = yamlLoad(masterEntry.content);
     if (parsed && typeof parsed === 'object' && parsed.version !== undefined && parsed.version !== null) {
-      return String(parsed.version).trim();
+      return { version: String(parsed.version).trim(), masterPath: masterEntry.path };
     }
   } catch {
     // Ignore YAML parsing errors here; the browser engine will report them
   }
-  return null;
+  return { version: null, masterPath: masterEntry.path };
 }
 
 function printHelp() {
@@ -52,16 +97,32 @@ Usage:
   ./generateBatchForBundle.sh --in <bundleDirPath> --out <outputDirPath> [options]
 
 Required arguments:
-  --in, -i <dir>          Path to the input FrameMyApp bundle directory
-  --out, -o <dir>         Path to the output directory where generated PNGs will be written
+  --in, -i <dir>            Path to the input FrameMyApp bundle directory
+  --out, -o <dir>           Path to the output directory where generated images will be written
 
 Optional arguments:
-  --all, -a               Export everything (master.png, overrides/*.png, variants/**/*.png)
-  --include-master        Include master.png in the export
-  --include-overrides     Include overrides/*.png in the export
-  --no-variants           Exclude variants/**/*.png from the export
-  --help, -h              Show this help message
+  --all, -a                 Export everything (master.<ext>, overrides/*.<ext>, variants/**/*.<ext>)
+  --include-master          Include master.<ext> in the export
+  --include-overrides       Include overrides/*.<ext> in the export
+  --no-variants             Exclude variants/**/*.<ext> from the export
+  --lang, -l <lang>         Filter exported variants by language (repeatable or comma-separated)
+  --format, -f <fmt>        Output image format: png (default), jpg (alias jpeg), webp
+  --q, --quality, -q <1-100> Image compression quality for jpg/webp (default: 92)
+  --help, -h                Show this help message
 `);
+}
+
+function normalizeFormat(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (value === 'png' || value === 'webp') return value;
+  if (value === 'jpg' || value === 'jpeg') return 'jpg';
+  return null;
+}
+
+function parseQuality(raw) {
+  const num = Number(raw);
+  if (!Number.isFinite(num) || num < 1 || num > 100) return null;
+  return Math.round(num);
 }
 
 function parseArgs(argv) {
@@ -71,7 +132,37 @@ function parseArgs(argv) {
     includeMaster: false,
     includeOverrides: false,
     includeVariants: true,
+    langs: [],
+    format: 'png',
+    quality: 92,
+    error: null,
     help: false
+  };
+
+  const addLangs = raw => {
+    if (!raw) return;
+    for (const part of String(raw).split(',')) {
+      const trimmed = part.trim();
+      if (trimmed) args.langs.push(trimmed);
+    }
+  };
+
+  const setFormat = raw => {
+    const normalized = normalizeFormat(raw);
+    if (!normalized) {
+      args.error = `Format invalide "${raw}". Valeurs acceptées : png, jpg, webp.`;
+      return;
+    }
+    args.format = normalized;
+  };
+
+  const setQuality = raw => {
+    const parsed = parseQuality(raw);
+    if (parsed === null) {
+      args.error = `Qualité invalide "${raw}". Valeur attendue : entier entre 1 et 100 (ex. --q 92).`;
+      return;
+    }
+    args.quality = parsed;
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -96,6 +187,20 @@ function parseArgs(argv) {
       args.includeOverrides = true;
     } else if (arg === '--no-variants') {
       args.includeVariants = false;
+    } else if (arg === '--lang' || arg === '-l') {
+      addLangs(argv[++i]);
+    } else if (arg.startsWith('--lang=')) {
+      addLangs(arg.substring(7));
+    } else if (arg === '--format' || arg === '-f') {
+      setFormat(argv[++i]);
+    } else if (arg.startsWith('--format=')) {
+      setFormat(arg.substring(9));
+    } else if (arg === '--q' || arg === '--quality' || arg === '-q') {
+      setQuality(argv[++i]);
+    } else if (arg.startsWith('--q=')) {
+      setQuality(arg.substring(4));
+    } else if (arg.startsWith('--quality=')) {
+      setQuality(arg.substring(10));
     }
   }
 
@@ -129,8 +234,20 @@ function isConfigFile(filePath) {
   return /\.(ya?ml|json)$/i.test(filePath);
 }
 
+function encodeRelPathToUrl(relPath) {
+  return BUNDLE_ASSETS_PREFIX + relPath.split('/').map(encodeURIComponent).join('/');
+}
+
 function readBundleFromDisk(bundleDir) {
   const entries = [];
+  const assetFileMap = new Map();
+  const activeAncestors = new Set();
+
+  try {
+    activeAncestors.add(fs.realpathSync(bundleDir));
+  } catch {
+    // Ignore realpath failure on root
+  }
 
   function walk(currentDir, relPrefix) {
     const list = fs.readdirSync(currentDir, { withFileTypes: true });
@@ -139,14 +256,41 @@ function readBundleFromDisk(bundleDir) {
       const fullPath = path.join(currentDir, dirent.name);
       const relPath = relPrefix ? `${relPrefix}/${dirent.name}` : dirent.name;
 
-      if (dirent.isDirectory()) {
-        walk(fullPath, relPath);
-      } else if (dirent.isFile()) {
+      let isDir = dirent.isDirectory();
+      let isFile = dirent.isFile();
+
+      if (dirent.isSymbolicLink()) {
+        try {
+          const stat = fs.statSync(fullPath);
+          isDir = stat.isDirectory();
+          isFile = stat.isFile();
+        } catch {
+          // Broken symlink — skip gracefully
+          continue;
+        }
+      }
+
+      if (isDir) {
+        let realDir = fullPath;
+        try {
+          realDir = fs.realpathSync(fullPath);
+        } catch {
+          continue;
+        }
+        if (activeAncestors.has(realDir)) continue;
+        activeAncestors.add(realDir);
+        try {
+          walk(fullPath, relPath);
+        } finally {
+          activeAncestors.delete(realDir);
+        }
+      } else if (isFile) {
         if (isAssetFile(relPath)) {
-          const buffer = fs.readFileSync(fullPath);
+          // Register on-demand HTTP path instead of reading binary data into base64
+          assetFileMap.set(relPath, fullPath);
           entries.push({
             path: relPath,
-            base64: buffer.toString('base64'),
+            assetUrl: encodeRelPathToUrl(relPath),
             mimeType: getMimeType(relPath)
           });
         } else if (isConfigFile(relPath)) {
@@ -161,7 +305,55 @@ function readBundleFromDisk(bundleDir) {
   }
 
   walk(bundleDir, '');
-  return entries;
+  return { entries, assetFileMap };
+}
+
+function createBundleAssetsVitePlugin(assetFileMap) {
+  return {
+    name: 'framemyapp-bundle-assets',
+    configureServer(server) {
+      server.middlewares.use('/__bundle_assets__', (req, res, next) => {
+        if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+        const rawUrl = (req.url || '').split('?')[0];
+        let relPath;
+        try {
+          relPath = decodeURIComponent(rawUrl).replace(/^\/+/, '');
+        } catch {
+          res.statusCode = 400;
+          res.end('Bad Request');
+          return;
+        }
+
+        const diskPath = assetFileMap.get(relPath);
+        if (!diskPath) {
+          res.statusCode = 404;
+          res.end('Asset not found');
+          return;
+        }
+
+        try {
+          const stat = fs.statSync(diskPath);
+          res.statusCode = 200;
+          res.setHeader('Content-Type', getMimeType(relPath));
+          res.setHeader('Content-Length', stat.size);
+          res.setHeader('Cache-Control', 'private, max-age=300');
+          if (req.method === 'HEAD') {
+            res.end();
+            return;
+          }
+          const stream = fs.createReadStream(diskPath);
+          stream.on('error', () => {
+            if (!res.headersSent) res.statusCode = 500;
+            res.end();
+          });
+          stream.pipe(res);
+        } catch {
+          res.statusCode = 404;
+          res.end('Asset not found');
+        }
+      });
+    }
+  };
 }
 
 async function launchBrowser() {
@@ -204,6 +396,12 @@ async function main() {
     process.exit(0);
   }
 
+  if (args.error) {
+    console.error(`❌ Erreur : ${args.error}`);
+    printHelp();
+    process.exit(1);
+  }
+
   if (!args.inDir || !args.outDir) {
     console.error('❌ Erreur : Les arguments --in <bundleDirPath> et --out <outputDirPath> sont obligatoires.');
     printHelp();
@@ -221,39 +419,52 @@ async function main() {
   const engineVersion = getEngineVersion();
   const bundleName = path.basename(inDirAbs);
   console.log(`📦 Lecture du bundle FrameMyApp : ${inDirAbs} (moteur v${engineVersion})`);
-  const entries = readBundleFromDisk(inDirAbs);
+  const { entries, assetFileMap } = readBundleFromDisk(inDirAbs);
 
   if (entries.length === 0) {
     console.error(`❌ Erreur : Aucun fichier YAML/JSON ou asset trouvé dans ${inDirAbs}`);
     process.exit(1);
   }
 
-  const masterVersion = detectMasterVersion(entries);
+  const { version: masterVersion, masterPath } = detectMasterVersion(entries, bundleName);
+  const masterLabel = masterPath || 'master.yml';
   if (masterVersion) {
-    console.log(`   → Version référencée dans master.yml : ${masterVersion}`);
+    console.log(`   → Version référencée dans ${masterLabel} : ${masterVersion}`);
     if (engineVersion !== 'unknown' && masterVersion !== engineVersion) {
       console.warn(
-        `⚠️  Avertissement de version : master.yml a été construit avec FrameMyApp ${masterVersion}, ` +
+        `⚠️  Avertissement de version : ${masterLabel} a été construit avec FrameMyApp ${masterVersion}, ` +
           `mais le moteur headless exécuté est en ${engineVersion}. ` +
           `Pour un rendu strictement identique, invoquez le moteur sur le tag Git "${masterVersion}".`
       );
     }
   } else {
     console.warn(
-      `⚠️  Aucune version référencée dans master.yml (champ "version" absent). Exécution avec le moteur ${engineVersion}.`
+      `⚠️  Aucune version référencée dans ${masterLabel} (champ "version" absent). Exécution avec le moteur ${engineVersion}.`
     );
   }
 
-  console.log(`   → ${entries.length} fichier(s) chargé(s) depuis le bundle.`);
+  const configCount = entries.length - assetFileMap.size;
+  console.log(
+    `   → ${configCount} fichier(s) YAML/JSON chargé(s) + ${assetFileMap.size} asset(s) indexé(s) pour diffusion HTTP à la demande.`
+  );
+  console.log(
+    args.format === 'png'
+      ? `   → Format de sortie : PNG (sans perte)`
+      : `   → Format de sortie : ${args.format.toUpperCase()} (qualité ${args.quality}%)`
+  );
+  if (args.langs.length > 0) {
+    console.log(`   → Filtre de langue actif (--lang) : ${args.langs.join(', ')}`);
+  }
 
   // Ensure working directory is PROJECT_ROOT so Vite, PostCSS and Tailwind resolve configs and sources accurately
   process.chdir(PROJECT_ROOT);
 
-  // Start Vite server programmatically on an ephemeral port
+  // Start Vite server programmatically on an ephemeral port with local HTTP streaming for bundle assets
   console.log('🚀 Démarrage du serveur de rendu FrameMyApp...');
   const viteServer = await createServer({
     root: PROJECT_ROOT,
     configFile: path.join(PROJECT_ROOT, 'vite.config.ts'),
+    plugins: [createBundleAssetsVitePlugin(assetFileMap)],
     logLevel: 'error',
     server: {
       port: 0,
@@ -300,7 +511,7 @@ async function main() {
     await page.exposeFunction('__onFrameMyAppCliExportedItem', item => {
       const targetFile = path.join(outDirAbs, item.outputPath);
       fs.mkdirSync(path.dirname(targetFile), { recursive: true });
-      const base64Data = item.dataUrl.replace(/^data:image\/\w+;base64,/, '');
+      const base64Data = item.dataUrl.replace(/^data:image\/[a-z0-9.+-]+;base64,/i, '');
       fs.writeFileSync(targetFile, Buffer.from(base64Data, 'base64'));
       writtenCount++;
     });
@@ -327,7 +538,10 @@ async function main() {
         entries,
         includeMaster: args.includeMaster,
         includeOverrides: args.includeOverrides,
-        includeVariants: args.includeVariants
+        includeVariants: args.includeVariants,
+        langs: args.langs,
+        format: args.format,
+        quality: args.quality
       }
     );
 
@@ -336,7 +550,7 @@ async function main() {
       if (!item.dataUrl) continue;
       const targetFile = path.join(outDirAbs, item.outputPath);
       fs.mkdirSync(path.dirname(targetFile), { recursive: true });
-      const base64Data = item.dataUrl.replace(/^data:image\/\w+;base64,/, '');
+      const base64Data = item.dataUrl.replace(/^data:image\/[a-z0-9.+-]+;base64,/i, '');
       fs.writeFileSync(targetFile, Buffer.from(base64Data, 'base64'));
       writtenCount++;
     }

@@ -179,6 +179,13 @@ class AssetManager {
 
   getDisplayUrl(assetPath: string | undefined): string | undefined {
     if (!assetPath) return undefined;
+    if (
+      assetPath.startsWith('http://') ||
+      assetPath.startsWith('https://') ||
+      assetPath.startsWith('/__bundle_assets__/')
+    ) {
+      return assetPath;
+    }
     if (assetPath.startsWith('blob:') || assetPath.startsWith('data:')) {
       const mappedPath = this.urlToPath.get(assetPath);
       if (mappedPath) {

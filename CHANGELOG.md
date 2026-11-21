@@ -10,6 +10,16 @@ Les tags Git suivent strictement le numéro de version de `package.json` sans pr
 
 ## [Unreleased]
 
+### Added
+- **Options CLI `--format` et `--q` dans le Batch Export Headless** : `scripts/generate-batch-cli.mjs`, `HeadlessExportBridge` et `captureZoneToBlob` prennent désormais en charge `--format jpg|png|webp` (alias `-f`, `jpeg` → `jpg`, `png` par défaut) et `--q <1-100>` (alias `-q`, `--quality`, `92` par défaut) pour contrôler le format de sortie et la qualité de compression JPEG/WebP (avec fond blanc opaque appliqué automatiquement en JPEG).
+- **Filtre CLI `--lang` / `-l` dans le Batch Export Headless** : `scripts/generate-batch-cli.mjs` et `HeadlessExportBridge` acceptent désormais `--lang <lang>` (répétable ou séparé par des virgules, ex. `--lang fr,en`) pour ne rendre que les variantes des langues ciblées.
+
+### Fixed
+- **Compatibilité ESM `js-yaml` v5 dans la CLI Headless** : remplacement de l'import par défaut `import yaml from 'js-yaml'` par l'import nommé `import { load as yamlLoad } from 'js-yaml'` dans `scripts/generate-batch-cli.mjs` (résout `SyntaxError: The requested module 'js-yaml' does not provide an export named 'default'` sous Node.js ESM).
+- **Détection de version sur fichier YAML maître racine arbitraire** : `detectMasterVersion` dans `scripts/generate-batch-cli.mjs` applique désormais le même fallback que `bundleIo.ts` (`master.yml` → `banner_template.yml` → YAML racine tel que `sunrise.yml` / `yatzy.yml`).
+- **Crash Playwright/Chromium sur les bundles volumineux (payload `page.evaluate`)** : les assets binaires ne sont plus encodés en base64 dans le payload JSON envoyé à `page.evaluate` ; un middleware Vite local (`/__bundle_assets__/<relPath>`) diffuse désormais chaque asset image à la demande en HTTP directement depuis le disque (payload `page.evaluate` réduit à quelques Ko et chargement mémoire paresseux dans Chromium).
+- **Prise en charge des liens symboliques (symlinks) dans la CLI Headless** : `readBundleFromDisk` résout désormais les symlinks de fichiers et de dossiers via `fs.statSync`, avec protection anti-cycles (`realpathSync`) et tolérance aux liens cassés.
+
 ---
 
 ## [1.1.0] - 2026-11-20

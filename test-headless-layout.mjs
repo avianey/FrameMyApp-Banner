@@ -1,4 +1,5 @@
 import assert from 'assert';
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -224,6 +225,108 @@ async function runHeadlessTest() {
         assert.strictEqual(el.domTop, el.y);
       }
       console.log('✔ Yatzy banners bundle (1024x500) DOM layout & PNG dimensions verified');
+    }
+
+    // 3. Test CLI end-to-end (ESM js-yaml v5, HTTP /__bundle_assets__/ streaming, symlinks, root YAML fallback & --lang filter)
+    const tmpCliRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'fma-cli-regression-'));
+    try {
+      const symlinkBundle = path.join(tmpCliRoot, 'sunrise');
+      const cliOutDir = path.join(tmpCliRoot, 'out');
+      fs.mkdirSync(path.join(symlinkBundle, 'variants', 'da'), { recursive: true });
+      fs.mkdirSync(path.join(symlinkBundle, 'variants', 'fr'), { recursive: true });
+      fs.symlinkSync(path.join(fixtureDir, 'yatzy.yml'), path.join(symlinkBundle, 'sunrise.yml'));
+      fs.symlinkSync(path.join(fixtureDir, 'assets'), path.join(symlinkBundle, 'assets'));
+      fs.symlinkSync(
+        path.join(fixtureDir, 'variants', 'da', '00_blue.yml'),
+        path.join(symlinkBundle, 'variants', 'da', '00_blue.yml')
+      );
+      fs.symlinkSync(
+        path.join(fixtureDir, 'variants', 'da', '00_blue.yml'),
+        path.join(symlinkBundle, 'variants', 'fr', '00_blue.yml')
+      );
+      fs.symlinkSync('/nonexistent/broken-asset.png', path.join(symlinkBundle, 'broken.png'));
+      fs.symlinkSync(symlinkBundle, path.join(symlinkBundle, 'cycle_link'));
+
+      const cliStdout = execFileSync(
+        process.execPath,
+        [
+          path.join(PROJECT_ROOT, 'scripts', 'generate-batch-cli.mjs'),
+          '--in',
+          symlinkBundle,
+          '--out',
+          cliOutDir,
+          '--lang',
+          'fr'
+        ],
+        { encoding: 'utf-8' }
+      );
+
+      assert.ok(
+        cliStdout.includes('sunrise.yml'),
+        'CLI detectMasterVersion must detect fallback root YAML (sunrise.yml)'
+      );
+      const frOut = path.join(cliOutDir, 'variants', 'fr', '00_blue.png');
+      const daOut = path.join(cliOutDir, 'variants', 'da', '00_blue.png');
+      assert.ok(fs.existsSync(frOut), 'CLI must export filtered variant variants/fr/00_blue.png');
+      assert.ok(!fs.existsSync(daOut), 'CLI must skip non-matching language variants/da/00_blue.png');
+      const frBuf = fs.readFileSync(frOut);
+      assert.strictEqual(frBuf.toString('ascii', 1, 4), 'PNG', 'CLI output must be a valid PNG');
+      assert.strictEqual(frBuf.readUInt32BE(16), 1024, 'CLI PNG width must be 1024');
+      assert.strictEqual(frBuf.readUInt32BE(20), 500, 'CLI PNG height must be 500');
+
+      // Also verify --format jpg --q 92 and --format webp --q 80
+      const jpgOutDir = path.join(tmpCliRoot, 'out-jpg');
+      execFileSync(
+        process.execPath,
+        [
+          path.join(PROJECT_ROOT, 'scripts', 'generate-batch-cli.mjs'),
+          '--in',
+          symlinkBundle,
+          '--out',
+          jpgOutDir,
+          '--lang',
+          'fr',
+          '--format',
+          'jpg',
+          '--q',
+          '92'
+        ],
+        { encoding: 'utf-8' }
+      );
+      const frJpg = path.join(jpgOutDir, 'variants', 'fr', '00_blue.jpg');
+      assert.ok(fs.existsSync(frJpg), 'CLI must export variants/fr/00_blue.jpg when --format jpg is set');
+      const jpgBuf = fs.readFileSync(frJpg);
+      assert.strictEqual(jpgBuf[0], 0xff, 'JPG must start with SOI 0xFF');
+      assert.strictEqual(jpgBuf[1], 0xd8, 'JPG must start with SOI 0xD8');
+      assert.strictEqual(jpgBuf[2], 0xff, 'JPG third byte must be 0xFF');
+
+      const webpOutDir = path.join(tmpCliRoot, 'out-webp');
+      execFileSync(
+        process.execPath,
+        [
+          path.join(PROJECT_ROOT, 'scripts', 'generate-batch-cli.mjs'),
+          '--in',
+          symlinkBundle,
+          '--out',
+          webpOutDir,
+          '--lang',
+          'fr',
+          '--format',
+          'webp',
+          '--q',
+          '80'
+        ],
+        { encoding: 'utf-8' }
+      );
+      const frWebp = path.join(webpOutDir, 'variants', 'fr', '00_blue.webp');
+      assert.ok(fs.existsSync(frWebp), 'CLI must export variants/fr/00_blue.webp when --format webp is set');
+      const webpBuf = fs.readFileSync(frWebp);
+      assert.strictEqual(webpBuf.toString('ascii', 0, 4), 'RIFF', 'WebP must start with RIFF header');
+      assert.strictEqual(webpBuf.toString('ascii', 8, 12), 'WEBP', 'WebP must contain WEBP signature');
+
+      console.log('✔ CLI ESM execution, HTTP asset streaming, symlinks, root YAML version fallback, --lang & --format/--q (png/jpg/webp) verified');
+    } finally {
+      fs.rmSync(tmpCliRoot, { recursive: true, force: true });
     }
 
     console.log('\nAll Headless Layout & Export tests passed successfully!');

@@ -619,19 +619,22 @@ git clone https://github.com/avianey/FrameMyApp-Banner.git {checkoutDir}
 | `--out`, `-o <dir>` | **(Obligatoire)** Chemin vers le dossier de destination où seront écrits les PNG générés. |
 | *(Par défaut)* | Génère uniquement les déclinaisons finales (`variants/<lang>/<slug>.png`) directement dans `<outputDirPath>`. Si le bundle ne comporte aucune variante (template simple), exporte `master.png`. |
 | `--all`, `-a` | Exporte l'intégralité du bundle : `master.png`, `overrides/<slug>.png` et `variants/<lang>/<slug>.png`. |
-| `--include-master` | Ajoute `master.png` à l'export. |
-| `--include-overrides` | Ajoute `overrides/<slug>.png` à l'export. |
-| `--no-variants` | Exclut `variants/<lang>/<slug>.png` de l'export. |
+| `--include-master` | Ajoute `master.<ext>` à l'export. |
+| `--include-overrides` | Ajoute `overrides/<slug>.<ext>` à l'export. |
+| `--no-variants` | Exclut `variants/<lang>/<slug>.<ext>` de l'export. |
+| `--lang`, `-l <lang>` | Filtre les variantes exportées par langue/sous-dossier (répétable ou séparé par des virgules, ex. `--lang fr,en` ou `--lang fr-FR`). |
+| `--format`, `-f <png\|jpg\|webp>` | Format d'image de sortie : `png` (défaut, sans perte), `jpg` (alias `jpeg`, fond blanc opaque) ou `webp`. |
+| `--q`, `--quality`, `-q <1-100>` | Qualité de compression pour `jpg` et `webp` (entier de `1` à `100`, `92` par défaut). |
 | `--help`, `-h` | Affiche l'aide de la commande. |
 
 ### 8.3 Fonctionnement Interne & Contrôle de Version
 
 1. **Résolution de la version du moteur (`master.yml` → Tag Git)** :
    - Chaque `master.yml` produit par FrameMy.App Studio contient un champ `version` (ex. `version: "1.0.1"`) correspondant exactement au **tag Git** du dépôt `FrameMyApp-Banner`.
-   - Au démarrage, `scripts/generate-batch-cli.mjs` compare la version déclarée dans `master.yml` avec celle du dépôt checkout (`package.json`). En cas d'écart, un avertissement explicite indique le tag exact à utiliser pour garantir un rendu 100% reproductible.
+   - Au démarrage, `scripts/generate-batch-cli.mjs` détecte le fichier maître (`master.yml`, `master.yaml`, `master.json`, `banner_template.yml` ou, en fallback identique à `bundleIo.ts`, le YAML racine du bundle comme `sunrise.yml` / `yatzy.yml`), compare sa version avec celle du dépôt checkout (`package.json`) et émet un avertissement explicite en cas d'écart.
 2. **Autonomie CI** : Le script `generateBatchForBundle.sh` vérifie automatiquement la présence de `node_modules`, du package `playwright` et du binaire Chromium headless (les installe à la volée si absents). Il supporte également les variables d'environnement `CHROME_PATH` ou `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` si le runner CI fournit déjà son propre binaire Chromium.
-3. **Résolution des chemins** : Les chemins relatifs passés à `--in` et `--out` sont résolus par rapport au répertoire de travail de l'appelant (`pwd`).
-4. **Rendu 1:1 & Streaming mémoire** : Un serveur Vite local éphémère démarre sur un port libre (`127.0.0.1`) en mode `?headless=1` et pilote `window.__FRAMEMYAPP_CLI__.runBatchExport` en streamant chaque PNG vers le disque au fil de l'eau (`onExportedItem`), garantissant le même rendu typographique, CJK, dégradés, flous et mockups que l'interface interactive même sur des bundles volumineux.
+3. **Résolution des chemins & symlinks** : Les chemins relatifs passés à `--in` et `--out` sont résolus par rapport au répertoire de travail de l'appelant (`pwd`). La lecture disque suit les liens symboliques (fichiers et dossiers) avec protection contre les boucles de symlinks et ignorance gracieuse des liens cassés.
+4. **Rendu 1:1, diffusion HTTP à la demande & Streaming mémoire** : Un serveur Vite local éphémère démarre sur un port libre (`127.0.0.1`) en mode `?headless=1` avec un middleware dédié (`/__bundle_assets__/<relPath>`) qui sert les assets binaires directement en HTTP depuis le disque. Seuls les fichiers YAML/JSON et les URLs d'assets transitent via `page.evaluate` (quelques Ko même sur des bundles de plusieurs centaines de Mo), les images non référencées ne sont jamais chargées en RAM, et chaque PNG généré est streamé vers le disque au fil de l'eau (`onExportedItem`), garantissant un rendu typographique, CJK, dégradés, flous et mockups strictement identique à l'interface interactive.
 
 ### 8.4 Exemple d'Intégration GitHub Actions (avec checkout automatique du tag `master.yml`)
 

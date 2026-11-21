@@ -2,14 +2,35 @@ import * as htmlToImage from 'html-to-image';
 import JSZip from 'jszip';
 import { ExportZone } from '../types';
 
+export type ExportImageFormat = 'png' | 'jpg' | 'webp';
+
+export interface CaptureZoneOptions {
+  format?: ExportImageFormat;
+  /** Compression quality (1-100) for jpg/webp exports. Defaults to 92. */
+  quality?: number;
+}
+
+function getExportMimeType(format: ExportImageFormat): string {
+  switch (format) {
+    case 'jpg':
+      return 'image/jpeg';
+    case 'webp':
+      return 'image/webp';
+    case 'png':
+    default:
+      return 'image/png';
+  }
+}
+
 /**
- * Captures an HTML element, crops to the exportZone, scales to target dimensions, and returns a PNG Blob.
+ * Captures an HTML element, crops to the exportZone, scales to target dimensions, and returns an image Blob.
  * Uses html-to-image (SVG foreignObject) to ensure pixel-perfect rendering, exact font metrics,
  * crisp background resolution and 1:1 text layout matching the interactive canvas.
  */
 export async function captureZoneToBlob(
   artboardElement: HTMLElement,
-  zone: ExportZone
+  zone: ExportZone,
+  options?: CaptureZoneOptions
 ): Promise<{ blob: Blob; dataUrl: string; thumbnailUrl: string }> {
   // 1. Locate container and save display state
   const container = document.getElementById('artboard-container');
@@ -137,6 +158,21 @@ export async function captureZoneToBlob(
       throw new Error('Failed to create canvas 2D context for export');
     }
 
+    const format: ExportImageFormat =
+      options?.format === 'jpg' || options?.format === 'webp' ? options.format : 'png';
+    const mimeType = getExportMimeType(format);
+    const rawQuality = typeof options?.quality === 'number' && Number.isFinite(options.quality)
+      ? options.quality
+      : 92;
+    const clampedQuality = Math.max(1, Math.min(100, rawQuality)) / 100;
+    const encoderQuality = format === 'png' ? undefined : clampedQuality;
+
+    // Fill white background before drawing for opaque JPEG output (prevents transparent pixels turning black)
+    if (mimeType === 'image/jpeg') {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+    }
+
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
 
@@ -169,7 +205,7 @@ export async function captureZoneToBlob(
       thumbCanvas.height = 0;
     }
 
-    const dataUrl = finalCanvas.toDataURL('image/png', 0.98);
+    const dataUrl = finalCanvas.toDataURL(mimeType, encoderQuality);
 
     const blob = await new Promise<Blob>((resolve, reject) => {
       finalCanvas.toBlob(b => {
@@ -178,7 +214,7 @@ export async function captureZoneToBlob(
         } else {
           reject(new Error('Canvas toBlob failed'));
         }
-      }, 'image/png', 0.98);
+      }, mimeType, encoderQuality);
     });
 
     finalCanvas.width = 0;

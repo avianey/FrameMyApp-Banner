@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { useEditor } from '../context/EditorContext';
 import { buildBundleFromEntries } from '../utils/bundleIo';
 import { resolveComposition } from '../utils/templateEngine';
-import { captureZoneToBlob } from '../utils/batchExportRenderer';
+import { captureZoneToBlob, ExportImageFormat } from '../utils/batchExportRenderer';
 import {
   BannerMasterConfig,
   BannerOverrideConfig,
@@ -14,6 +14,7 @@ export interface HeadlessBundleEntry {
   path: string;
   content?: string;
   base64?: string;
+  assetUrl?: string;
   mimeType?: string;
 }
 
@@ -23,6 +24,9 @@ export interface HeadlessBatchOptions {
   includeMaster?: boolean;
   includeOverrides?: boolean;
   includeVariants?: boolean;
+  langs?: string[];
+  format?: ExportImageFormat;
+  quality?: number;
   onProgress?: (info: { current: number; total: number; outputPath: string; name: string }) => void;
   onExportedItem?: (item: {
     outputPath: string;
@@ -140,6 +144,9 @@ export const HeadlessExportBridge: React.FC = () => {
         const bundleEntries = options.entries.map(entry => ({
           path: entry.path,
           getContent: async () => entry.content ?? '',
+          assetUrl: entry.assetUrl
+            ? new URL(entry.assetUrl, window.location.origin).href
+            : undefined,
           getBlob: entry.base64
             ? async () => base64ToBlob(entry.base64!, entry.mimeType || 'image/png')
             : undefined
@@ -155,13 +162,22 @@ export const HeadlessExportBridge: React.FC = () => {
         const includeMaster = Boolean(options.includeMaster);
         const includeOverrides = Boolean(options.includeOverrides);
         const includeVariants = options.includeVariants !== false;
+        const format: ExportImageFormat =
+          options.format === 'jpg' || options.format === 'webp' ? options.format : 'png';
+        const quality =
+          typeof options.quality === 'number' && Number.isFinite(options.quality)
+            ? options.quality
+            : 92;
+        const langFilters = Array.isArray(options.langs)
+          ? options.langs.map(l => String(l).trim().toLowerCase()).filter(Boolean)
+          : [];
 
         const queue: { item: BundleItem; outputPath: string }[] = [];
 
         if (includeMaster && loadedBundle.master) {
           queue.push({
             item: loadedBundle.master,
-            outputPath: 'master.png'
+            outputPath: `master.${format}`
           });
         }
 
@@ -169,17 +185,25 @@ export const HeadlessExportBridge: React.FC = () => {
           for (const [slug, item] of Object.entries(loadedBundle.overrides)) {
             queue.push({
               item,
-              outputPath: `overrides/${slug}.png`
+              outputPath: `overrides/${slug}.${format}`
             });
           }
         }
 
         if (includeVariants) {
           for (const variant of loadedBundle.variants) {
+            if (langFilters.length > 0) {
+              const vLang = (variant.lang || '').toLowerCase();
+              const vSegments = vLang ? vLang.split('/') : [];
+              const matchesLang = langFilters.some(
+                filter => vLang === filter || vSegments.includes(filter)
+              );
+              if (!matchesLang) continue;
+            }
             const vPath = variant.path.startsWith('variants/')
               ? variant.path.substring(9)
               : variant.path;
-            const cleanVPath = vPath.replace(/\.(yml|yaml|json)$/i, '.png');
+            const cleanVPath = vPath.replace(/\.(yml|yaml|json)$/i, `.${format}`);
             queue.push({
               item: variant,
               outputPath: `variants/${cleanVPath}`
@@ -187,11 +211,12 @@ export const HeadlessExportBridge: React.FC = () => {
           }
         }
 
-        // Fallback: if variants were requested by default, but the bundle only has a master (standalone template)
-        if (queue.length === 0 && loadedBundle.master) {
+        // Fallback: if variants were requested by default without --lang filter,
+        // and the bundle only has a master (standalone template), export master.<format>
+        if (queue.length === 0 && langFilters.length === 0 && loadedBundle.master) {
           queue.push({
             item: loadedBundle.master,
-            outputPath: 'master.png'
+            outputPath: `master.${format}`
           });
         }
 
@@ -262,7 +287,10 @@ export const HeadlessExportBridge: React.FC = () => {
             await new Promise(r => requestAnimationFrame(r));
             await new Promise(r => setTimeout(r, 120));
 
-            const { dataUrl } = await captureZoneToBlob(artboardRef.current, resolved.exportZone);
+            const { dataUrl } = await captureZoneToBlob(artboardRef.current, resolved.exportZone, {
+              format,
+              quality
+            });
             const layout = measureArtboardLayout(artboardRef.current, resolved);
 
             if (options.onExportedItem) {

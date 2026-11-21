@@ -44,7 +44,7 @@ Pour générer automatiquement les bannières d'un bundle depuis un pipeline CI/
 ```bash
 # 1. Lire le tag de version inscrit dans master.yml (ex: 1.0.1)
 # 2. Cloner/checkout FrameMyApp-Banner sur ce tag exact
-./generateBatchForBundle.sh --in <bundleDirPath> --out <outputDirPath> [--all | --include-master | --include-overrides | --no-variants]
+./generateBatchForBundle.sh --in <bundleDirPath> --out <outputDirPath> [--all | --include-master | --include-overrides | --no-variants | --lang <lang> | --format png|jpg|webp --q 92]
 ```
 
 Voir la section 8 de [docs/TEMPLATE_SYSTEM.md](docs/TEMPLATE_SYSTEM.md) pour le workflow GitHub Actions complet avec résolution automatique du tag depuis `master.yml`.
