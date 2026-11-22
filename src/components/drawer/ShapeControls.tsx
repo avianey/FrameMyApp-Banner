@@ -41,6 +41,7 @@ export const ShapeControls: React.FC<ShapeControlsProps> = ({ element }) => {
   } = useEditor();
 
   const handleUpdate = (updates: Partial<ShapeElementModel>) => {
+    recordHistory();
     updateElement(element.id, updates);
   };
 

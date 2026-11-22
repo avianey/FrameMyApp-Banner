@@ -43,7 +43,8 @@ interface UseBundleManagerOptions {
   lastSavedSignatureRef: React.MutableRefObject<string>;
   externalLoadedBundleRef?: React.MutableRefObject<LoadedBundle | null>;
   externalActiveBundleItemIdRef?: React.MutableRefObject<string | null>;
-  recordHistory: () => void;
+  sealCurrentHistoryState?: () => void;
+  clearHistory?: () => void;
   applyCompositionDirectly: (
     comp: any,
     recordHist?: boolean,
@@ -67,7 +68,8 @@ export function useBundleManager({
   lastSavedSignatureRef,
   externalLoadedBundleRef,
   externalActiveBundleItemIdRef,
-  recordHistory,
+  sealCurrentHistoryState,
+  clearHistory,
   applyCompositionDirectly,
   pasteIntoActiveCanvas,
   showSnackbar
@@ -77,6 +79,7 @@ export function useBundleManager({
   const [activeBundleItemId, setActiveBundleItemIdState] = useState<string | null>(null);
   const activeBundleItemIdRef = useRef<string | null>(null);
   const [savedCanvasSignatures, setSavedCanvasSignatures] = useState<Record<string, string>>({});
+  const savedCanvasSignaturesRef = useRef<Record<string, string>>({});
   const bundleDirHandleRef = useRef<any>(null);
 
   const setActiveBundleItemId = useCallback(
@@ -92,6 +95,7 @@ export function useBundleManager({
 
   const setLoadedBundle = useCallback(
     (bundleOrUpdater: LoadedBundle | null | ((prev: LoadedBundle | null) => LoadedBundle | null)) => {
+      const previousBundle = loadedBundleRef.current;
       let resolvedBundle: LoadedBundle | null = null;
       if (typeof bundleOrUpdater === 'function') {
         setLoadedBundleState(prev => {
@@ -119,6 +123,17 @@ export function useBundleManager({
         } else if (bundleDirHandleRef.current) {
           resolvedBundle.directoryHandle = bundleDirHandleRef.current;
         }
+
+        const isDifferentBundle =
+          !previousBundle ||
+          previousBundle.name !== resolvedBundle.name ||
+          (previousBundle.directoryHandle &&
+            resolvedBundle.directoryHandle &&
+            previousBundle.directoryHandle !== resolvedBundle.directoryHandle);
+        if (isDifferentBundle && typeof bundleOrUpdater !== 'function') {
+          clearHistory?.();
+        }
+
         const targetPath = resolvedBundle.master?.path || syncFilePath || 'master.yml';
         setSyncFilePath(targetPath);
         setSyncStatus('synced');
@@ -126,16 +141,17 @@ export function useBundleManager({
         bundleDirHandleRef.current = null;
       }
     },
-    [setSyncFilePath, setSyncStatus, syncFilePath, externalLoadedBundleRef]
+    [setSyncFilePath, setSyncStatus, syncFilePath, externalLoadedBundleRef, clearHistory]
   );
 
   const detachBundle = useCallback(() => {
     bundleDirHandleRef.current = null;
     loadedBundleRef.current = null;
+    savedCanvasSignaturesRef.current = {};
     setLoadedBundleState(null);
     setActiveBundleItemId(null);
     setSavedCanvasSignatures({});
-  }, []);
+  }, [setActiveBundleItemId]);
 
   const currentCanvasSignature = useMemo(() => {
     return computeCanvasSignature(background, elements, exportZone, canvasWidth, canvasHeight, projectName);
@@ -152,13 +168,194 @@ export function useBundleManager({
   );
 
   const markItemSaved = useCallback(
-    (itemId: string) => {
+    (itemId: string, customSignature?: string) => {
+      const sig = customSignature ?? currentCanvasSignature;
+      savedCanvasSignaturesRef.current = {
+        ...savedCanvasSignaturesRef.current,
+        [itemId]: sig
+      };
       setSavedCanvasSignatures(prev => ({
         ...prev,
-        [itemId]: currentCanvasSignature
+        [itemId]: sig
       }));
     },
     [currentCanvasSignature]
+  );
+
+  const findBundleItemById = useCallback(
+    (itemId: string | null | undefined, bundleOverride?: LoadedBundle | null): BundleItem | null => {
+      if (!itemId) return null;
+      const activeBundle = bundleOverride ?? loadedBundleRef.current ?? loadedBundle;
+      if (!activeBundle) return null;
+      if (activeBundle.master?.id === itemId) return activeBundle.master;
+      const matchingOverride = Object.values(activeBundle.overrides || {}).find(o => o.id === itemId);
+      if (matchingOverride) return matchingOverride;
+      return (activeBundle.variants || []).find(v => v.id === itemId) || null;
+    },
+    [loadedBundle]
+  );
+
+  const getOrComputeSavedSignature = useCallback(
+    (item: BundleItem): string => {
+      const existing = savedCanvasSignaturesRef.current[item.id];
+      if (existing) return existing;
+
+      const activeBundle = loadedBundleRef.current || loadedBundle;
+      if (!activeBundle) return '';
+
+      const masterConfig = (activeBundle.master?.config as BannerMasterConfig) || {};
+      const activeOverrides = activeBundle.overrides || {};
+      const activeAssets = activeBundle.assets || {};
+
+      const resolved =
+        item.type === 'master'
+          ? resolveComposition(item.config as BannerMasterConfig, undefined, undefined, activeAssets, item.path)
+          : item.type === 'override'
+          ? resolveComposition(masterConfig, item.config as BannerOverrideConfig, undefined, activeAssets, item.path)
+          : resolveComposition(
+              masterConfig,
+              activeOverrides[item.slug]?.config as BannerOverrideConfig | undefined,
+              item.config as BannerVariantConfig,
+              activeAssets,
+              item.path
+            );
+
+      const computedSig = computeCanvasSignature(
+        resolved.background,
+        resolved.elements,
+        resolved.exportZone,
+        resolved.canvasWidth,
+        resolved.canvasHeight,
+        item.name || projectName
+      );
+      savedCanvasSignaturesRef.current = {
+        ...savedCanvasSignaturesRef.current,
+        [item.id]: computedSig
+      };
+      setSavedCanvasSignatures(prev => ({
+        ...prev,
+        [item.id]: computedSig
+      }));
+      return computedSig;
+    },
+    [loadedBundle, projectName]
+  );
+
+  const persistBundleItemSnapshot = useCallback(
+    async (
+      item: BundleItem,
+      snapshot: {
+        background: BackgroundConfig;
+        elements: CanvasElement[];
+        exportZone: ExportZone;
+        canvasWidth: number;
+        canvasHeight: number;
+      },
+      writeToDisk: boolean
+    ): Promise<void> => {
+      const currentBundle = loadedBundleRef.current || loadedBundle;
+      if (!currentBundle) return;
+
+      try {
+        const activeOverrides = currentBundle.overrides || {};
+        let serializedConfig: any;
+
+        if (item.type === 'master') {
+          serializedConfig = serializeCanvasToMaster(
+            item.name || 'Master',
+            snapshot.background,
+            snapshot.elements,
+            snapshot.exportZone,
+            snapshot.canvasWidth,
+            snapshot.canvasHeight
+          );
+        } else if (item.type === 'override') {
+          serializedConfig = serializeCanvasToOverride(
+            item,
+            snapshot.background,
+            snapshot.elements,
+            snapshot.exportZone,
+            currentBundle.master?.config as BannerMasterConfig | undefined,
+            snapshot.canvasWidth,
+            snapshot.canvasHeight
+          );
+        } else {
+          const matchingOverride = activeOverrides[item.slug];
+          serializedConfig = serializeCanvasToVariant(
+            item,
+            snapshot.elements,
+            currentBundle.master?.config as BannerMasterConfig | undefined,
+            matchingOverride?.config as BannerOverrideConfig | undefined,
+            snapshot.background,
+            snapshot.exportZone,
+            snapshot.canvasWidth,
+            snapshot.canvasHeight
+          );
+        }
+
+        const cleanConfig = convertUrlsToRelativeAssetPaths(serializedConfig, currentBundle.assets);
+        const yamlContent = stringifyYaml(cleanConfig);
+
+        if (writeToDisk) {
+          let dirHandle = currentBundle.directoryHandle || bundleDirHandleRef.current;
+          if (!dirHandle) {
+            dirHandle = await getDirectoryHandleFromIdb();
+            if (dirHandle) {
+              bundleDirHandleRef.current = dirHandle;
+              currentBundle.directoryHandle = dirHandle;
+            }
+          }
+          if (dirHandle) {
+            const hasPerm = await verifyDirectoryPermission(dirHandle, true, true);
+            if (hasPerm) {
+              await assetManager.saveAllToDirectory(dirHandle, true);
+              await writeTextToDirectory(dirHandle, item.path, yamlContent);
+            }
+          }
+        }
+
+        const updatedItem: BundleItem = {
+          ...item,
+          rawContent: yamlContent,
+          config: cleanConfig
+        };
+
+        const latestBundle = loadedBundleRef.current || currentBundle;
+        let newBundle: LoadedBundle;
+        if (item.type === 'master') {
+          newBundle = { ...latestBundle, master: updatedItem };
+        } else if (item.type === 'override') {
+          newBundle = {
+            ...latestBundle,
+            overrides: { ...(latestBundle.overrides || {}), [item.slug]: updatedItem }
+          };
+        } else {
+          newBundle = {
+            ...latestBundle,
+            variants: (latestBundle.variants || []).map(v => (v.id === item.id ? updatedItem : v))
+          };
+        }
+
+        loadedBundleRef.current = newBundle;
+        if (externalLoadedBundleRef) {
+          externalLoadedBundleRef.current = newBundle;
+        }
+        setLoadedBundleState(newBundle);
+
+        const sig = computeCanvasSignature(
+          snapshot.background,
+          snapshot.elements,
+          snapshot.exportZone,
+          snapshot.canvasWidth,
+          snapshot.canvasHeight,
+          item.name || projectName
+        );
+        markItemSaved(item.id, sig);
+      } catch (err) {
+        console.warn(`Échec de persistance de la vue ${item.path} lors du changement d'historique:`, err);
+      }
+    },
+    [loadedBundle, externalLoadedBundleRef, projectName, markItemSaved]
   );
 
   const applyBundleItem = useCallback(
@@ -168,7 +365,20 @@ export function useBundleManager({
         activeBundle = loadedBundle;
       }
       if (!activeBundle || typeof activeBundle !== 'object') return;
-      recordHistory();
+
+      // Flush any focused input in the side drawer to the outgoing view before switching
+      const activeEl = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
+      if (
+        activeEl &&
+        activeEl.closest('#side-drawer') &&
+        (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT')
+      ) {
+        activeEl.blur();
+      }
+
+      // Seal the latest history record of the outgoing view (so Redo returns to its latest state)
+      // without polluting the undo stack with navigation switches.
+      sealCurrentHistoryState?.();
 
       const masterConfig = (activeBundle.master?.config as BannerMasterConfig) || {};
       const activeOverrides = activeBundle.overrides || {};
@@ -223,6 +433,10 @@ export function useBundleManager({
         resolved.canvasHeight,
         item.name || projectName
       );
+      savedCanvasSignaturesRef.current = {
+        ...savedCanvasSignaturesRef.current,
+        [item.id]: initialSig
+      };
       setSavedCanvasSignatures(prev => ({
         ...prev,
         [item.id]: initialSig
@@ -241,8 +455,9 @@ export function useBundleManager({
     },
     [
       loadedBundle,
-      recordHistory,
+      sealCurrentHistoryState,
       applyCompositionDirectly,
+      setActiveBundleItemId,
       projectName,
       setSyncFilePath,
       setProjectName,
@@ -655,8 +870,12 @@ export function useBundleManager({
     activeBundleItemId,
     setActiveBundleItemId,
     savedCanvasSignatures,
+    savedCanvasSignaturesRef,
     isItemDirty,
     markItemSaved,
+    findBundleItemById,
+    getOrComputeSavedSignature,
+    persistBundleItemSnapshot,
     applyBundleItem,
     saveBundleItemToDisk,
     copyElementsToTargets,

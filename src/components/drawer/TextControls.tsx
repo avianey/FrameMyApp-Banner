@@ -41,9 +41,10 @@ interface TextControlsProps {
 }
 
 export const TextControls: React.FC<TextControlsProps> = ({ element }) => {
-  const { updateElement, deleteElement } = useEditor();
+  const { updateElement, deleteElement, recordHistory } = useEditor();
 
   const handleUpdate = (updates: Partial<TextElementModel>) => {
+    recordHistory();
     updateElement(element.id, updates);
   };
 

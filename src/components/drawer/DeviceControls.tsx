@@ -135,6 +135,7 @@ export const DeviceControls: React.FC<DeviceControlsProps> = ({ element }) => {
   } = effectiveDims;
 
   const handleUpdate = (updates: Partial<DeviceElementModel>) => {
+    recordHistory();
     updateElement(element.id, updates);
   };
 

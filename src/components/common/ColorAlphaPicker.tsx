@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { ColorUtil } from '../../utils/color';
 
 interface ColorAlphaPickerProps {
@@ -12,23 +12,34 @@ export const ColorAlphaPicker: React.FC<ColorAlphaPickerProps> = ({ label, value
   const hex8 = ColorUtil.toHex8String(parsed.r, parsed.g, parsed.b, parsed.a);
   const alphaPct = Math.round(parsed.a * 100);
 
+  const [prevHex8, setPrevHex8] = useState<string>(hex8);
   const [textValue, setTextValue] = useState<string>(hex8);
-  const [isFocused, setIsFocused] = useState<boolean>(false);
+  const isDirtyRef = useRef<boolean>(false);
+  const lastEmittedHex8Ref = useRef<string | null>(null);
 
-  // Sync text input with incoming value when not actively typing
-  useEffect(() => {
-    if (!isFocused) {
+  // Sync immediately during render whenever `value` changes externally (e.g. selection switch, undo/redo)
+  // avoiding the post-paint useEffect lag that could let a stale onBlur write back an old color.
+  if (hex8 !== prevHex8) {
+    setPrevHex8(hex8);
+    if (hex8 !== lastEmittedHex8Ref.current) {
       setTextValue(hex8);
+      isDirtyRef.current = false;
     }
-  }, [hex8, isFocused]);
+    lastEmittedHex8Ref.current = null;
+  }
 
   const handleColorPickerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     e.stopPropagation();
     const newHex = e.target.value;
     const rgba = ColorUtil.fromHexAndAlpha(newHex, parsed.a);
     const newParsed = ColorUtil.parse(rgba);
-    setTextValue(ColorUtil.toHex8String(newParsed.r, newParsed.g, newParsed.b, newParsed.a));
-    onChange(rgba);
+    const newHex8 = ColorUtil.toHex8String(newParsed.r, newParsed.g, newParsed.b, newParsed.a);
+    setTextValue(newHex8);
+    isDirtyRef.current = false;
+    if (newHex8 !== hex8) {
+      lastEmittedHex8Ref.current = newHex8;
+      onChange(rgba);
+    }
   };
 
   const handleAlphaSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -36,28 +47,42 @@ export const ColorAlphaPicker: React.FC<ColorAlphaPickerProps> = ({ label, value
     const newA = parseInt(e.target.value, 10) / 100;
     const rgba = ColorUtil.fromHexAndAlpha(parsed.hex, newA);
     const newParsed = ColorUtil.parse(rgba);
-    setTextValue(ColorUtil.toHex8String(newParsed.r, newParsed.g, newParsed.b, newParsed.a));
-    onChange(rgba);
+    const newHex8 = ColorUtil.toHex8String(newParsed.r, newParsed.g, newParsed.b, newParsed.a);
+    setTextValue(newHex8);
+    isDirtyRef.current = false;
+    if (newHex8 !== hex8) {
+      lastEmittedHex8Ref.current = newHex8;
+      onChange(rgba);
+    }
   };
 
   const handleTextInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setTextValue(val);
+    isDirtyRef.current = true;
 
     if (ColorUtil.isValidHex(val)) {
       const p = ColorUtil.parse(val);
-      const rgba = ColorUtil.toRgbaString(p.r, p.g, p.b, p.a);
-      onChange(rgba);
+      const formatted = ColorUtil.toHex8String(p.r, p.g, p.b, p.a);
+      if (formatted !== hex8) {
+        lastEmittedHex8Ref.current = formatted;
+        onChange(ColorUtil.toRgbaString(p.r, p.g, p.b, p.a));
+      }
     }
   };
 
   const handleTextBlur = () => {
-    setIsFocused(false);
-    if (ColorUtil.isValidHex(textValue)) {
+    const wasDirty = isDirtyRef.current;
+    isDirtyRef.current = false;
+
+    if (wasDirty && ColorUtil.isValidHex(textValue)) {
       const p = ColorUtil.parse(textValue);
       const formatted = ColorUtil.toHex8String(p.r, p.g, p.b, p.a);
       setTextValue(formatted);
-      onChange(ColorUtil.toRgbaString(p.r, p.g, p.b, p.a));
+      if (formatted !== hex8) {
+        lastEmittedHex8Ref.current = formatted;
+        onChange(ColorUtil.toRgbaString(p.r, p.g, p.b, p.a));
+      }
     } else {
       setTextValue(hex8);
     }
@@ -78,7 +103,6 @@ export const ColorAlphaPicker: React.FC<ColorAlphaPickerProps> = ({ label, value
             type="text"
             value={textValue}
             onChange={handleTextInputChange}
-            onFocus={() => setIsFocused(true)}
             onBlur={handleTextBlur}
             onKeyDown={handleKeyDown}
             title="Modifier la valeur hexadécimale avec alpha (#RRGGBBAA)"

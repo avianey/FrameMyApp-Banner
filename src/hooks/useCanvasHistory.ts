@@ -7,6 +7,13 @@ export interface HistorySnapshot {
   background: BackgroundConfig;
   elements: CanvasElement[];
   exportZone: ExportZone;
+  bundleItemId?: string | null;
+  bundleItemName?: string | null;
+}
+
+interface HistoryRecord {
+  before: HistorySnapshot;
+  after?: HistorySnapshot;
 }
 
 interface UseCanvasHistoryOptions {
@@ -17,7 +24,8 @@ interface UseCanvasHistoryOptions {
   exportZone: ExportZone;
   selectedElementIds: string[];
   editingImageElementId?: string | 'background' | null;
-  onApplySnapshot: (snapshot: HistorySnapshot) => void;
+  getActiveBundleContext?: () => { bundleItemId: string | null; bundleItemName: string | null };
+  onApplySnapshot: (snapshot: HistorySnapshot, direction: 'undo' | 'redo') => boolean | void;
   onDeleteSelected?: () => void;
   onMoveSelected?: (dx: number, dy: number, isRepeat: boolean) => void;
   onExitImageEditing?: () => void;
@@ -48,6 +56,7 @@ export function useCanvasHistory({
   exportZone,
   selectedElementIds,
   editingImageElementId,
+  getActiveBundleContext,
   onApplySnapshot,
   onDeleteSelected,
   onMoveSelected,
@@ -59,87 +68,179 @@ export function useCanvasHistory({
   onSave,
   showSnackbar
 }: UseCanvasHistoryOptions) {
-  const pastRef = useRef<HistorySnapshot[]>([]);
-  const futureRef = useRef<HistorySnapshot[]>([]);
+  const pastRef = useRef<HistoryRecord[]>([]);
+  const futureRef = useRef<HistoryRecord[]>([]);
   const lastRecordTimeRef = useRef<number>(0);
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [canRedo, setCanRedo] = useState<boolean>(false);
+
+  const latestStateRef = useRef({
+    canvasWidth,
+    canvasHeight,
+    background,
+    elements,
+    exportZone,
+    getActiveBundleContext,
+    onApplySnapshot,
+    showSnackbar
+  });
+  latestStateRef.current = {
+    canvasWidth,
+    canvasHeight,
+    background,
+    elements,
+    exportZone,
+    getActiveBundleContext,
+    onApplySnapshot,
+    showSnackbar
+  };
 
   const updateHistoryFlags = useCallback(() => {
     setCanUndo(pastRef.current.length > 0);
     setCanRedo(futureRef.current.length > 0);
   }, []);
 
+  const captureCurrentSnapshot = useCallback((): HistorySnapshot => {
+    const s = latestStateRef.current;
+    const bundleCtx = s.getActiveBundleContext?.();
+    return {
+      canvasWidth: s.canvasWidth,
+      canvasHeight: s.canvasHeight,
+      background: cloneSnapshotData(s.background),
+      elements: cloneSnapshotData(s.elements),
+      exportZone: cloneSnapshotData(s.exportZone),
+      bundleItemId: bundleCtx?.bundleItemId ?? null,
+      bundleItemName: bundleCtx?.bundleItemName ?? null
+    };
+  }, []);
+
+  const sealCurrentHistoryState = useCallback(() => {
+    lastRecordTimeRef.current = 0;
+    if (pastRef.current.length === 0) return;
+    const lastRecord = pastRef.current[pastRef.current.length - 1];
+    if (lastRecord.after) return;
+
+    const currentSnap = captureCurrentSnapshot();
+    if ((lastRecord.before.bundleItemId ?? null) === (currentSnap.bundleItemId ?? null)) {
+      lastRecord.after = currentSnap;
+    }
+  }, [captureCurrentSnapshot]);
+
   const recordHistory = useCallback(() => {
     const now = Date.now();
-    // Coalesce rapid snapshots during continuous slider/color-picker dragging
-    if (now - lastRecordTimeRef.current < 350 && pastRef.current.length > 0) {
+    const currentSnap = captureCurrentSnapshot();
+    const lastRecord = pastRef.current.length > 0 ? pastRef.current[pastRef.current.length - 1] : null;
+    const isSameBundleView =
+      lastRecord !== null &&
+      (lastRecord.before.bundleItemId ?? null) === (currentSnap.bundleItemId ?? null);
+
+    // Coalesce rapid snapshots during continuous slider/color-picker dragging on the same view
+    if (
+      lastRecord &&
+      !lastRecord.after &&
+      isSameBundleView &&
+      now - lastRecordTimeRef.current < 350
+    ) {
       lastRecordTimeRef.current = now;
       return;
     }
     lastRecordTimeRef.current = now;
 
-    pastRef.current.push({
-      canvasWidth,
-      canvasHeight,
-      background: cloneSnapshotData(background),
-      elements: cloneSnapshotData(elements),
-      exportZone: cloneSnapshotData(exportZone)
-    });
+    // Seal previous unsealed record on the same view before recording a new edit
+    if (lastRecord && !lastRecord.after && isSameBundleView) {
+      lastRecord.after = currentSnap;
+    }
+
+    pastRef.current.push({ before: currentSnap });
     if (pastRef.current.length > 50) {
       pastRef.current.shift();
     }
     futureRef.current = [];
     updateHistoryFlags();
-  }, [canvasWidth, canvasHeight, background, elements, exportZone, updateHistoryFlags]);
+  }, [captureCurrentSnapshot, updateHistoryFlags]);
 
   const undo = useCallback(() => {
     if (pastRef.current.length === 0) return;
     lastRecordTimeRef.current = 0;
 
-    const currentSnapshot: HistorySnapshot = {
-      canvasWidth,
-      canvasHeight,
-      background: cloneSnapshotData(background),
-      elements: cloneSnapshotData(elements),
-      exportZone: cloneSnapshotData(exportZone)
-    };
-    futureRef.current.push(currentSnapshot);
+    const s = latestStateRef.current;
+    const currentBundleItemId = s.getActiveBundleContext?.()?.bundleItemId ?? null;
 
-    const previousSnapshot = pastRef.current.pop();
-    if (previousSnapshot) {
-      onApplySnapshot(previousSnapshot);
+    let appliedRecord: HistoryRecord | null = null;
+    while (pastRef.current.length > 0) {
+      const record = pastRef.current.pop()!;
+      const targetViewId = record.before.bundleItemId ?? null;
+
+      const afterSnapshot =
+        record.after ??
+        (currentBundleItemId === targetViewId
+          ? captureCurrentSnapshot()
+          : cloneSnapshotData(record.before));
+
+      const applied = s.onApplySnapshot(record.before, 'undo');
+      if (applied === false) {
+        continue;
+      }
+
+      futureRef.current.push({
+        before: record.before,
+        after: afterSnapshot
+      });
+      appliedRecord = record;
+      break;
     }
 
     updateHistoryFlags();
-    showSnackbar('Action annulée (Undo)', 'undo');
-  }, [canvasWidth, canvasHeight, background, elements, exportZone, onApplySnapshot, updateHistoryFlags, showSnackbar]);
+
+    if (appliedRecord) {
+      const targetViewId = appliedRecord.before.bundleItemId ?? null;
+      const targetViewName = appliedRecord.before.bundleItemName;
+      if (targetViewName && targetViewId !== currentBundleItemId) {
+        s.showSnackbar(`Annulé sur « ${targetViewName} » (Undo)`, 'undo');
+      } else {
+        s.showSnackbar('Action annulée (Undo)', 'undo');
+      }
+    }
+  }, [captureCurrentSnapshot, updateHistoryFlags]);
 
   const redo = useCallback(() => {
     if (futureRef.current.length === 0) return;
     lastRecordTimeRef.current = 0;
 
-    const currentSnapshot: HistorySnapshot = {
-      canvasWidth,
-      canvasHeight,
-      background: cloneSnapshotData(background),
-      elements: cloneSnapshotData(elements),
-      exportZone: cloneSnapshotData(exportZone)
-    };
-    pastRef.current.push(currentSnapshot);
+    const s = latestStateRef.current;
+    const currentBundleItemId = s.getActiveBundleContext?.()?.bundleItemId ?? null;
 
-    const nextSnapshot = futureRef.current.pop();
-    if (nextSnapshot) {
-      onApplySnapshot(nextSnapshot);
+    let appliedTarget: HistorySnapshot | null = null;
+    while (futureRef.current.length > 0) {
+      const record = futureRef.current.pop()!;
+      const targetSnapshot = record.after ?? record.before;
+      const applied = s.onApplySnapshot(targetSnapshot, 'redo');
+      if (applied === false) {
+        continue;
+      }
+
+      pastRef.current.push(record);
+      appliedTarget = targetSnapshot;
+      break;
     }
 
     updateHistoryFlags();
-    showSnackbar('Action rétablie (Redo)', 'redo');
-  }, [canvasWidth, canvasHeight, background, elements, exportZone, onApplySnapshot, updateHistoryFlags, showSnackbar]);
+
+    if (appliedTarget) {
+      const targetViewId = appliedTarget.bundleItemId ?? null;
+      const targetViewName = appliedTarget.bundleItemName;
+      if (targetViewName && targetViewId !== currentBundleItemId) {
+        s.showSnackbar(`Rétabli sur « ${targetViewName} » (Redo)`, 'redo');
+      } else {
+        s.showSnackbar('Action rétablie (Redo)', 'redo');
+      }
+    }
+  }, [updateHistoryFlags]);
 
   const clearHistory = useCallback(() => {
     pastRef.current = [];
     futureRef.current = [];
+    lastRecordTimeRef.current = 0;
     updateHistoryFlags();
   }, [updateHistoryFlags]);
 
@@ -278,6 +379,7 @@ export function useCanvasHistory({
     canUndo,
     canRedo,
     recordHistory,
+    sealCurrentHistoryState,
     undo,
     redo,
     clearHistory

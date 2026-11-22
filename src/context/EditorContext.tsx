@@ -666,6 +666,41 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCopyToModalElements(null);
   }, []);
 
+  // Forward declaration of bundle manager helpers (needed by canvas history)
+  const markItemSavedRef = useRef<(id: string) => void>(() => {});
+  const loadedBundleRef = useRef<LoadedBundle | null>(null);
+  const activeBundleItemIdRef = useRef<string | null>(null);
+  const setLoadedBundleRef = useRef<React.Dispatch<React.SetStateAction<LoadedBundle | null>>>(() => {});
+  const setActiveBundleItemIdRef = useRef<(id: string | null) => void>(() => {});
+  const applyHistorySnapshotRef = useRef<(snapshot: HistorySnapshot, direction: 'undo' | 'redo') => boolean>(() => true);
+
+  const blurSideDrawerInputIfNeeded = useCallback(() => {
+    const activeEl = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
+    if (
+      activeEl &&
+      activeEl.closest('#side-drawer') &&
+      (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT')
+    ) {
+      activeEl.blur();
+    }
+  }, []);
+
+  const getActiveBundleContext = useCallback(() => {
+    const bundle = loadedBundleRef.current;
+    const itemId = activeBundleItemIdRef.current;
+    if (!bundle || !itemId) {
+      return { bundleItemId: null, bundleItemName: null };
+    }
+    const activeItem: BundleItem | undefined =
+      (bundle.master?.id === itemId ? bundle.master : undefined) ||
+      Object.values(bundle.overrides || {}).find(o => o.id === itemId) ||
+      (bundle.variants || []).find(v => v.id === itemId);
+    return {
+      bundleItemId: activeItem?.id ?? itemId,
+      bundleItemName: activeItem?.name ?? null
+    };
+  }, []);
+
   // Hook 3: Canvas History (Undo / Redo & Shortcuts)
   const history = useCanvasHistory({
     canvasWidth: navigation.canvasWidth,
@@ -675,14 +710,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     exportZone: navigation.exportZone,
     selectedElementIds,
     editingImageElementId,
-    onApplySnapshot: snapshot => {
-      if (snapshot.canvasWidth) navigation.setCanvasWidth(snapshot.canvasWidth);
-      if (snapshot.canvasHeight) navigation.setCanvasHeight(snapshot.canvasHeight);
-      setBackgroundState(snapshot.background);
-      setElements(snapshot.elements);
-      navigation.setExportZoneState(snapshot.exportZone);
-      setSelectedElementIds(prevIds => prevIds.filter(id => snapshot.elements.some(e => e.id === id)));
-    },
+    getActiveBundleContext,
+    onApplySnapshot: (snapshot, direction) => applyHistorySnapshotRef.current(snapshot, direction),
     onDeleteSelected: () => {
       if (selectedElementIds.length > 0) {
         recordHistoryRef.current();
@@ -712,13 +741,6 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   });
 
   recordHistoryRef.current = history.recordHistory;
-
-  // Forward declaration of bundle manager helpers
-  const markItemSavedRef = useRef<(id: string) => void>(() => {});
-  const loadedBundleRef = useRef<LoadedBundle | null>(null);
-  const activeBundleItemIdRef = useRef<string | null>(null);
-  const setLoadedBundleRef = useRef<React.Dispatch<React.SetStateAction<LoadedBundle | null>>>(() => {});
-  const setActiveBundleItemIdRef = useRef<(id: string | null) => void>(() => {});
 
   // Hook 4: Disk Sync (Handles, Auto-Save, Renaming, Startup Restore)
   const diskSync = useDiskSync({
@@ -796,7 +818,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     lastSavedSignatureRef: diskSync.lastSavedSignatureRef,
     externalLoadedBundleRef: loadedBundleRef,
     externalActiveBundleItemIdRef: activeBundleItemIdRef,
-    recordHistory: history.recordHistory,
+    sealCurrentHistoryState: history.sealCurrentHistoryState,
+    clearHistory: history.clearHistory,
     applyCompositionDirectly,
     pasteIntoActiveCanvas: (sourceEls, offsetPx = 24) => {
       insertClonedElementsOnCanvas(sourceEls, {
@@ -813,6 +836,101 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   setActiveBundleItemIdRef.current = bundleManager.setActiveBundleItemId;
   markItemSavedRef.current = bundleManager.markItemSaved;
   syncToDiskRef.current = () => diskSync.syncToDisk();
+
+  applyHistorySnapshotRef.current = (snapshot: HistorySnapshot) => {
+    blurSideDrawerInputIfNeeded();
+
+    const currentBundle = loadedBundleRef.current;
+    const currentItemId = activeBundleItemIdRef.current;
+    const targetItemId = snapshot.bundleItemId ?? null;
+
+    let targetItem: BundleItem | null = null;
+    if (targetItemId) {
+      targetItem = bundleManager.findBundleItemById(targetItemId, currentBundle);
+      if (!targetItem) {
+        return false;
+      }
+    } else if (currentBundle && currentItemId) {
+      // Do not overwrite an active bundle item with a pre-bundle standalone snapshot
+      return false;
+    }
+
+    const isSwitchingBundleView = Boolean(targetItem && currentItemId !== targetItem.id);
+    if (isSwitchingBundleView && targetItem) {
+      // Cancel any pending debounced auto-sync for the outgoing view so it can never write to the wrong target
+      diskSync.cancelAutoSync();
+
+      // If auto-sync is enabled and the outgoing view has unsaved changes (e.g. from a rapid previous Undo),
+      // persist that outgoing view's snapshot in the background before switching away.
+      if (currentItemId && diskSync.isAutoSyncEnabled) {
+        const outgoingItem = bundleManager.findBundleItemById(currentItemId, currentBundle);
+        if (outgoingItem && bundleManager.isItemDirty(outgoingItem.id)) {
+          void bundleManager.persistBundleItemSnapshot(
+            outgoingItem,
+            {
+              background,
+              elements,
+              exportZone: navigation.exportZone,
+              canvasWidth: navigation.canvasWidth,
+              canvasHeight: navigation.canvasHeight
+            },
+            true
+          );
+        }
+      }
+
+      // Re-select the target view before applying the snapshot onto it
+      bundleManager.setActiveBundleItemId(targetItem.id);
+      if (targetItem.path) {
+        diskSync.setSyncFilePath(targetItem.path);
+      }
+      if (targetItem.name) {
+        diskSync.setProjectName(targetItem.name);
+      }
+      diskSync.lastSavedSignatureRef.current = bundleManager.getOrComputeSavedSignature(targetItem);
+    }
+
+    const targetW = snapshot.canvasWidth || navigation.canvasWidth;
+    const targetH = snapshot.canvasHeight || navigation.canvasHeight;
+    if (
+      snapshot.canvasWidth &&
+      snapshot.canvasHeight &&
+      (snapshot.canvasWidth !== navigation.canvasWidth || snapshot.canvasHeight !== navigation.canvasHeight)
+    ) {
+      navigation.setCanvasDimensions(targetW, targetH, {
+        recordHistory: false,
+        syncExportZone: false,
+        fitMode: 'on-change'
+      });
+    } else {
+      if (snapshot.canvasWidth) navigation.setCanvasWidth(snapshot.canvasWidth);
+      if (snapshot.canvasHeight) navigation.setCanvasHeight(snapshot.canvasHeight);
+    }
+
+    setBackgroundState(snapshot.background);
+    setElements(snapshot.elements);
+    navigation.setExportZoneState(snapshot.exportZone);
+
+    if (isSwitchingBundleView) {
+      setSelectedElementIds([]);
+      setActivePanelState(prev => (prev === 'bg' || prev === 'export' ? prev : null));
+      if (targetItem) {
+        const nextSig = computeCanvasSignature(
+          snapshot.background,
+          snapshot.elements,
+          snapshot.exportZone,
+          targetW,
+          targetH,
+          targetItem.name || diskSync.projectName
+        );
+        diskSync.setSyncStatus(nextSig === diskSync.lastSavedSignatureRef.current ? 'synced' : 'dirty');
+      }
+    } else {
+      setSelectedElementIds(prevIds => prevIds.filter(id => snapshot.elements.some(e => e.id === id)));
+    }
+
+    return true;
+  };
 
   // Element Actions
   const setBackground = useCallback(
@@ -1047,42 +1165,50 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     showSnackbar('Éléments supprimés', 'delete');
   }, [selectedElementIds, history, showSnackbar]);
 
-  const selectElement = useCallback((id: string | null, multi = false) => {
-    if (id === null) {
-      setSelectedElementIds([]);
-      setActivePanelState(null);
-      return;
-    }
+  const selectElement = useCallback(
+    (id: string | null, multi = false) => {
+      // Commit/blur any focused input in the side drawer BEFORE switching selection
+      // so stale blur/change events never overwrite the newly selected element.
+      blurSideDrawerInputIfNeeded();
 
-    if (multi) {
-      setSelectedElementIds(prev => {
-        const next = prev.includes(id) ? prev.filter(itemId => itemId !== id) : [...prev, id];
-        if (next.length > 1) {
-          setActivePanelState('align');
-        } else if (next.length === 1) {
-          const singleEl = elements.find(e => e.id === next[0]);
-          if (singleEl) {
-            setActivePanelState(singleEl.type as ActivePanel);
+      if (id === null) {
+        setSelectedElementIds([]);
+        setActivePanelState(null);
+        return;
+      }
+
+      if (multi) {
+        setSelectedElementIds(prev => {
+          const next = prev.includes(id) ? prev.filter(itemId => itemId !== id) : [...prev, id];
+          if (next.length > 1) {
+            setActivePanelState('align');
+          } else if (next.length === 1) {
+            const singleEl = elements.find(e => e.id === next[0]);
+            if (singleEl) {
+              setActivePanelState(singleEl.type as ActivePanel);
+            }
+          } else {
+            setActivePanelState(null);
           }
-        } else {
-          setActivePanelState(null);
-        }
-        return next;
-      });
-    } else {
-      setSelectedElementIds([id]);
-      setElements(currentElements => {
-        const el = currentElements.find(item => item.id === id);
-        if (el) {
-          setActivePanelState(el.type as ActivePanel);
-        }
-        return currentElements;
-      });
-    }
-  }, [elements]);
+          return next;
+        });
+      } else {
+        setSelectedElementIds([id]);
+        setElements(currentElements => {
+          const el = currentElements.find(item => item.id === id);
+          if (el) {
+            setActivePanelState(el.type as ActivePanel);
+          }
+          return currentElements;
+        });
+      }
+    },
+    [elements, blurSideDrawerInputIfNeeded]
+  );
 
   const selectElements = useCallback(
     (ids: string[]) => {
+      blurSideDrawerInputIfNeeded();
       setSelectedElementIds(ids);
       if (ids.length > 1) {
         setActivePanelState('align');
@@ -1095,17 +1221,23 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setActivePanelState(null);
       }
     },
-    [elements]
+    [elements, blurSideDrawerInputIfNeeded]
   );
 
-  const setActivePanel = useCallback((panel: ActivePanel) => {
-    setActivePanelState(panel);
-    if (panel === 'bg' || panel === 'export') {
-      setSelectedElementIds([]);
-    }
-  }, []);
+  const setActivePanel = useCallback(
+    (panel: ActivePanel) => {
+      blurSideDrawerInputIfNeeded();
+      setActivePanelState(panel);
+      if (panel === 'bg' || panel === 'export') {
+        setSelectedElementIds([]);
+      }
+    },
+    [blurSideDrawerInputIfNeeded]
+  );
 
   const detachBundleAndResetToBlank = useCallback(() => {
+    const hadLoadedBundle = Boolean(loadedBundleRef.current);
+
     // 1. Annuler immédiatement l'auto-sync pour empêcher toute écriture sur le disque
     diskSync.cancelAutoSync();
 
@@ -1115,7 +1247,11 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     assetManager.clear();
 
     // 3. Réinitialiser l'état du canvas à un template vierge
-    history.recordHistory();
+    if (hadLoadedBundle) {
+      history.clearHistory();
+    } else {
+      history.recordHistory();
+    }
     navigation.setCanvasWidth(800);
     navigation.setCanvasHeight(600);
     setElements([]);

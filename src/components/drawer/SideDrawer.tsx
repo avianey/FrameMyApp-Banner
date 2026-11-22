@@ -9,8 +9,9 @@ import { ExportControls } from './ExportControls';
 import { AlignmentControls } from './AlignmentControls';
 
 export const SideDrawer: React.FC = () => {
-  const { state, setActivePanel, updateElement, deleteElement, recordHistory } = useEditor();
+  const { state, activeBundleItemId, setActivePanel, updateElement, deleteElement, recordHistory } = useEditor();
   const { activePanel, selectedElementId, elements } = state;
+  const viewKey = activeBundleItemId || 'standalone';
 
   const selectedElement = elements.find(e => e.id === selectedElementId);
   const isElementPanel =
@@ -85,7 +86,10 @@ export const SideDrawer: React.FC = () => {
       <div className="flex-1 overflow-y-auto p-5 space-y-5">
         {/* Barre géométrique compacte X / Y / L / H / Rotation 0° */}
         {isElementPanel && selectedElement && (
-          <div className="bg-m3-sys-surfaceContainer rounded-2xl p-3 border border-m3-sys-outlineVariant/30 space-y-2">
+          <div
+            key={`${viewKey}:geom:${selectedElement.id}`}
+            className="bg-m3-sys-surfaceContainer rounded-2xl p-3 border border-m3-sys-outlineVariant/30 space-y-2"
+          >
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-wider text-m3-sys-onSurfaceVariant flex items-center space-x-1">
                 <span className="material-symbols-rounded text-xs text-m3-sys-primary">straighten</span>
@@ -164,17 +168,17 @@ export const SideDrawer: React.FC = () => {
           </div>
         )}
 
-        {activePanel === 'bg' && <BackgroundControls />}
+        {activePanel === 'bg' && <BackgroundControls key={`${viewKey}:bg`} />}
         {activePanel === 'text' && selectedElement?.type === 'text' && (
-          <TextControls element={selectedElement as TextElementModel} />
+          <TextControls key={`${viewKey}:text:${selectedElement.id}`} element={selectedElement as TextElementModel} />
         )}
         {activePanel === 'shape' && selectedElement?.type === 'shape' && (
-          <ShapeControls element={selectedElement as ShapeElementModel} />
+          <ShapeControls key={`${viewKey}:shape:${selectedElement.id}`} element={selectedElement as ShapeElementModel} />
         )}
         {activePanel === 'device' && selectedElement?.type === 'device' && (
-          <DeviceControls element={selectedElement as DeviceElementModel} />
+          <DeviceControls key={`${viewKey}:device:${selectedElement.id}`} element={selectedElement as DeviceElementModel} />
         )}
-        {activePanel === 'export' && <ExportControls />}
+        {activePanel === 'export' && <ExportControls key={`${viewKey}:export`} />}
         {activePanel === 'align' && <AlignmentControls />}
       </div>
     </aside>
