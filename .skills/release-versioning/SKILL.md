@@ -3,9 +3,9 @@ name: release-versioning
 description: Protocole maintenu à jour pour gérer les sauts de version (SemVer), les tags Git, le CHANGELOG.md, le couplage de version avec master.yml (CI/CD headless reproductible), les migrations/breaking changes et la synchronisation des skills et de la documentation dans FrameMyApp-Banner.
 metadata:
   author: FrameMyApp
-  version: 1.1.0
+  version: 1.2.0
   category: Release
-  last-updated: '2026-11-20'
+  last-updated: '2026-11-22'
   keywords:
     - FrameMyApp
     - Versioning
@@ -127,4 +127,5 @@ Immédiatement après le tag `X.Y.Z` :
 |---|---|---|---|
 | `1.0.0` | `2026-11-03` | `version: "1.0"` (statique legacy) | Initial release complète : éditeur Figma, Devices, Smart Guides, IA Gemini, Batch Export UI & CLI headless. |
 | `1.1.0` | `2026-11-20` | `version: "1.1.0"` (dynamique depuis `package.json`) | Versionnage automatique de `master.yml` (`APP_VERSION`) et contrôle CLI headless ; forme `quadrilateral` (`quadPoints`, `quadImageFit` par homographie `matrix3d`) ; persistance `removedElements` & `elementOrder` sur overrides/variantes ; copier/coller intra- et inter-cibles (`CopyElementToModal`) ; héritage d'override / Décliner / Dupliquer variantes ; recadrage stroke en calque superposé et cadrage viewport hors `BottomBar`. Rétro-compatible avec `version: "1.0"` et `shapeType: "pill"`. |
-| `1.1.1` *(en cours)* | *Unreleased* | `version: "1.1.1"` | Prochaine itération de maintenance / évolutions. |
+| `1.2.0` | `2026-11-22` | `version: "1.2.0"` (dynamique depuis `package.json`) | Options CLI headless `--format` (`png`/`jpg`/`webp`), `--q` et `--lang` ; diffusion HTTP locale des assets (`/__bundle_assets__/`) évitant le crash Playwright sur gros bundles ; prise en charge des symlinks et compatibilité ESM `js-yaml` v5 ; isolation des contrôles du volet droit par élément/vue et Undo/Redo inter-vues en mode Bundle. 100 % rétro-compatible avec les bundles `1.0` et `1.1.0`. |
+| `1.2.1` *(en cours)* | *Unreleased* | `version: "1.2.1"` | Prochaine itération de maintenance / évolutions. |
