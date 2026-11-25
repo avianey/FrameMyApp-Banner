@@ -66,5 +66,10 @@ export const ColorUtil = {
   isValidHex(str: string): boolean {
     const s = str.trim().replace(/^#/, '');
     return /^[0-9a-fA-F]{3,8}$/.test(s) && [3, 4, 6, 8].includes(s.length);
+  },
+
+  isFullHex(str: string): boolean {
+    const s = str.trim().replace(/^#/, '');
+    return /^[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(s);
   }
 };

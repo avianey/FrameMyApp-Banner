@@ -10,6 +10,9 @@ Les tags Git suivent strictement le numéro de version de `package.json` sans pr
 
 ## [Unreleased]
 
+### Fixed
+- **Saisie clavier de code couleur hexadécimal dans `ColorAlphaPicker`** : suppression de la mutation de `ref` pendant le rendu (qui, sous `React.StrictMode`, réécrasait immédiatement le champ avec `#RRGGBBAA` dès l'émission d'une valeur) et limitation de l'application temps réel aux codes complets sur 6 ou 8 caractères (`#RRGGBB` / `#RRGGBBAA`), tout en conservant le support des raccourcis 3/4 caractères (`#RGB` / `#RGBA`) à la validation (`Entrée` / `blur`), avec désactivation du correcteur orthographique (`spellCheck={false}`).
+
 ---
 
 ## [1.2.0] - 2026-11-22

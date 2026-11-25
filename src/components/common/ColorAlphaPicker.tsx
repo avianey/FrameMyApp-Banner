@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { ColorUtil } from '../../utils/color';
 
 interface ColorAlphaPickerProps {
@@ -14,18 +14,19 @@ export const ColorAlphaPicker: React.FC<ColorAlphaPickerProps> = ({ label, value
 
   const [prevHex8, setPrevHex8] = useState<string>(hex8);
   const [textValue, setTextValue] = useState<string>(hex8);
-  const isDirtyRef = useRef<boolean>(false);
-  const lastEmittedHex8Ref = useRef<string | null>(null);
+  const [isDirty, setIsDirty] = useState<boolean>(false);
+  const [lastEmittedHex8, setLastEmittedHex8] = useState<string | null>(null);
 
   // Sync immediately during render whenever `value` changes externally (e.g. selection switch, undo/redo)
   // avoiding the post-paint useEffect lag that could let a stale onBlur write back an old color.
+  // Pure React state (no ref mutation during render) keeps this safe under React.StrictMode double-rendering.
   if (hex8 !== prevHex8) {
     setPrevHex8(hex8);
-    if (hex8 !== lastEmittedHex8Ref.current) {
+    if (hex8 !== lastEmittedHex8) {
       setTextValue(hex8);
-      isDirtyRef.current = false;
+      setIsDirty(false);
     }
-    lastEmittedHex8Ref.current = null;
+    setLastEmittedHex8(null);
   }
 
   const handleColorPickerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -35,9 +36,9 @@ export const ColorAlphaPicker: React.FC<ColorAlphaPickerProps> = ({ label, value
     const newParsed = ColorUtil.parse(rgba);
     const newHex8 = ColorUtil.toHex8String(newParsed.r, newParsed.g, newParsed.b, newParsed.a);
     setTextValue(newHex8);
-    isDirtyRef.current = false;
+    setIsDirty(false);
     if (newHex8 !== hex8) {
-      lastEmittedHex8Ref.current = newHex8;
+      setLastEmittedHex8(newHex8);
       onChange(rgba);
     }
   };
@@ -49,9 +50,9 @@ export const ColorAlphaPicker: React.FC<ColorAlphaPickerProps> = ({ label, value
     const newParsed = ColorUtil.parse(rgba);
     const newHex8 = ColorUtil.toHex8String(newParsed.r, newParsed.g, newParsed.b, newParsed.a);
     setTextValue(newHex8);
-    isDirtyRef.current = false;
+    setIsDirty(false);
     if (newHex8 !== hex8) {
-      lastEmittedHex8Ref.current = newHex8;
+      setLastEmittedHex8(newHex8);
       onChange(rgba);
     }
   };
@@ -59,28 +60,30 @@ export const ColorAlphaPicker: React.FC<ColorAlphaPickerProps> = ({ label, value
   const handleTextInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setTextValue(val);
-    isDirtyRef.current = true;
+    setIsDirty(true);
 
-    if (ColorUtil.isValidHex(val)) {
+    // Only emit live updates on complete 6- or 8-digit hex codes (#RRGGBB / #RRGGBBAA)
+    // so typing a full hex code doesn't trigger 3/4-digit shorthand expansion mid-typing.
+    if (ColorUtil.isFullHex(val)) {
       const p = ColorUtil.parse(val);
       const formatted = ColorUtil.toHex8String(p.r, p.g, p.b, p.a);
       if (formatted !== hex8) {
-        lastEmittedHex8Ref.current = formatted;
+        setLastEmittedHex8(formatted);
         onChange(ColorUtil.toRgbaString(p.r, p.g, p.b, p.a));
       }
     }
   };
 
   const handleTextBlur = () => {
-    const wasDirty = isDirtyRef.current;
-    isDirtyRef.current = false;
+    const wasDirty = isDirty;
+    setIsDirty(false);
 
     if (wasDirty && ColorUtil.isValidHex(textValue)) {
       const p = ColorUtil.parse(textValue);
       const formatted = ColorUtil.toHex8String(p.r, p.g, p.b, p.a);
       setTextValue(formatted);
       if (formatted !== hex8) {
-        lastEmittedHex8Ref.current = formatted;
+        setLastEmittedHex8(formatted);
         onChange(ColorUtil.toRgbaString(p.r, p.g, p.b, p.a));
       }
     } else {
@@ -105,6 +108,8 @@ export const ColorAlphaPicker: React.FC<ColorAlphaPickerProps> = ({ label, value
             onChange={handleTextInputChange}
             onBlur={handleTextBlur}
             onKeyDown={handleKeyDown}
+            spellCheck={false}
+            autoComplete="off"
             title="Modifier la valeur hexadécimale avec alpha (#RRGGBBAA)"
             placeholder="#FFFFFFFF"
             maxLength={9}
