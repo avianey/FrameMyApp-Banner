@@ -14,6 +14,7 @@ const fonts = [
   'DM Serif Display',
   'Inter',
   'Lobster',
+  'Manrope',
   'Montserrat',
   'Noto Sans JP',
   'Oswald',
@@ -21,6 +22,7 @@ const fonts = [
   'Playfair Display',
   'Poppins',
   'Roboto',
+  'Sora',
   'Space Grotesk'
 ].sort((a, b) => a.localeCompare(b));
 

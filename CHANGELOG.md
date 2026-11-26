@@ -10,6 +10,9 @@ Les tags Git suivent strictement le numéro de version de `package.json` sans pr
 
 ## [Unreleased]
 
+### Added
+- **Polices Google Fonts `Manrope` et `Sora`** : ajout des imports Google Fonts (`Manrope:wght@200..800` et `Sora:wght@100..800`) dans `index.html` et intégration dans le sélecteur de polices des éléments texte (`TextControls`).
+
 ### Fixed
 - **Saisie clavier de code couleur hexadécimal dans `ColorAlphaPicker`** : suppression de la mutation de `ref` pendant le rendu (qui, sous `React.StrictMode`, réécrasait immédiatement le champ avec `#RRGGBBAA` dès l'émission d'une valeur) et limitation de l'application temps réel aux codes complets sur 6 ou 8 caractères (`#RRGGBB` / `#RRGGBBAA`), tout en conservant le support des raccourcis 3/4 caractères (`#RGB` / `#RGBA`) à la validation (`Entrée` / `blur`), avec désactivation du correcteur orthographique (`spellCheck={false}`).
 
